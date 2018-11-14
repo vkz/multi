@@ -2,44 +2,87 @@
 
 (require 'cl)
 
-;; TODO declare proper calling conventions for exposed API
+;; TODO Switch to - and -- function naming convention
+
+;; TODO Use `let/hierarchy' in examples
+
+;; TODO Consider storing hierarchies the way Clojure does it. IMO benefit is that
+;; descendants are precalculated. Anything else?
+;;   {:parents     {:rect #{:shape}}
+;;    :ancestors   {:rect #{shape}}
+;;    :descendants {:shape #{rect}}}
+
 ;; TODO cache
 
-;;* Errors
+;; TODO Implement `prefer-method' for disambiguation
+
+;; TODO Allow isa? with "_" patterns
+
+;; TODO Allow predicates in patterns
+
+;; TODO Hierarchy is orthogonal to `multi' dispatch function. However in Clojure
+;; you may change it (only?) in `defmulti', but IMO it makes more sence to be able
+;; to pass it to multimethod invocations (not even definitions). Need to think if
+;; that'd be consistent and whether it has any practical value.
+
+;; TODO Could we allow arbitrary relations? E.g. `parent-of'. Would that have any
+;; practical benefit? When? How?
+
+;; TODO Should I overload (rel x relates-to? x) to be used as predicate:
+;; (if (rel y parent-of? x) do stuff) or define (rel? ...)?
+
+;; TODO How hard would it be to add body from (example foo body) forms to the
+;; docstring of 'foo?
+
+
+;;* Errors -------------------------------------------------------- *;;
+
 
 (define-error 'multi-error "multi-error")
 
+
 (defun multi-error (&rest args)
-  "Exactly like `error' except its ERROR-SYMBOL is
-`multi-error'."
-  (declare (advertised-calling-convention (string &rest args) ""))
+  "Signals errors specific to `multi' library. Can be caught with
+'multi-error ERROR-SYMBOL in `condition-case', otherwise behaves
+exactly like `error'
+
+\(fn string &rest args)"
   (signal 'multi-error (list (apply #'format-message args))))
+
 
 (example
  (list
   (get 'multi-error 'error-message)
   (condition-case e
-      (multi-error "bal bla %s" 'foo)
+      (multi-error "foo %s" 'bar)
     (multi-error (cdr e))))
  ;; =>
- ("multi-error" ("bal bla foo"))
+ ("multi-error" ("foo bar"))
  ;; example
  )
 
-;;* Globals
+
+;;* State  -------------------------------------------------------- *;;
 
 
-(defconst multi/base-hierarchy (ht))
-(defconst multi/methods (ht))
-;; =>
-;; (ht
-;;  ('multifun (ht
-;;              (val1 method1)
-;;              (val2 method2)
-;;              etc)))
+(defconst multi/base-hierarchy (ht)
+  "Global table that holds global hierachy. Has the following
+structure:
+
+  (ht (VAL (ht (:parents (p ...)) (:children (c ...)))) ...)")
+
+
+(defconst multi/methods (ht)
+  "Global table that holds all multimethods. Has the following
+structure:
+
+  (ht (dispatch-fun-sym (ht (dispatch-val method) ...)) ...)")
 
 
 (defun multi/base-hierarchy (&rest keys)
+  "Returns the value in the global hierarchy nested table, where
+KEYS is a sequence of keys. Returns nil if the key is not
+present. Without KEYS returns the entire table."
   (if keys
       (apply #'ht-get* multi/base-hierarchy keys)
     multi/base-hierarchy))
@@ -48,7 +91,11 @@
 (cl-defun multi/methods (&key ((:for fun))
                               ((:matching val))
                               ((:in hierarchy) multi/base-hierarchy))
-  "Return an alist of (VALUE . method) pairs where (isa? VAL VALUE)."
+  "Returns an alist of (VALUE . method) pairs where (isa? VAL
+VALUE) relationship holds. If HIERARCHY not supplied defaults to
+the global hierarchy.
+
+\(fn :for fun :matching val &optional :in hierarchy)"
   (default hierarchy :to multi/base-hierarchy)
   (let ((methods
          (-non-nil
@@ -60,40 +107,63 @@
     (or methods (ht-get* multi/methods fun :default))))
 
 
-;; TODO Hierarchy is orthogonal to `multi' definition. Indeed in Clojure you may
-;; change it (only?) in `defmulti', but IMO it makes more sence to be able to pass
-;; it to multimethod invocations (not even definitions). Need to think if that'd
-;; be consistent and whether it has any practical value.
+(defmacro let/hierarchy (rels &rest body)
+  "Anaphoric macro that simplifies testing with custom
+hierarchies. RELS is a list of relationship declarations of the
+form (:foo isa :bar). Creates a hirarchy with these
+relationships, executes BODY with the variable hierarchy in scope
+and bound to the created hierarchy.
+
+\(fn ((val isa VAL)...) body...)"
+  (declare (indent defun))
+  (let ((rels (mapcar
+               (fn ((val _ VAL)) `(rel ,val isa ,VAL in hierarchy))
+               rels)))
+    `(let ((hierarchy (ht)))
+       ,@rels
+       ,@body)))
+
+
+(example
+ (let/hierarchy ((:square isa :rect)
+                 (:rect isa :shape))
+   (list
+    (isa? :square :shape hierarchy)
+    hierarchy))
+ ;; example
+ )
+
 
 (comment
  (let ((hierarchy (ht)))
    (rel :rect isa :shape in hierarchy)
    (rel :square isa :rect in hierarchy)
    (rel :square isa :parallelogram in hierarchy)
-
    (multi foo [a] :in hierarchy a)
    (multimethod foo (a) :when :square (list a 'isa :square))
    (multimethod foo (a) :when :shape (list a 'isa :shape))
-
    (list
     (foo :rect)
+    ;; => (:rect isa :shape)
     (foo :shape)
-    ;; => (:shape :rect)
+    ;; => (:shape isa :shape)
     (condition-case err
         (foo :square)
-      ;; => ambiguous, so return all matching methods
       (multi-error
-       (multi/methods :for 'foo :matching :square :in hierarchy)))))
+       (multi/methods :for 'foo :matching :square :in hierarchy)))
+    ;; => ambiguous, so return all matching methods
+    ))
  ;; comment
  )
 
 
-;;* Hierarchies
+;;* Hierarchies --------------------------------------------------- *;;
 
 
 (defun multi/cycle? (item parent &optional hierarchy)
-  "Find if ITEM and would be PARENT would form a cycle were the
-relation added to HIERARCHY."
+  "Checks if ITEM and would be PARENT would form a cycle were the
+relationship added to the HIERARCHY. If HIERARCHY not supplied
+defaults to the global hierarchy"
   (default hierarchy :to multi/base-hierarchy)
   (or (equal item parent)
       (ormap
@@ -101,7 +171,8 @@ relation added to HIERARCHY."
        (ht-get* hierarchy parent :parents))))
 
 
-(example
+(comment
+ ;; TODO make it a runnable example
  (let ((hierarchy (ht)))
    (rel :square isa :rect in hierarchy)
    (rel :rect isa :shape in hierarchy)
@@ -113,13 +184,16 @@ relation added to HIERARCHY."
    (assert (not (multi/cycle? :shape :square hierarchy)) nil "Cyclic `isa?' rel between %s and %s detected." :shape :square)
    ;; error
    )
- ;; example
+ ;; comment
  )
 
 
-;; TODO Could we allow arbitrary relations? E.g. `parent-of'. Would that have any
-;; practical benefit? When? How?
 (defmacro rel (&rest args)
+  "Establishes an isa? (parent/child) relationship between PARENT
+and CHILD. If HIERARCHY not supplied defaults to, and modifies,
+the global hierarchy.
+
+\(fn child :isa parent &optional :in hierarchy)"
   (destructuring-bind
       (child parent hierarchy)
       (pcase args
@@ -148,9 +222,13 @@ relation added to HIERARCHY."
          rels)))
 
 
-;; TODO Always isa? with "_" pattern
-;; TODO Allow predicates in patterns
 (cl-defun isa? (x y &optional (hierarchy) (generation 0))
+  "Returns (generation 0) if (equal CHILD PARENT), or (generation
+N) if CHILD is directly or indirectly derived from PARENT, where
+N signifies how far down generations PARENT is from CHILD. If
+HIERARCHY not supplied defaults to the global hierarchy
+
+\(fn child parent &optional hierarchy)"
   (default hierarchy :to multi/base-hierarchy)
   (cond
    ((sequencep x)
@@ -165,11 +243,6 @@ relation added to HIERARCHY."
    ((equal x y)
     ;; then
     (cons :generation generation))
-
-   ;; TODO define (relp x foo-rel? y) so we can write
-   ;; ((relp y parent-of? x)
-   ;;  ;; then
-   ;;  (cons :generation (1+ generation)))
 
    ((member y (ht-get* hierarchy x :parents))
     ;; then
@@ -203,19 +276,20 @@ relation added to HIERARCHY."
     (isa? [:square] [])
     ;; nil
     ))
-
- ;; TODO case can be made that this should be true, but I don't like it
- (isa? [:square :rect] [:rect])
  ;; example
  )
 
 
 (defun multi/parents (x &optional hierarchy)
+  "Returns immediate parents (isa? X PARENT) of X. If HIERARCHY
+not supplied defaults to the global hierarchy"
   (default hierarchy :to multi/base-hierarchy)
   (ht-get* hierarchy x :parents))
 
 
 (defun multi/ancestors (x &optional hierarchy)
+  "Returns an immediate and indirect ancestors (isa? X ANCESTOR) of X.
+If HIERARCHY not supplied defaults to the global hierarchy"
   (default hierarchy :to multi/base-hierarchy)
   (let ((parents (ht-get* hierarchy x :parents)))
     (append parents
@@ -226,6 +300,9 @@ relation added to HIERARCHY."
 
 
 (defun multi/descendants (x &optional hierarchy)
+  "Returns an immediate and indirect descendants (isa? DESCENDANT
+X) of X. If HIERARCHY not supplied defaults to the global
+hierarchy"
   (default hierarchy :to multi/base-hierarchy)
   (let ((children (ht-get* hierarchy x :children)))
     (append children
@@ -249,6 +326,9 @@ relation added to HIERARCHY."
  )
 
 
+;;* Multi --------------------------------------------------------- *;;
+
+
 (pcase-defmacro multi (&rest patterns)
   (pcase patterns
     (`(,id :if ,predicate) `(and ,id (pred ,predicate)))
@@ -266,6 +346,15 @@ relation added to HIERARCHY."
 
 
 (defmacro multi (fun &rest args)
+  "Creates a new multimethod dispatch function. The DOCSTRING and
+HIERARCHY are optional. HIERARCHY if not supplied defaults to the
+global hierarchy.
+
+May be called according to one the following signatures:
+  (multi name [&rest args] &optional docstring :in hierarchy &rest body)
+  (multi name function &optional docstring :in hierarchy)
+
+\(fn name [&rest args] &optional docstring :in hierarchy &rest body)"
   (declare (indent 2))
   (destructuring-bind
       (dispatch doc hierarchy)
@@ -313,7 +402,6 @@ relation added to HIERARCHY."
                 ;; => ((VAL . method) ...)
                 ;; TODO Choose method with prefer method instead of cdar here
                 (method  (cdar methods)))
-           ;; TODO Implement `prefer-method' for disambiguation
            (assert (null (cdr methods)) nil "multi: expected at most one method %s to match %s" ',fun val)
            (apply method args)))
 
@@ -342,9 +430,11 @@ relation added to HIERARCHY."
 
 
 (cl-defmacro multimethod (fun arglist &rest args)
-  "Define multimethod FUN that fires :when `multidispatch' FUN
-applied to ARGLIST results in a value that `isa?' PAT. ARGLIST
-follows full Common Lisp conventions."
+  "Creates a new multimethod associated with the dispatch
+function FUN and dispatch value VAL. ARGLIST follows full Common
+Lisp conventions.
+
+\(fn fun arglist :when val &rest body)"
   (pcase args
     (`(:when ,val . ,body)
      (let ((method `(fn ,arglist ,@body)))
@@ -355,12 +445,14 @@ follows full Common Lisp conventions."
      (multi-error "Malformed arglist at %s" args))))
 
 
+;;* Playground ---------------------------------------------------- *;;
+
+
 (comment
  (multimethod foo (&rest args) :when [a b c] body)
- ;; TODO _ always isa
- ;; TODO (? predicate) isa when true
  (multimethod foo (&rest args) :when [a b _] body)
  (multimethod foo (&rest args) :when [a (?  pred-p) c] body)
+
  ;; degenerate case where computed multi val maybe a seq, pred-p should still be
  ;; applied even though this here val isn't a seq
  (multimethod foo (&rest args) :when (?  pred-p) body)
@@ -368,6 +460,7 @@ follows full Common Lisp conventions."
  )
 
 
-;;* Provide
+;;* Provide ------------------------------------------------------- *;;
+
 
 (provide 'multi)
