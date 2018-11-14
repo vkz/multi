@@ -2,6 +2,7 @@
 
 (require 'cl)
 
+;; TODO declare proper calling conventions for exposed API
 ;; TODO cache
 
 ;;* Errors
@@ -341,9 +342,12 @@ relation added to HIERARCHY."
 
 
 (cl-defmacro multimethod (fun arglist &rest args)
+  "Define multimethod FUN that fires :when `multidispatch' FUN
+applied to ARGLIST results in a value that `isa?' PAT. ARGLIST
+follows full Common Lisp conventions."
   (pcase args
     (`(:when ,val . ,body)
-     (let ((method `(lambda ,arglist ,@body)))
+     (let ((method `(fn ,arglist ,@body)))
        `(progn
           (setf (ht-get* multi/methods ',fun ,val) ,method))))
 
