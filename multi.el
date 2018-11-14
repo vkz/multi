@@ -4,8 +4,6 @@
 
 ;; TODO Switch to - and -- function naming convention
 
-;; TODO Use `let/hierarchy' in examples
-
 ;; TODO Consider storing hierarchies the way Clojure does it. IMO benefit is that
 ;; descendants are precalculated. Anything else?
 ;;   {:parents     {:rect #{:shape}}
@@ -108,18 +106,16 @@ the global hierarchy.
 
 
 (defmacro let/hierarchy (rels &rest body)
-  "Anaphoric macro that simplifies testing with custom
-hierarchies. RELS is a list of relationship declarations of the
-form (:foo isa :bar). Creates a hirarchy with these
-relationships, executes BODY with the variable hierarchy in scope
-and bound to the created hierarchy.
+  "Installs isa? relationships supplied in RELS in the global
+hierarchy only for the extent of BODY execution. Each
+relationship in RELS takes the form (:foo isa :bar).
 
 \(fn ((val isa VAL)...) body...)"
   (declare (indent defun))
   (let ((rels (mapcar
-               (fn ((val _ VAL)) `(rel ,val isa ,VAL in hierarchy))
+               (fn ((val _ VAL)) `(rel ,val isa ,VAL))
                rels)))
-    `(let ((hierarchy (ht)))
+    `(let ((multi/base-hierarchy (ht)))
        ,@rels
        ,@body)))
 
@@ -128,18 +124,17 @@ and bound to the created hierarchy.
  (let/hierarchy ((:square isa :rect)
                  (:rect isa :shape))
    (list
-    (isa? :square :shape hierarchy)
-    hierarchy))
+    (isa? :square :shape)
+    multi/base-hierarchy))
  ;; example
  )
 
 
 (comment
- (let ((hierarchy (ht)))
-   (rel :rect isa :shape in hierarchy)
-   (rel :square isa :rect in hierarchy)
-   (rel :square isa :parallelogram in hierarchy)
-   (multi foo [a] :in hierarchy a)
+ (let/hierarchy ((:rect isa :shape)
+                 (:square isa :rect)
+                 (:square isa :parallelogram))
+   (multi foo [a] a)
    (multimethod foo (a) :when :square (list a 'isa :square))
    (multimethod foo (a) :when :shape (list a 'isa :shape))
    (list
@@ -150,7 +145,7 @@ and bound to the created hierarchy.
     (condition-case err
         (foo :square)
       (multi-error
-       (multi/methods :for 'foo :matching :square :in hierarchy)))
+       (multi/methods :for 'foo :matching :square)))
     ;; => ambiguous, so return all matching methods
     ))
  ;; comment
@@ -255,23 +250,22 @@ HIERARCHY not supplied defaults to the global hierarchy
 
 
 (example
- (let ((hierarchy (ht)))
-   (rel :rect isa :shape in hierarchy)
-   (rel :square isa :rect in hierarchy)
+ (let/hierarchy ((:rect isa :shape)
+                 (:square isa :rect))
    (list
-    (isa? 42 42 hierarchy)
+    (isa? 42 42)
     ;; 0
-    (isa? :rect :shape hierarchy)
+    (isa? :rect :shape)
     ;; 1
-    (isa? :square :shape hierarchy)
+    (isa? :square :shape)
     ;; 2
-    (isa? [:square :rect] [:rect :shape] hierarchy)
+    (isa? [:square :rect] [:rect :shape])
     ;; (1 1)
-    (isa? [:square :shape] [:rect :shape] hierarchy)
+    (isa? [:square :shape] [:rect :shape])
     ;; (1 0)
-    (isa? [:square :rect] [:shape :square] hierarchy)
+    (isa? [:square :rect] [:shape :square])
     ;; nil
-    (isa? [:square] :rect hierarchy)
+    (isa? [:square] :rect)
     ;; nil
     (isa? [:square] [])
     ;; nil
@@ -313,15 +307,14 @@ hierarchy"
 
 
 (example
- (let ((hierarchy (ht)))
-   (rel :rect isa :shape in hierarchy)
-   (rel :square isa :rect in hierarchy)
-   (rel :square isa :parallelogram in hierarchy)
+ (let/hierarchy ((:rect isa :shape)
+                 (:square isa :rect)
+                 (:square isa :parallelogram))
    (list
-    (list '(parents :rect) (multi/parents :rect hierarchy))
-    (list '(parents :square) (multi/parents :square hierarchy))
-    (list '(ancestors :square) (multi/ancestors :square hierarchy))
-    (list '(descendants :shape) (multi/descendants :shape hierarchy))))
+    (list '(parents :rect) (multi/parents :rect))
+    (list '(parents :square) (multi/parents :square))
+    (list '(ancestors :square) (multi/ancestors :square))
+    (list '(descendants :shape) (multi/descendants :shape))))
  ;; example
  )
 
@@ -351,10 +344,15 @@ HIERARCHY are optional. HIERARCHY if not supplied defaults to the
 global hierarchy.
 
 May be called according to one the following signatures:
-  (multi name [&rest args] &optional docstring :in hierarchy &rest body)
+
+  (multi name argvector &optional docstring :in hierarchy body...)
   (multi name function &optional docstring :in hierarchy)
 
-\(fn name [&rest args] &optional docstring :in hierarchy &rest body)"
+where ARGVECTOR is a vector of arguments that follows full Common
+Lisp arglist convention, FUNCTION is any expression that returns
+a function.
+
+\(fn name argvector &optional docstring :in hierarchy body...)"
   (declare (indent 2))
   (destructuring-bind
       (dispatch doc hierarchy)
@@ -434,7 +432,7 @@ May be called according to one the following signatures:
 function FUN and dispatch value VAL. ARGLIST follows full Common
 Lisp conventions.
 
-\(fn fun arglist :when val &rest body)"
+\(fn fun arglist :when val body...)"
   (pcase args
     (`(:when ,val . ,body)
      (let ((method `(fn ,arglist ,@body)))
