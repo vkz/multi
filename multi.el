@@ -1,9 +1,29 @@
 ;; -*- lexical-binding: t; -*-
 
-
 (require 'cl)
 
 ;; TODO cache
+
+;;* Errors
+
+(define-error 'multi-error "multi-error")
+
+(defun multi-error (&rest args)
+  "Exactly like `error' except its ERROR-SYMBOL is
+`multi-error'."
+  (declare (advertised-calling-convention (string &rest args) ""))
+  (signal 'multi-error (list (apply #'format-message args))))
+
+(example
+ (list
+  (get 'multi-error 'error-message)
+  (condition-case e
+      (multi-error "bal bla %s" 'foo)
+    (multi-error (cdr e))))
+ ;; =>
+ ("multi-error" ("bal bla foo"))
+ ;; example
+ )
 
 ;;* Globals
 
@@ -34,6 +54,36 @@
                    (ht->alist
                     (ht-get multi/methods fun))))))
     (or methods (ht-get* multi/methods fun :default))))
+
+
+;; TODO multi/methods should return hash-table of matched val-fn pairs, to which
+;; we may apply `prefer-method'
+
+;; TODO Hierarchy is orthogonal to `multi' definition. Indeed in Clojure you may
+;; change it (only?) in `defmulti', but IMO it makes more sence to be able to pass
+;; it to multimethod invocations (not even definitions). Need to think if that'd
+;; be consistent and whether it has any practical value.
+(comment
+ (let ((hierarchy (ht)))
+   (rel :rect isa :shape in hierarchy)
+   (rel :square isa :rect in hierarchy)
+   (rel :square isa :parallelogram in hierarchy)
+
+   (multi foo [a] :in hierarchy a)
+   (multimethod foo (a) :when :square (list a 'isa :square))
+   (multimethod foo (a) :when :shape (list a 'isa :shape))
+
+   (list
+    (foo :rect)
+    (foo :shape)
+    ;; => (:shape :rect)
+    (condition-case err
+        (foo :square)
+      ;; => ambiguous, so return all matching methods
+      (multi-error
+       (multi/methods :for 'foo :matching :square :in hierarchy)))))
+ ;; comment
+ )
 
 
 ;;* Hierarchies
@@ -197,75 +247,75 @@ relation added to HIERARCHY."
  )
 
 
+(pcase-defmacro multi (&rest patterns)
+  (pcase patterns
+    (`(,id :if ,predicate) `(and ,id (pred ,predicate)))
+    (otherwise
+     (multi-error "Malformed `pcase' multi pattern"))))
+
+
+(example
+ (pcase '([a b] "doc")
+   (`(,(multi arglist :if vectorp) ,(multi doc :if stringp)) (list arglist doc))
+   (otherwise
+    (error "no match")))
+ ;; example
+ )
+
+
 (defmacro multi (fun &rest args)
-  (flet ((quoted-fun (f)
-                     (or (equal (car f) 'function)
-                         (equal (car f) 'quote))))
-    (destructuring-bind (dispatch doc hierarchy)
-        (pcase args
-          ;; (multi foo (lambda (a b &rest args) body) "doc" :in hierarchy)
-          ;; (multi foo (lambda (a b &rest args) body) :in hierarchy)
-          ;; (multi foo (lambda (a b &rest args) body) "doc")
-          ;; (multi foo (lambda (a b &rest args) body))
-          (`(,(and f (pred functionp)) ,(and doc (pred stringp)) :in ,hierarchy)
-           (list f doc hierarchy))
+  (declare (indent 2))
+  (destructuring-bind
+      (dispatch doc hierarchy)
+      (pcase args
+        ;; (multi foo [a b &rest args] "doc" :in hierarchy e1 e2)
+        ;; (multi foo [a b &rest args] :in hierarchy e1 e2)
+        ;; (multi foo [a b &rest args] "doc" e1 e2)
+        ;; (multi foo [a b &rest args] e1 e2)
+        (`(,(multi arglist :if vectorp) ,(multi doc :if stringp) :in ,hierarchy . ,body)
+         (list `(fn ,(seq-into arglist 'list) ,@body) doc hierarchy))
 
-          (`(,(and f (pred functionp)) :in ,hierarchy)
-           (list f "" hierarchy))
+        (`(,(multi arglist :if vectorp) :in ,hierarchy . ,body)
+         (list `(fn ,(seq-into arglist 'list) ,@body) "" hierarchy))
 
-          (`(,(and f (pred functionp)) ,(and doc (pred stringp)))
-           (list f doc 'multi/base-hierarchy))
+        (`(,(multi arglist :if vectorp) ,(multi doc :if stringp) . ,body)
+         (list `(fn ,(seq-into arglist 'list) ,@body) doc 'multi/base-hierarchy))
 
-          (`(,(and f (pred functionp)))
-           (list f "" 'multi/base-hierarchy))
+        (`(,(multi arglist :if vectorp) . ,body)
+         (list `(fn ,(seq-into arglist 'list) ,@body) "" 'multi/base-hierarchy))
 
-          ;; (multi foo 'foo-fun "doc" :in hierarchy)
-          ;; (multi foo 'foo-fun :in hierarchy)
-          ;; (multi foo 'foo-fun "doc")
-          ;; (multi foo 'foo-fun)
-          (`(,(and f (pred quoted-fun)) ,(and doc (pred stringp)) :in ,hierarchy)
-           (list f doc hierarchy))
+        ;; (multi foo fn-returning-expr "doc" :in hierarchy)
+        ;; (multi foo fn-returning-expr :in hierarchy)
+        ;; (multi foo fn-returning-expr "doc")
+        ;; (multi foo fn-returning-expr)
+        (`(,f ,(multi doc :if stringp) :in ,hierarchy)
+         (list f doc hierarchy))
 
-          (`(,(and f (pred quoted-fun)) :in ,hierarchy)
-           (list f "" hierarchy))
+        (`(,f :in ,hierarchy)
+         (list f "" hierarchy))
 
-          (`(,(and f (pred quoted-fun)) ,(and doc (pred stringp)))
-           (list f doc 'multi/base-hierarchy))
+        (`(,f ,(multi doc :if stringp))
+         (list f doc 'multi/base-hierarchy))
 
-          (`(,(and f (pred quoted-fun)))
-           (list f "" 'multi/base-hierarchy))
+        (`(,f)
+         (list f "" 'multi/base-hierarchy))
 
-          ;; (multi foo (a b &rest args) "doc" :in hierarchy e1 e2)
-          ;; (multi foo (a b &rest args) :in hierarchy e1 e2)
-          ;; (multi foo (a b &rest args) "doc" e1 e2)
-          ;; (multi foo (a b &rest args) e1 e2)
-          (`(,arglist ,(and doc (pred stringp)) :in ,hierarchy . ,body)
-           (list `(lambda ,arglist ,@body) doc hierarchy))
+        (otherwise
+         (multi-error "Malformed arglist at %s" args)))
 
-          (`(,arglist :in ,hierarchy . ,body)
-           (list `(lambda ,arglist ,@body) "" hierarchy))
+    `(progn
+       (defun ,fun (&rest args)
+         ,doc
+         (let* ((val     (apply ,dispatch args))
+                (methods (multi/methods :for ',fun :matching val :in ,hierarchy))
+                (method  (car methods)))
+           ;; TODO Implement `prefer-method' for disambiguation
+           (assert (null (cdr methods)) nil "multi: expected at most one method %s to match %s" ',fun val)
+           (apply method args)))
 
-          (`(,arglist ,(and doc (pred stringp)) . ,body)
-           (list `(lambda ,arglist ,@body) doc 'multi/base-hierarchy))
-
-          (`(,arglist . ,body)
-           (list `(lambda ,arglist ,@body) "" 'multi/base-hierarchy))
-
-          (otherwise
-           (error "multi: malformed arglist at %s" args)))
-      `(progn
-         (defun ,fun (&rest args)
-           ,doc
-           (let* ((val     (apply ,dispatch args))
-                  (methods (multi/methods :for ',fun :matching val :in ,hierarchy))
-                  (method  (car methods)))
-             ;; TODO Implement `prefer-method' for disambiguation
-             (assert (null (cdr methods)) nil "multi: expected at most one method %s to match %s" ',fun val)
-             (apply method args)))
-
-         ;; Initialize 'fun key to empty table to store 'fun methods. Every
-         ;; `multimethod' defined will (assoc val method) in that table.
-         (setf (ht-get multi/methods ',fun) (ht))))))
+       ;; Initialize 'fun key to empty table to store 'fun methods. Every
+       ;; `multimethod' defined will (assoc val method) in that table.
+       (setf (ht-get multi/methods ',fun) (ht)))))
 
 
 (example
@@ -279,10 +329,10 @@ relation added to HIERARCHY."
  (multi foo 'foo-fun "doc")
  (multi foo 'foo-fun)
 
- (multi foo (a b &rest args) "doc" :in hierarchy e1 e2)
- (multi foo (a b &rest args) :in hierarchy e1 e2)
- (multi foo (a b &rest args) "doc" e1 e2)
- (multi foo (a b &rest args) e1 e2)
+ (multi foo [a b &rest args] "doc" :in hierarchy e1 e2)
+ (multi foo [a b &rest args] :in hierarchy e1 e2)
+ (multi foo [a b &rest args] "doc" e1 e2)
+ (multi foo [a b &rest args] e1 e2)
  ;; example
  )
 
@@ -295,7 +345,7 @@ relation added to HIERARCHY."
           (setf (ht-get* multi/methods ',fun ,val) ,method))))
 
     (otherwise
-     (error "multimethod: malformed arglist at %s" args))))
+     (multi-error "Malformed arglist at %s" args))))
 
 
 (comment
