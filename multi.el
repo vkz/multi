@@ -47,22 +47,23 @@
 (cl-defun multi/methods (&key ((:for fun))
                               ((:matching val))
                               ((:in hierarchy) multi/base-hierarchy))
+  "Return an alist of (VALUE . method) pairs where (isa? VAL VALUE)."
   (default hierarchy :to multi/base-hierarchy)
-  (let ((methods (-non-nil
-                  (mapcar
-                   (fn ((VAL . method)) (and (isa? val VAL hierarchy) method))
-                   (ht->alist
-                    (ht-get multi/methods fun))))))
+  (let ((methods
+         (-non-nil
+          (ht-map
+           (fn (VAL method)
+               (and (isa? val VAL hierarchy)
+                    (cons VAL method)))
+           (ht-get multi/methods fun)))))
     (or methods (ht-get* multi/methods fun :default))))
 
-
-;; TODO multi/methods should return hash-table of matched val-fn pairs, to which
-;; we may apply `prefer-method'
 
 ;; TODO Hierarchy is orthogonal to `multi' definition. Indeed in Clojure you may
 ;; change it (only?) in `defmulti', but IMO it makes more sence to be able to pass
 ;; it to multimethod invocations (not even definitions). Need to think if that'd
 ;; be consistent and whether it has any practical value.
+
 (comment
  (let ((hierarchy (ht)))
    (rel :rect isa :shape in hierarchy)
@@ -308,7 +309,9 @@ relation added to HIERARCHY."
          ,doc
          (let* ((val     (apply ,dispatch args))
                 (methods (multi/methods :for ',fun :matching val :in ,hierarchy))
-                (method  (car methods)))
+                ;; => ((VAL . method) ...)
+                ;; TODO Choose method with prefer method instead of cdar here
+                (method  (cdar methods)))
            ;; TODO Implement `prefer-method' for disambiguation
            (assert (null (cdr methods)) nil "multi: expected at most one method %s to match %s" ',fun val)
            (apply method args)))
