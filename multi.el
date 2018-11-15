@@ -2,7 +2,17 @@
 
 (require 'cl)
 
-;; TODO Switch to - and -- function naming convention
+;; TODO Switch to - and -- convention
+
+;; TODO Create tests
+
+;; TODO Create Makefile (stick to ANSI make)
+
+;; TODO Measure baseline perf without cache
+
+;; TODO cache
+
+;; TODO Implement `prefer-method' for disambiguation
 
 ;; TODO Consider storing hierarchies the way Clojure does it. IMO benefit is that
 ;; descendants are precalculated. Anything else?
@@ -10,10 +20,8 @@
 ;;    :ancestors   {:rect #{shape}}
 ;;    :descendants {:shape #{rect}}}
 
-;; TODO cache
-
-;; TODO Implement `prefer-method' for disambiguation
-
+;; Extras
+;; --------
 ;; TODO Allow isa? with "_" patterns
 
 ;; TODO Allow predicates in patterns
@@ -95,14 +103,18 @@ the global hierarchy.
 
 \(fn :for fun :matching val &optional :in hierarchy)"
   (default hierarchy :to multi/base-hierarchy)
-  (let ((methods
-         (-non-nil
-          (ht-map
-           (fn (VAL method)
-               (and (isa? val VAL hierarchy)
-                    (cons VAL method)))
-           (ht-get multi/methods fun)))))
-    (or methods (ht-get* multi/methods fun :default))))
+  (let* ((methods
+          (-non-nil
+           (ht-map
+            (fn (VAL method)
+                (and (isa? val VAL hierarchy)
+                     (cons VAL method)))
+            (ht-get multi/methods fun))))
+         (default-method
+           (unless methods
+             (list
+              (cons :default (ht-get* multi/methods fun :default))))))
+    (or methods default-method)))
 
 
 (defmacro let/hierarchy (rels &rest body)
@@ -129,7 +141,6 @@ relationship in RELS takes the form (:foo isa :bar).
  ;; example
  )
 
-
 (comment
  (let/hierarchy ((:rect isa :shape)
                  (:square isa :rect)
@@ -147,6 +158,15 @@ relationship in RELS takes the form (:foo isa :bar).
       (multi-error
        (multi/methods :for 'foo :matching :square)))
     ;; => ambiguous, so return all matching methods
+    (condition-case err
+        (foo :foo)
+      (multi-error
+       (multi/methods :for 'foo :matching :foo)))
+    ;; => method missing, apply :default
+    (progn
+      (multimethod foo (a) :when :default "foo")
+      (foo :foo))
+    ;; => "foo" via user :default method
     ))
  ;; comment
  )
@@ -403,9 +423,12 @@ a function.
            (assert (null (cdr methods)) nil "multi: expected at most one method %s to match %s" ',fun val)
            (apply method args)))
 
-       ;; Initialize 'fun key to empty table to store 'fun methods. Every
-       ;; `multimethod' defined will (assoc val method) in that table.
-       (setf (ht-get multi/methods ',fun) (ht)))))
+       (setf (ht-get multi/methods ',fun)
+             (ht (:default (fn (&rest args)
+                             (multi-error
+                              "Dispatch %s found no multimethods matching dispatch value %s"
+                              ',fun
+                              (apply ,dispatch args)))))))))
 
 
 (example
