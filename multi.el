@@ -2,7 +2,9 @@
 
 (require 'cl)
 
-;; TODO Create tests
+;; TODO Replace `let-hierarchy' with just `multi-test'. Problem with the former it
+;; polutes `multi-methods' table, and it doesn't really save much typing - might
+;; as well use proper syntax (multi-rel :foo isa :bar).
 
 ;; TODO Create Makefile (stick to ANSI make)
 
@@ -12,6 +14,8 @@
 
 ;; TODO Implement `prefer-method' for disambiguation
 
+;; TODO Implement `remove-method'
+
 ;; TODO Consider storing hierarchies the way Clojure does it. IMO benefit is that
 ;; descendants are precalculated. Anything else?
 ;;   {:parents     {:rect #{:shape}}
@@ -20,6 +24,11 @@
 
 ;; Extras
 ;; --------
+
+;; TODO Think about reasonable and practical global-hierarchy, e.g. one that works
+;; for structs, isa relationship between predicates, maybe even eieio classes
+;; although I have no experienc with those.
+
 ;; TODO Allow isa? with "_" patterns
 
 ;; TODO Allow predicates in patterns
@@ -105,8 +114,8 @@ to the global hierarchy.
           (-non-nil
            (ht-map
             (fn (VAL method)
-                (and (multi-isa? val VAL hierarchy)
-                     (cons VAL method)))
+              (and (multi-isa? val VAL hierarchy)
+                   (cons VAL method)))
             (ht-get multi-methods fun))))
          (default-method
            (unless methods
@@ -125,7 +134,9 @@ relationship in RELS takes the form (:foo isa :bar).
   (let ((rels (mapcar
                (fn ((val _ VAL)) `(multi-rel ,val isa ,VAL))
                rels)))
-    `(let ((multi-global-hierarchy (ht)))
+    `(let ((multi-global-hierarchy (ht))
+           ;; HACK to avoid poluting multi-methods table
+           (multi-methods (ht)))
        ,@rels
        ,@body)))
 
@@ -138,6 +149,7 @@ relationship in RELS takes the form (:foo isa :bar).
     multi-global-hierarchy))
  ;; example
  )
+
 
 (example
  (let-hierarchy ((:rect isa :shape)
