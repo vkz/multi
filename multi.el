@@ -2,8 +2,6 @@
 
 (require 'cl)
 
-;; TODO Switch to - and -- convention
-
 ;; TODO Create tests
 
 ;; TODO Create Makefile (stick to ANSI make)
@@ -34,8 +32,8 @@
 ;; TODO Could we allow arbitrary relations? E.g. `parent-of'. Would that have any
 ;; practical benefit? When? How?
 
-;; TODO Should I overload (rel x relates-to? x) to be used as predicate:
-;; (if (rel y parent-of? x) do stuff) or define (rel? ...)?
+;; TODO Should I overload (multi-rel x relates-to? x) to be used as predicate:
+;; (if (multi-rel y parent-of? x) do stuff) or define (multi-rel? ...)?
 
 ;; TODO How hard would it be to add body from (example foo body) forms to the
 ;; docstring of 'foo?
@@ -71,53 +69,53 @@ exactly like `error'
 ;;* State  -------------------------------------------------------- *;;
 
 
-(defconst multi/base-hierarchy (ht)
+(defconst multi-global-hierarchy (ht)
   "Global table that holds global hierachy. Has the following
 structure:
 
   (ht (VAL (ht (:parents (p ...)) (:children (c ...)))) ...)")
 
 
-(defconst multi/methods (ht)
+(defconst multi-methods (ht)
   "Global table that holds all multimethods. Has the following
 structure:
 
   (ht (dispatch-fun-sym (ht (dispatch-val method) ...)) ...)")
 
 
-(defun multi/base-hierarchy (&rest keys)
+(defun multi-global-hierarchy (&rest keys)
   "Returns the value in the global hierarchy nested table, where
 KEYS is a sequence of keys. Returns nil if the key is not
 present. Without KEYS returns the entire table."
   (if keys
-      (apply #'ht-get* multi/base-hierarchy keys)
-    multi/base-hierarchy))
+      (apply #'ht-get* multi-global-hierarchy keys)
+    multi-global-hierarchy))
 
 
-(cl-defun multi/methods (&key ((:for fun))
+(cl-defun multi-methods (&key ((:for fun))
                               ((:matching val))
-                              ((:in hierarchy) multi/base-hierarchy))
-  "Returns an alist of (VALUE . method) pairs where (isa? VAL
-VALUE) relationship holds. If HIERARCHY not supplied defaults to
-the global hierarchy.
+                              ((:in hierarchy) multi-global-hierarchy))
+  "Returns an alist of (VALUE . method) pairs where (multi-isa?
+VAL VALUE) relationship holds. If HIERARCHY not supplied defaults
+to the global hierarchy.
 
 \(fn :for fun :matching val &optional :in hierarchy)"
-  (default hierarchy :to multi/base-hierarchy)
+  (default hierarchy :to multi-global-hierarchy)
   (let* ((methods
           (-non-nil
            (ht-map
             (fn (VAL method)
-                (and (isa? val VAL hierarchy)
+                (and (multi-isa? val VAL hierarchy)
                      (cons VAL method)))
-            (ht-get multi/methods fun))))
+            (ht-get multi-methods fun))))
          (default-method
            (unless methods
              (list
-              (cons :default (ht-get* multi/methods fun :default))))))
+              (cons :default (ht-get* multi-methods fun :default))))))
     (or methods default-method)))
 
 
-(defmacro let/hierarchy (rels &rest body)
+(defmacro let-hierarchy (rels &rest body)
   "Installs isa? relationships supplied in RELS in the global
 hierarchy only for the extent of BODY execution. Each
 relationship in RELS takes the form (:foo isa :bar).
@@ -125,24 +123,24 @@ relationship in RELS takes the form (:foo isa :bar).
 \(fn ((val isa VAL)...) body...)"
   (declare (indent defun))
   (let ((rels (mapcar
-               (fn ((val _ VAL)) `(rel ,val isa ,VAL))
+               (fn ((val _ VAL)) `(multi-rel ,val isa ,VAL))
                rels)))
-    `(let ((multi/base-hierarchy (ht)))
+    `(let ((multi-global-hierarchy (ht)))
        ,@rels
        ,@body)))
 
 
 (example
- (let/hierarchy ((:square isa :rect)
+ (let-hierarchy ((:square isa :rect)
                  (:rect isa :shape))
    (list
-    (isa? :square :shape)
-    multi/base-hierarchy))
+    (multi-isa? :square :shape)
+    multi-global-hierarchy))
  ;; example
  )
 
-(comment
- (let/hierarchy ((:rect isa :shape)
+(example
+ (let-hierarchy ((:rect isa :shape)
                  (:square isa :rect)
                  (:square isa :parallelogram))
    (multi foo [a] a)
@@ -156,54 +154,37 @@ relationship in RELS takes the form (:foo isa :bar).
     (condition-case err
         (foo :square)
       (multi-error
-       (multi/methods :for 'foo :matching :square)))
+       (multi-methods :for 'foo :matching :square)))
     ;; => ambiguous, so return all matching methods
     (condition-case err
         (foo :foo)
       (multi-error
-       (multi/methods :for 'foo :matching :foo)))
+       (multi-methods :for 'foo :matching :foo)))
     ;; => method missing, apply :default
     (progn
       (multimethod foo (a) :when :default "foo")
       (foo :foo))
     ;; => "foo" via user :default method
     ))
- ;; comment
+ ;; example
  )
 
 
 ;;* Hierarchies --------------------------------------------------- *;;
 
 
-(defun multi/cycle? (item parent &optional hierarchy)
+(defun multi--cycle? (item parent &optional hierarchy)
   "Checks if ITEM and would be PARENT would form a cycle were the
 relationship added to the HIERARCHY. If HIERARCHY not supplied
 defaults to the global hierarchy"
-  (default hierarchy :to multi/base-hierarchy)
+  (default hierarchy :to multi-global-hierarchy)
   (or (equal item parent)
       (ormap
-       (lambda (ancestor) (multi/cycle? item ancestor hierarchy))
+       (lambda (ancestor) (multi--cycle? item ancestor hierarchy))
        (ht-get* hierarchy parent :parents))))
 
 
-(comment
- ;; TODO make it a runnable example
- (let ((hierarchy (ht)))
-   (rel :square isa :rect in hierarchy)
-   (rel :rect isa :shape in hierarchy)
-   ;; introduce cycle
-   (rel :shape isa :square in hierarchy)
-   (multi/cycle? :rect :shape hierarchy)
-   ;; t
-   (multi/cycle? :square :shape hierarchy)
-   (assert (not (multi/cycle? :shape :square hierarchy)) nil "Cyclic `isa?' rel between %s and %s detected." :shape :square)
-   ;; error
-   )
- ;; comment
- )
-
-
-(defmacro rel (&rest args)
+(defmacro multi-rel (&rest args)
   "Establishes an isa? (parent/child) relationship between PARENT
 and CHILD. If HIERARCHY not supplied defaults to, and modifies,
 the global hierarchy.
@@ -214,12 +195,12 @@ the global hierarchy.
       (pcase args
         (`(,child ,(or 'isa :isa) ,parent) (list child parent nil))
         (`(,child ,(or 'isa :isa) ,parent ,(or 'in :in) ,hierarchy) (list child parent hierarchy)))
-    (let ((hierarchy (or hierarchy 'multi/base-hierarchy)))
+    (let ((hierarchy (or hierarchy 'multi-global-hierarchy)))
       `(progn
          (let ((child ,child)
                (parent ,parent))
            ;; assert child parent do not form cyclic relation
-           (assert (not (multi/cycle? ,child ,parent ,hierarchy)) nil "Cyclic `isa?' rel between %s and %s detected." ,child ,parent)
+           (assert (not (multi--cycle? ,child ,parent ,hierarchy)) nil "Cyclic `isa?' rel between %s and %s detected." ,child ,parent)
            (pushnew ,parent (ht-get* ,hierarchy ,child :parents))
            (pushnew ,child (ht-get* ,hierarchy ,parent :children))
            ,hierarchy)))))
@@ -231,25 +212,25 @@ the global hierarchy.
         (ormap pred (cdr lst)))))
 
 
-(cl-defun seq-isa? (seqx seqy hierarchy)
-  (let ((rels (seq-mapn (lambda (x y) (isa? x y hierarchy)) seqx seqy)))
+(cl-defun multi--seq-isa? (seqx seqy hierarchy)
+  (let ((rels (seq-mapn (lambda (x y) (multi-isa? x y hierarchy)) seqx seqy)))
     (and (cl-notany #'null rels)
          rels)))
 
 
-(cl-defun isa? (x y &optional (hierarchy) (generation 0))
+(cl-defun multi-isa? (x y &optional (hierarchy) (generation 0))
   "Returns (generation 0) if (equal CHILD PARENT), or (generation
 N) if CHILD is directly or indirectly derived from PARENT, where
 N signifies how far down generations PARENT is from CHILD. If
 HIERARCHY not supplied defaults to the global hierarchy
 
 \(fn child parent &optional hierarchy)"
-  (default hierarchy :to multi/base-hierarchy)
+  (default hierarchy :to multi-global-hierarchy)
   (cond
    ((sequencep x)
     ;; then
     (and (sequencep y) (equal (length x) (length y))
-         (seq-isa? x y hierarchy)))
+         (multi--seq-isa? x y hierarchy)))
 
    ((sequencep y)
     ;; then x wasn't a sequence but should've been
@@ -265,76 +246,77 @@ HIERARCHY not supplied defaults to the global hierarchy
 
    (:else
     (ormap
-     (lambda (parent) (isa? parent y hierarchy (1+ generation)))
+     (lambda (parent) (multi-isa? parent y hierarchy (1+ generation)))
      (ht-get* hierarchy x :parents)))))
 
 
 (example
- (let/hierarchy ((:rect isa :shape)
+ (let-hierarchy ((:rect isa :shape)
                  (:square isa :rect))
    (list
-    (isa? 42 42)
+    (multi-isa? 42 42)
     ;; 0
-    (isa? :rect :shape)
+    (multi-isa? :rect :shape)
     ;; 1
-    (isa? :square :shape)
+    (multi-isa? :square :shape)
     ;; 2
-    (isa? [:square :rect] [:rect :shape])
+    (multi-isa? [:square :rect] [:rect :shape])
     ;; (1 1)
-    (isa? [:square :shape] [:rect :shape])
+    (multi-isa? [:square :shape] [:rect :shape])
     ;; (1 0)
-    (isa? [:square :rect] [:shape :square])
+    (multi-isa? [:square :rect] [:shape :square])
     ;; nil
-    (isa? [:square] :rect)
+    (multi-isa? [:square] :rect)
     ;; nil
-    (isa? [:square] [])
+    (multi-isa? [:square] [])
     ;; nil
     ))
  ;; example
  )
 
 
-(defun multi/parents (x &optional hierarchy)
-  "Returns immediate parents (isa? X PARENT) of X. If HIERARCHY
-not supplied defaults to the global hierarchy"
-  (default hierarchy :to multi/base-hierarchy)
+(defun multi-parents (x &optional hierarchy)
+  "Returns immediate parents (multi-isa? X PARENT) of X. If
+HIERARCHY not supplied defaults to the global hierarchy"
+  (default hierarchy :to multi-global-hierarchy)
   (ht-get* hierarchy x :parents))
 
 
-(defun multi/ancestors (x &optional hierarchy)
-  "Returns an immediate and indirect ancestors (isa? X ANCESTOR) of X.
-If HIERARCHY not supplied defaults to the global hierarchy"
-  (default hierarchy :to multi/base-hierarchy)
+(defun multi-ancestors (x &optional hierarchy)
+  "Returns an immediate and indirect ancestors (multi-isa? X
+ANCESTOR) of X. If HIERARCHY not supplied defaults to the global
+hierarchy"
+  (default hierarchy :to multi-global-hierarchy)
   (let ((parents (ht-get* hierarchy x :parents)))
     (append parents
             (seq-mapcat
              (lambda (parent)
-               (multi/ancestors parent hierarchy))
+               (multi-ancestors parent hierarchy))
              parents))))
 
 
-(defun multi/descendants (x &optional hierarchy)
-  "Returns an immediate and indirect descendants (isa? DESCENDANT
-X) of X. If HIERARCHY not supplied defaults to the global
-hierarchy"
-  (default hierarchy :to multi/base-hierarchy)
+(defun multi-descendants (x &optional hierarchy)
+  "Returns an immediate and indirect descendants (multi-isa?
+DESCENDANT X) of X. If HIERARCHY not supplied defaults to the
+global hierarchy"
+  (default hierarchy :to multi-global-hierarchy)
   (let ((children (ht-get* hierarchy x :children)))
     (append children
             (seq-mapcat
              (lambda (child)
-               (multi/descendants child hierarchy))
+               (multi-descendants child hierarchy))
              children))))
 
 
 (example
- (let/hierarchy ((:rect isa :shape)
+ (let-hierarchy ((:rect isa :shape)
                  (:square isa :rect)
                  (:square isa :parallelogram))
    (list
-    (list '(parents :rect) (multi/parents :rect))
-    (list '(parents :square) (multi/parents :square))
-    (list '(ancestors :square) (multi/ancestors :square))
-    (list '(descendants :shape) (multi/descendants :shape))))
+    (list '(parents :rect) (multi-parents :rect))
+    (list '(parents :square) (multi-parents :square))
+    (list '(ancestors :square) (multi-ancestors :square))
+    (list '(descendants :shape) (multi-descendants :shape))))
  ;; example
  )
 
@@ -388,10 +370,10 @@ a function.
          (list `(fn ,(seq-into arglist 'list) ,@body) "" hierarchy))
 
         (`(,(multi arglist :if vectorp) ,(multi doc :if stringp) . ,body)
-         (list `(fn ,(seq-into arglist 'list) ,@body) doc 'multi/base-hierarchy))
+         (list `(fn ,(seq-into arglist 'list) ,@body) doc 'multi-global-hierarchy))
 
         (`(,(multi arglist :if vectorp) . ,body)
-         (list `(fn ,(seq-into arglist 'list) ,@body) "" 'multi/base-hierarchy))
+         (list `(fn ,(seq-into arglist 'list) ,@body) "" 'multi-global-hierarchy))
 
         ;; (multi foo fn-returning-expr "doc" :in hierarchy)
         ;; (multi foo fn-returning-expr :in hierarchy)
@@ -404,10 +386,10 @@ a function.
          (list f "" hierarchy))
 
         (`(,f ,(multi doc :if stringp))
-         (list f doc 'multi/base-hierarchy))
+         (list f doc 'multi-global-hierarchy))
 
         (`(,f)
-         (list f "" 'multi/base-hierarchy))
+         (list f "" 'multi-global-hierarchy))
 
         (otherwise
          (multi-error "Malformed arglist at %s" args)))
@@ -416,14 +398,14 @@ a function.
        (defun ,fun (&rest args)
          ,doc
          (let* ((val     (apply ,dispatch args))
-                (methods (multi/methods :for ',fun :matching val :in ,hierarchy))
+                (methods (multi-methods :for ',fun :matching val :in ,hierarchy))
                 ;; => ((VAL . method) ...)
                 ;; TODO Choose method with prefer method instead of cdar here
                 (method  (cdar methods)))
            (assert (null (cdr methods)) nil "multi: expected at most one method %s to match %s" ',fun val)
            (apply method args)))
 
-       (setf (ht-get multi/methods ',fun)
+       (setf (ht-get multi-methods ',fun)
              (ht (:default (fn (&rest args)
                              (multi-error
                               "Dispatch %s found no multimethods matching dispatch value %s"
@@ -431,7 +413,8 @@ a function.
                               (apply ,dispatch args)))))))))
 
 
-(example
+(comment
+ ;; Syntax examples
  (multi foo (lambda (a b &rest args) e1 e2) "doc" :in hierarchy)
  (multi foo (lambda (a b &rest args) e1 e2) :in hierarchy)
  (multi foo (lambda (a b &rest args) e1 e2) "doc")
@@ -460,7 +443,7 @@ Lisp conventions.
     (`(:when ,val . ,body)
      (let ((method `(fn ,arglist ,@body)))
        `(progn
-          (setf (ht-get* multi/methods ',fun ,val) ,method))))
+          (setf (ht-get* multi-methods ',fun ,val) ,method))))
 
     (otherwise
      (multi-error "Malformed arglist at %s" args))))
