@@ -342,7 +342,7 @@ global hierarchy"
   (pcase patterns
     (`(,id :if ,predicate) `(and ,id (pred ,predicate)))
     (otherwise
-     (multi-error "Malformed `pcase' multi pattern"))))
+     (multi-error "malformed pcase multi pattern"))))
 
 
 (example
@@ -416,7 +416,7 @@ a function.
                 ;; => ((VAL . method) ...)
                 ;; TODO Choose method with prefer method instead of cdar here
                 (method  (cdar methods)))
-           (when (null (cdr methods))
+           (unless (null (cdr methods))
              (multi-error
               "multiple methods match dispatch value %s for dispatch %s"
               val ',fun))

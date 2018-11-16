@@ -78,31 +78,30 @@ message prefix matches PREFIX"
     (should (equal '(:generation . 2) (multi-isa? :square :shape)))
     (should (equal '((:generation . 1) (:generation . 1)) (multi-isa? [:square :rect] [:rect :shape])))
     (should (equal '((:generation . 1) (:generation . 0)) (multi-isa? [:square :shape] [:rect :shape])))
-    (should (null (multi-isa? [:square :shape] [:rect :shape])))
     (should (null (multi-isa? [:square :rect] [:shape :square])))
     (should (null (multi-isa? [:square] :rect)))
     (should (null (multi-isa? [:square] [])))))
 
 
 ;; TODO replace `cl-set-exclusive-or' with set equality test
-(ert-deftest multi-test-core-api-functions
+(ert-deftest multi-test-core-api-functions ()
     "Core API functions should work"
   (multi-test (simple2)
     (multi simple2 #'identity)
-    (multimethod simple2 [x] :when :a :a)
-    (multimethod simple2 [x] :when :b :b)
+    (multimethod simple2 (x) :when :a :a)
+    (multimethod simple2 (x) :when :b :b)
     ;; dispatch is a function
     (should (functionp 'simple2))
     ;; two methods should've been installed
-    (should (null (cl-set-exclusive-or '(:a :b) (ht-keys (ht-get multi-methods 'simple2)))))
+    (should (null (cl-set-exclusive-or '(:a :b :default) (ht-keys (ht-get multi-methods 'simple2)))))
     ;; each for the correct value
     (should (equal :a (caar (multi-methods :for 'simple2 :matching :a))))
     (should (equal :b (caar (multi-methods :for 'simple2 :matching :b))))
     (should (equal :default (caar (multi-methods :for 'simple2 :matching :c))))
     ;; adding another method
-    (multimethod simple2 [x] :when :c :c)
+    (multimethod simple2 (x) :when :c :c)
     ;; should be reflected in the table
-    (should (null (cl-set-exclusive-or '(:a :b :c) (ht-keys (ht-get multi-methods 'simple2)))))
+    (should (null (cl-set-exclusive-or '(:a :b :c :default) (ht-keys (ht-get multi-methods 'simple2)))))
     ;; methods must be functions
     (should (functionp (cdar (multi-methods :for 'simple2 :matching :a))))
     (should (functionp (cdar (multi-methods :for 'simple2 :matching :b))))
@@ -122,9 +121,9 @@ message prefix matches PREFIX"
   "Basic equality based dispatch should work"
   (multi-test (too-simple)
     (multi too-simple #'identity)
-    (multimethod too-simple [x] :when :a :a)
-    (multimethod too-simple [x] :when :b :b)
-    (multimethod too-simple [x] :when :default :default)
+    (multimethod too-simple (x) :when :a :a)
+    (multimethod too-simple (x) :when :b :b)
+    (multimethod too-simple (x) :when :default :default)
     (should (equal :a (too-simple :a)))
     (should (equal :b (too-simple :b)))
     (should (equal :default (too-simple :c)))
@@ -135,25 +134,25 @@ message prefix matches PREFIX"
      ;; comment
      )
     ;; Adding another method works
-    (multimethod too-simple :d [x] :d)
+    (multimethod too-simple (x) :when :d :d)
     (should (equal :d (too-simple :d)))))
 
 
-(ert-deftest multi-test-isa-dispatch
+(ert-deftest multi-test-isa-dispatch ()
     "`multi-isa?' dispatch should work"
   (multi-test (foo)
     ;; Example from the multimethod docs.
     (multi-rel 'vector :isa :collection)
     (multi-rel 'hash-table :isa :collection)
     (multi foo #'type-of)
-    (multimethod foo :collection [c] :a-collection)
-    (multimethod foo 'string [s] :a-string)
+    (multimethod foo (c) :when :collection :a-collection)
+    (multimethod foo (s) :when 'string :a-string)
     (should (equal :a-collection (foo [])))
     (should (equal :a-collection (foo (ht))))
     (should (equal :a-string (foo "bar")))))
 
 
-(ert-deftest multi-test-ambiguous-methods
+(ert-deftest multi-test-ambiguous-methods ()
     "Dispatch ambiguity should be caught or preferred away"
   (multi-test (bar)
     ;; Example from the multimethod docs.
@@ -161,9 +160,10 @@ message prefix matches PREFIX"
     ;; TODO Whould this work?
     ;; (multi bar #'vector)
     (multi bar (fn (x y) (vector x y)))
-    (multimethod bar [:rect :shape] (x y) :rect-shape)
-    (multimethod bar [:shape :rect] (x y) :shape-rect)
-    (should-error (bar :rect :rect) :type 'multi-error)
+    (multimethod bar (x y) :when [:rect :shape] :rect-shape)
+    (multimethod bar (x y) :when [:shape :rect] :shape-rect)
+    (multi-methods :for 'bar :matching [:rect :rect])
+    (should (multi--error-match "multiple methods" (bar :rect :rect)))
     (comment
      ;; TODO `multi-prefer'
 
@@ -182,7 +182,7 @@ message prefix matches PREFIX"
      )))
 
 
-(ert-deftest multi-test-errors
+(ert-deftest multi-test-errors ()
     "Error conditions should be signaled and possible to catch"
   (multi-test (foo bar)
     (should (equal "multi-error" (get 'multi-error 'error-message)))
@@ -205,7 +205,7 @@ message prefix matches PREFIX"
     (should (multi--error-match "malformed arglist" (multimethod bar :val [a b])))))
 
 
-(ert-deftest multi-test-default-methods
+(ert-deftest multi-test-default-methods ()
     "Default methods should work"
   (multi-test (foo)
     (multi-rel :rect isa :shape)
@@ -215,7 +215,7 @@ message prefix matches PREFIX"
     (should (multi--error-match "no multimethods match" (foo :triangle)))
     ;; custom :default method should work
     (multimethod foo (a) :when :default :shape)
-    (should (equal :rect (foo :square)))))
+    (should (equal :shape (foo :square)))))
 
 
 (comment
