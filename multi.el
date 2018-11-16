@@ -212,7 +212,9 @@ the global hierarchy.
          (let ((child ,child)
                (parent ,parent))
            ;; assert child parent do not form cyclic relation
-           (assert (not (multi--cycle? ,child ,parent ,hierarchy)) nil "Cyclic `isa?' rel between %s and %s detected." ,child ,parent)
+           (when (multi--cycle? ,child ,parent ,hierarchy)
+             (multi-error "cycle relationship between %s and %s "
+                          ,child ,parent))
            (pushnew ,parent (ht-get* ,hierarchy ,child :parents))
            (pushnew ,child (ht-get* ,hierarchy ,parent :children))
            ,hierarchy)))))
@@ -404,7 +406,7 @@ a function.
          (list f "" 'multi-global-hierarchy))
 
         (otherwise
-         (multi-error "Malformed arglist at %s" args)))
+         (multi-error "malformed arglist at %s" args)))
 
     `(progn
        (defun ,fun (&rest args)
@@ -414,15 +416,18 @@ a function.
                 ;; => ((VAL . method) ...)
                 ;; TODO Choose method with prefer method instead of cdar here
                 (method  (cdar methods)))
-           (assert (null (cdr methods)) nil "multi: expected at most one method %s to match %s" ',fun val)
+           (when (null (cdr methods))
+             (multi-error
+              "multiple methods match dispatch value %s for dispatch %s"
+              val ',fun))
            (apply method args)))
 
        (setf (ht-get multi-methods ',fun)
              (ht (:default (fn (&rest args)
                              (multi-error
-                              "Dispatch %s found no multimethods matching dispatch value %s"
-                              ',fun
-                              (apply ,dispatch args)))))))))
+                              "no multimethods match dispatch value %s for dispatch %s "
+                              (apply ,dispatch args)
+                              ',fun))))))))
 
 
 (comment
@@ -445,6 +450,9 @@ a function.
  )
 
 
+;; TODO Consider generalizing syntax for installed relationship not just `isa'
+;; (multimethod foo (a b) :isa :b body)
+;; (multimethod foo (a b) :parent-of :b body)
 (cl-defmacro multimethod (fun arglist &rest args)
   "Creates a new multimethod associated with the dispatch
 function FUN and dispatch value VAL. ARGLIST follows full Common
@@ -458,7 +466,7 @@ Lisp conventions.
           (setf (ht-get* multi-methods ',fun ,val) ,method))))
 
     (otherwise
-     (multi-error "Malformed arglist at %s" args))))
+     (multi-error "malformed arglist at %s" args))))
 
 
 ;;* Playground ---------------------------------------------------- *;;
