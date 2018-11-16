@@ -371,63 +371,68 @@ a function.
 \(fn name argvector &optional docstring :in hierarchy body...)"
   (declare (indent 2))
   (destructuring-bind
-      (dispatch doc hierarchy)
+      (err dispatch doc hierarchy)
       (pcase args
         ;; (multi foo [a b &rest args] "doc" :in hierarchy e1 e2)
         ;; (multi foo [a b &rest args] :in hierarchy e1 e2)
         ;; (multi foo [a b &rest args] "doc" e1 e2)
         ;; (multi foo [a b &rest args] e1 e2)
         (`(,(multi arglist :if vectorp) ,(multi doc :if stringp) :in ,hierarchy . ,body)
-         (list `(fn ,(seq-into arglist 'list) ,@body) doc hierarchy))
+         (list nil `(fn ,(seq-into arglist 'list) ,@body) doc hierarchy))
 
         (`(,(multi arglist :if vectorp) :in ,hierarchy . ,body)
-         (list `(fn ,(seq-into arglist 'list) ,@body) "" hierarchy))
+         (list nil `(fn ,(seq-into arglist 'list) ,@body) "" hierarchy))
 
         (`(,(multi arglist :if vectorp) ,(multi doc :if stringp) . ,body)
-         (list `(fn ,(seq-into arglist 'list) ,@body) doc 'multi-global-hierarchy))
+         (list nil `(fn ,(seq-into arglist 'list) ,@body) doc 'multi-global-hierarchy))
 
         (`(,(multi arglist :if vectorp) . ,body)
-         (list `(fn ,(seq-into arglist 'list) ,@body) "" 'multi-global-hierarchy))
+         (list nil `(fn ,(seq-into arglist 'list) ,@body) "" 'multi-global-hierarchy))
 
         ;; (multi foo fn-returning-expr "doc" :in hierarchy)
         ;; (multi foo fn-returning-expr :in hierarchy)
         ;; (multi foo fn-returning-expr "doc")
         ;; (multi foo fn-returning-expr)
         (`(,f ,(multi doc :if stringp) :in ,hierarchy)
-         (list f doc hierarchy))
+         (list nil f doc hierarchy))
 
         (`(,f :in ,hierarchy)
-         (list f "" hierarchy))
+         (list nil f "" hierarchy))
 
         (`(,f ,(multi doc :if stringp))
-         (list f doc 'multi-global-hierarchy))
+         (list nil f doc 'multi-global-hierarchy))
 
         (`(,f)
-         (list f "" 'multi-global-hierarchy))
+         (list nil f "" 'multi-global-hierarchy))
 
         (otherwise
-         (multi-error "malformed arglist at %s" args)))
+         ;; TODO If we signal an an error immediately no relevant `condition-case'
+         ;; would catch it, because IIUC it only traps runtime but we throw at
+         ;; macro expansion, so instead I need to generate code that throws.
+         ;; Wonder if there is a way to trap compile time errors?
+         (list `(multi-error "malformed arglist at %s" ',args) nil nil nil)))
+    (or
+     err
+     `(progn
+        (defun ,fun (&rest args)
+          ,doc
+          (let* ((val     (apply ,dispatch args))
+                 (methods (multi-methods :for ',fun :matching val :in ,hierarchy))
+                 ;; => ((VAL . method) ...)
+                 ;; TODO Choose method with prefer method instead of cdar here
+                 (method  (cdar methods)))
+            (unless (null (cdr methods))
+              (multi-error
+               "multiple methods match dispatch value %s for dispatch %s"
+               val ',fun))
+            (apply method args)))
 
-    `(progn
-       (defun ,fun (&rest args)
-         ,doc
-         (let* ((val     (apply ,dispatch args))
-                (methods (multi-methods :for ',fun :matching val :in ,hierarchy))
-                ;; => ((VAL . method) ...)
-                ;; TODO Choose method with prefer method instead of cdar here
-                (method  (cdar methods)))
-           (unless (null (cdr methods))
-             (multi-error
-              "multiple methods match dispatch value %s for dispatch %s"
-              val ',fun))
-           (apply method args)))
-
-       (setf (ht-get multi-methods ',fun)
-             (ht (:default (fn (&rest args)
-                             (multi-error
-                              "no multimethods match dispatch value %s for dispatch %s "
-                              (apply ,dispatch args)
-                              ',fun))))))))
+        (setf (ht-get multi-methods ',fun)
+              (ht (:default (fn (&rest args)
+                              (multi-error
+                               "no multimethods match dispatch value %s for dispatch %s "
+                               (apply ,dispatch args)
+                               ',fun)))))))))
 
 
 (comment
@@ -466,7 +471,7 @@ Lisp conventions.
           (setf (ht-get* multi-methods ',fun ,val) ,method))))
 
     (otherwise
-     (multi-error "malformed arglist at %s" args))))
+     `(multi-error "malformed arglist at %s" ',args))))
 
 
 ;;* Playground ---------------------------------------------------- *;;

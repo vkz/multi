@@ -1,5 +1,5 @@
-;; -*- lexical-binding: t; -*-
-
+;; NOTE I leave lexical binding off, cause I suspect my multi-test may on occasion
+;; not work, cause it captures stuff lexically.
 
 (require 'ert)
 (require 'cl-lib)
@@ -54,8 +54,8 @@ message prefix matches PREFIX"
   `(string-prefix-p
     ,prefix
     (condition-case err
-        ,@body
-      (multi-error (cadr err)))
+        (progn ,@body)
+        (multi-error (cadr err)))
     'ignore-case))
 
 
