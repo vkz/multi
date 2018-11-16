@@ -30,9 +30,7 @@ after BODY."
     `(cl-letf ((multi-global-hierarchy (ht))
                (multi-methods          (ht))
                ,@multis)
-       ,@body
-       ;; restore globals
-       )))
+       ,@body)))
 
 
 (example
@@ -40,8 +38,6 @@ after BODY."
   (multi--symbol-function 'bar)
   (multi-test (bar)
     (multi bar [a] a)
-    (multimethod bar (a) :when :rect 'rect)
-    (multimethod bar (a) :when :shape 'shape)
     (multi--symbol-function 'bar))
   (multi--symbol-function 'bar))
  ;; example
@@ -49,7 +45,7 @@ after BODY."
 
 
 (cl-defmacro multi--error-match (prefix &rest body)
-  "Try catching multi-error thrown by BODY and test if its
+  "Try catching `multi-error' thrown by BODY and test if its
 message prefix matches PREFIX"
   `(string-prefix-p
     ,prefix
