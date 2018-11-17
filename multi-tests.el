@@ -288,21 +288,160 @@ message prefix matches PREFIX"
     (should (multi--error-match "malformed arglist" (multimethod bar :val [a b])))))
 
 
+;;* Playground ---------------------------------------------------- *;;
+
+
+;; TODO Alternative syntax for most of the above test. Idea is for `expect' have
+;; three arguments or fewer with test-predicate being in infix position:
+;;
+;; 0  (expect  expected-value predicate expr &optional :after stateful-expr)
+;; 1  (expect  (predicate expr))
+;; 2  (expect  predicate expr)
+;; 3  (expectr expr predicate expected-value &optional :after stateful-expr)
+;;
+;; rewrite into
+;;
+;; 0  (should (progn stateful-expr (predicate expected-value test-body)))
+;; 1  (should (predicate expr))
+;; 2  (should (predicate expr))
+;; 3  (should (progn stateful-expr (predicate expected-value test-body)))
+;;
+;; Does it make test structure more obvious?
+;; Less noisy?
+;; Easier for the eye to pick out the essence of the test?
+;; Despite the significant right drift and the need for wide screen?
 
 (comment
- (should ..)
- (should-not ..)
- (should-error .. :type 'multi-error)
 
- (ert-deftest multi-prefer-method ()
-   "`multi-prefer-method' should resolve ambiguitise"
-   :expected-result :failed
-   ...)
 
- ;; skip test on condition
- (ert-deftest test-dbus ()
-   ""
-   (skip-unless (featurep 'dbusbind))
-   ...)
+ (ert-deftest multi-test-rel ()
+   "Creating `multi-isa?' hierachy should work"
+   (multi-test ((set= multi--set-equal?))
+     (expect '(:rect :shape)         set= (ht-keys (multi-rel :rect isa :shape)))
+     (expect '(:rect :shape :square) set= (ht-keys (multi-rel :square isa :rect)))
+
+     (expect :shape  member (ht-get* (multi-global-hierarchy) :rect :parents))
+     (expect :rect   member (ht-get* (multi-global-hierarchy) :square :parents))
+     (expect :square member (ht-get* (multi-global-hierarchy) :rect :children))))
+
+
+ (ert-deftest multi-test-relationships ()
+   "Retrieving parents, ancestors, descendants should work"
+   (multi-test ((set= multi--set-equal?))
+     (expect '(:shape)                      set= (multi-parents :rect) :after (multi-rel :rect isa :shape))
+     (expect '(:rect)                       set= (multi-parents :square) :after (multi-rel :square isa :rect))
+     (expect '(:parallelogram :rect :shape) set= (multi-ancestors :square) :after (multi-rel :square isa :parallelogram))
+     (expect '(:rect :square)               set= (multi-descendants :shape))))
+
+
+ (ert-deftest multi-test-isa-hierarchy ()
+   (multi-test ()
+     (multi-rel :rect isa :shape)
+     (multi-rel :square isa :rect)
+     (expect '(:generation . 0)                     equal (multi-isa? 42 42))
+     (expect '(:generation . 1)                     equal (multi-isa? :rect :shape))
+     (expect '(:generation . 2)                     equal (multi-isa? :square :shape))
+     (expect '((:generation . 1) (:generation . 1)) equal (multi-isa? [:square :rect] [:rect :shape]))
+     (expect '((:generation . 1) (:generation . 0)) equal (multi-isa? [:square :shape] [:rect :shape]))
+     (expect (null (multi-isa? [:square :rect] [:shape :square])))
+     (expect (null (multi-isa? [:square] :rect)))
+     (expect (null (multi-isa? [:square] [])))))
+
+
+ (ert-deftest multi-test-multi ()
+   "Defining new multi dispatcher should work"
+   (multi-test ((set= multi--set-equal?) foo)
+     (expectr multi-methods ht-contains? 'foo  :after (multi foo #'identity))
+     (expect '(:default)    set=         (ht-keys (ht-get multi-methods 'foo)))
+     (expect (functionp 'foo))
+     (expect (functionp (ht-get* multi-methods 'foo :default)))))
+
+
+ (ert-deftest multi-test-multimethod ()
+   "Installing and removing `multimethod's should work"
+   (multi-test ((set= multi--set-equal?) foo)
+     (multi foo #'identity)
+     (expect '(:a :default)    set= (ht-keys (ht-get multi-methods 'foo)) :after (multimethod foo (x) :when :a :a))
+     (expect '(:a :b :default) set= (ht-keys (ht-get multi-methods 'foo)) :after (multimethod foo (x) :when :b :b))
+
+     ;; one method for every match
+     (expect '(:a) set= (mapcar #'car (multi-methods :for 'foo :matching :a)))
+     (expect '(:b) set= (mapcar #'car (multi-methods :for 'foo :matching :b)))
+
+     ;; :default method when no method installed
+     (expect '(:default) set= (mapcar #'car (multi-methods :for 'foo :matching :c)))
+     ;; but no longer :default when installed
+     (expect '(:c)       set= (mapcar #'car (multi-methods :for 'foo :matching :c)) :after (multimethod foo (x) :when :c :c))
+
+     ;; methods must be functions
+     (expect #'functionp cl-every (ht-values (ht-get multi-methods 'foo)))
+
+     ;; TODO `multi-remove-method'
+     ;; (multi-remove-method 'foo :a)
+     ;; (should (multi--set-equal? '(:default) (mapcar #'car (multi-methods :for 'foo :matching :a))))
+     ))
+
+
+ (ert-deftest multi-test-equality-dispatch ()
+   "Basic equality based dispatch should work"
+   (multi-test (foo)
+     (multi foo #'identity)
+     (expect :a       equal (foo :a) :after (multimethod foo (x) :when :a :a))
+     (expect :b       equal (foo :b) :after (multimethod foo (x) :when :b :b))
+
+     ;; :default when method missing
+     (expect :default equal (foo :c) :after (multimethod foo (x) :when :default :default))
+
+     ;; no :default when installed
+     (expect :c       equal (too :c) :after (multimethod foo (x) :when :c :c))
+
+     ;; TODO back to :default when removed
+     ;; (expect :default equal (foo :c) :after (multi-remove-method 'foo :c))
+     ))
+
+
+ (ert-deftest multi-test-isa-dispatch ()
+   "Full isa dispatch should work"
+   (multi-test (foo)
+     ;; Example from the multimethod docs.
+     (multi-rel 'vector :isa :collection)
+     (multi-rel 'hash-table :isa :collection)
+     (multi foo #'type-of)
+     (multimethod foo (c) :when :collection :a-collection)
+     (multimethod foo (s) :when 'string :a-string)
+
+     (expect :a-collection equal (foo []))
+     (expect :a-collection equal (foo (ht)))
+     (expect :a-string     equal (foo "bar"))))
+
+
+ (ert-deftest multi-test-errors ()
+   "Error conditions should be signaled and possible to catch"
+   (multi-test (foo bar)
+
+     (expect "multi-error" equal (get 'multi-error 'error-message))
+     (expect-error 'multi-error :after (multi-error "foo %s" 'bar))
+
+     (multi-rel :rect isa :shape)
+     (multi-rel :square isa :rect)
+     (multi-rel :square isa :parallelogram)
+     (multi foo #'identity)
+     (multimethod foo (a) :when :square :square)
+     (multimethod foo (a) :when :shape :shape)
+
+     ;; signal ambiguous methods
+     (expect "multiple methods" multi--error-match (foo :square))
+
+     ;; preinstalled :default method should signal method missing
+     (expect "no multimethods match" multi--error-match (foo :triangle))
+
+     ;; catch cycle relationships
+     (expect "cycle relationship" multi--error-match (multi-rel :shape isa :square))
+
+     ;; catch malformed arglist in `multi' call
+     (expect "malformed arglist" multi--error-match (multi bar :val [a b]))
+
+     ;; catch malformed arglist in `multimethod' call
+     (expect "malformed arglist" multi--error-match (multimethod bar :val [a b]))))
  ;; comment
  )
