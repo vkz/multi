@@ -6,8 +6,6 @@
 
 ;; TODO Create Makefile (stick to ANSI make): ert batch test, measure perf
 
-;; TODO Measure baseline perf without cache
-
 ;; TODO cache
 
 ;; TODO Implement `prefer-method' for disambiguation

@@ -6,9 +6,6 @@
 (require 'cl-lib)
 (require 'multi)
 
-
-;; TODO Perf
-
 ;; TODO Cache
 
 ;; TODO Would implementing expect macro as per examples below be worth it?
@@ -213,9 +210,7 @@ message prefix matches PREFIX"
 
     ;; Example from the multimethod docs.
     (multi-rel :rect isa :shape)
-    ;; TODO Whould this work?
-    ;; (multi bar #'vector)
-    (multi bar (fn (x y) (vector x y)))
+    (multi bar #'vector)
     (multimethod bar (x y) :when [:rect :shape] :rect-shape)
     (multimethod bar (x y) :when [:shape :rect] :shape-rect)
 
@@ -286,6 +281,95 @@ message prefix matches PREFIX"
 
     ;; catch malformed arglist in `multimethod' call
     (should (multi--error-match "malformed arglist" (multimethod bar :val [a b])))))
+
+
+;;* Perf ---------------------------------------------------------- *;;
+
+
+(defmacro multi-test-time (&rest body)
+  (declare (indent defun))
+  `(let ((start (float-time)))
+     ,@body
+     (- (float-time) start)))
+
+;; NOTE Rather ugly way to measure performance, but does the trick. We stack up
+;; multimethods against built-in generic dispatch. Our generic dispatches on the
+;; type of its first argument, so to compare apples to apples we use #'type-of as
+;; our multi-dispatch. For multimethods we run 10'000 repeats, each repeat
+;; performs 7 dispatches for a total of 70'000 dispatches. We do the same for
+;; generic dispatch.
+;;
+;; Without caching multimethods are ~100x slower:
+;;
+;; (multi-test-perf)
+;; =>
+;; ((:multimethod (:total . 2.364870071411133)
+;;                (:average . 3.3783858163016185e-05))
+;;  (:defmethod   (:total . 0.021378040313720703)
+;;                (:average . 3.0540057591029576e-07)))
+
+
+(defun multi-test-perf ()
+  (multi foo-test #'type-of)
+  (multimethod foo-test (x) :when 'foo-struct-1 1)
+  (multimethod foo-test (x) :when 'foo-struct-2 2)
+  (multimethod foo-test (x) :when 'foo-struct-3 3)
+  (multimethod foo-test (x) :when 'foo-struct-4 4)
+  (multimethod foo-test (x) :when 'foo-struct-5 5)
+  (multimethod foo-test (x) :when 'foo-struct-6 6)
+  (multimethod foo-test (x) :when :default 0)
+
+  (cl-defstruct foo-struct-0)
+  (cl-defstruct foo-struct-1)
+  (cl-defstruct foo-struct-2)
+  (cl-defstruct foo-struct-3)
+  (cl-defstruct foo-struct-4)
+  (cl-defstruct foo-struct-5)
+  (cl-defstruct foo-struct-6)
+
+  (defgeneric foo-struct-test (s) 0)
+  (defmethod foo-struct-test ((s foo-struct-1)) 1)
+  (defmethod foo-struct-test ((s foo-struct-2)) 2)
+  (defmethod foo-struct-test ((s foo-struct-3)) 3)
+  (defmethod foo-struct-test ((s foo-struct-4)) 4)
+  (defmethod foo-struct-test ((s foo-struct-5)) 5)
+  (defmethod foo-struct-test ((s foo-struct-6)) 6)
+
+  (let ((s0 (make-foo-struct-0))
+        (s1 (make-foo-struct-1))
+        (s2 (make-foo-struct-2))
+        (s3 (make-foo-struct-3))
+        (s4 (make-foo-struct-4))
+        (s5 (make-foo-struct-5))
+        (s6 (make-foo-struct-6)))
+    (ht->alist
+     (ht
+      (:defmethod
+       (let* ((total (multi-test-time
+                       (cl-loop repeat 10000
+                                do (foo-struct-test s0)
+                                do (foo-struct-test s1)
+                                do (foo-struct-test s2)
+                                do (foo-struct-test s3)
+                                do (foo-struct-test s4)
+                                do (foo-struct-test s5)
+                                do (foo-struct-test s6))))
+              (average (/ total 7 10000)))
+         (list (cons :total total)
+               (cons :average average))))
+
+      (:multimethod
+       (let* ((total (multi-test-time
+                       (cl-loop repeat 10000
+                                do (foo-test s0)
+                                do (foo-test s1)
+                                do (foo-test s2)
+                                do (foo-test s3)
+                                do (foo-test s4)
+                                do (foo-test s5)
+                                do (foo-test s6))))
+              (average (/ total 7 10000)))
+         (list (cons :total total) (cons :average average))))))))
 
 
 ;;* Playground ---------------------------------------------------- *;;
