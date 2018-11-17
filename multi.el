@@ -2,11 +2,9 @@
 
 (require 'cl)
 
-;; TODO Replace `let-hierarchy' with just `multi-test'. Problem with the former it
-;; polutes `multi-methods' table, and it doesn't really save much typing - might
-;; as well use proper syntax (multi-rel :foo isa :bar).
+;; TODO Make `multi-test' available here to be used in comments and examples
 
-;; TODO Create Makefile (stick to ANSI make)
+;; TODO Create Makefile (stick to ANSI make): ert batch test, measure perf
 
 ;; TODO Measure baseline perf without cache
 
@@ -15,6 +13,8 @@
 ;; TODO Implement `prefer-method' for disambiguation
 
 ;; TODO Implement `remove-method'
+
+;; TODO Consider storing multi-methods table on dispatch symbol (get 'foo :multi)
 
 ;; TODO Consider storing hierarchies the way Clojure does it. IMO benefit is that
 ;; descendants are precalculated. Anything else?

@@ -1,9 +1,21 @@
 ;; NOTE I leave lexical binding off, cause I suspect my multi-test may on occasion
 ;; not work, cause it captures stuff lexically.
 
+
 (require 'ert)
 (require 'cl-lib)
 (require 'multi)
+
+
+;; TODO Perf
+
+;; TODO Cache
+
+;; TODO Would implementing expect macro as per examples below be worth it?
+
+;; TODO ht-* functionality below exposes implementation, introduce relevant API
+;; and replace all that hash-table junk. I should be able to swap underlying data
+;; structures at will without breaking tests.
 
 
 ;;* Prelude ------------------------------------------------------- *;;
@@ -61,14 +73,58 @@ message prefix matches PREFIX"
  )
 
 
+(defun multi--set-equal? (s1 s2)
+  "Plenty good set-equality for testing"
+  (unless (and (listp s1) (listp s2))
+    (multi-error
+     "in multi--set-equal? expected list arguments, but got %s and %s"
+     s1 s2))
+  (and (null (cl-set-difference s1 s2))
+       (null (cl-set-difference s2 s1))))
+
+
+(example
+ (multi--set-equal? (list 1 2 3) (list 3 2 1))
+ (multi--set-equal? (list 1 2 3) (list 3 2))
+ (multi--set-equal? '() (list 1 2 3))
+ ;; example
+ )
+
+
 ;;* Tests --------------------------------------------------------- *;;
 
 
-(ert-deftest multi-test-hierarchy ()
+(ert-deftest multi-test-rel ()
   "Creating `multi-isa?' hierachy should work"
   (multi-test ()
+    (should (multi--set-equal? '(:rect :shape) (ht-keys (multi-rel :rect isa :shape))))
+    (should (multi--set-equal? '(:rect :shape :square) (ht-keys (multi-rel :square isa :rect))))
+    (should (member :shape (ht-get* (multi-global-hierarchy) :rect :parents)))
+    (should (member :rect (ht-get* (multi-global-hierarchy) :square :parents)))
+    (should (member :square (ht-get* (multi-global-hierarchy) :rect :children)))))
+
+
+(ert-deftest multi-test-ancestors-descendants ()
+  "Retrieving parents, ancestors, descendants should work"
+  (multi-test ()
+
     (multi-rel :rect isa :shape)
     (multi-rel :square isa :rect)
+    (multi-rel :square isa :parallelogram)
+
+    (should (multi--set-equal? '(:shape) (multi-parents :rect)))
+    (should (multi--set-equal? '(:parallelogram :rect) (multi-parents :square)))
+    (should (multi--set-equal? '(:parallelogram :rect :shape) (multi-ancestors :square)))
+    (should (multi--set-equal? '(:rect :square) (multi-descendants :shape)))))
+
+
+(ert-deftest multi-test-isa-hierarchy ()
+  "Checking isa relationship should work"
+  (multi-test ()
+
+    (multi-rel :rect isa :shape)
+    (multi-rel :square isa :rect)
+
     (should (equal '(:generation . 0) (multi-isa? 42 42)))
     (should (equal '(:generation . 1) (multi-isa? :rect :shape)))
     (should (equal '(:generation . 2) (multi-isa? :square :shape)))
@@ -79,78 +135,82 @@ message prefix matches PREFIX"
     (should (null (multi-isa? [:square] [])))))
 
 
-;; TODO replace `cl-set-exclusive-or' with set equality test
-(ert-deftest multi-test-core-api-functions ()
-    "Core API functions should work"
-  (multi-test (simple2)
-    (multi simple2 #'identity)
-    (multimethod simple2 (x) :when :a :a)
-    (multimethod simple2 (x) :when :b :b)
-    ;; dispatch is a function
-    (should (functionp 'simple2))
-    ;; two methods should've been installed
-    (should (null (cl-set-exclusive-or '(:a :b :default) (ht-keys (ht-get multi-methods 'simple2)))))
-    ;; each for the correct value
-    (should (equal :a (caar (multi-methods :for 'simple2 :matching :a))))
-    (should (equal :b (caar (multi-methods :for 'simple2 :matching :b))))
-    (should (equal :default (caar (multi-methods :for 'simple2 :matching :c))))
-    ;; adding another method
-    (multimethod simple2 (x) :when :c :c)
-    ;; should be reflected in the table
-    (should (null (cl-set-exclusive-or '(:a :b :c :default) (ht-keys (ht-get multi-methods 'simple2)))))
+(ert-deftest multi-test-multi ()
+  "Installing new `multi' dispatch function should work"
+  (multi-test (foo)
+
+    (multi foo #'identity)
+
+    (should (ht-contains? multi-methods 'foo))
+    (should (functionp 'foo))
+    (should (multi--set-equal? '(:default) (ht-keys (ht-get multi-methods 'foo))))
+    (should (functionp (ht-get* multi-methods 'foo :default)))))
+
+
+(ert-deftest multi-test-multimethod ()
+  "Installing and removing `multimethod's should work"
+  (multi-test (foo)
+
+    (multi foo #'identity)
+    (multimethod foo (x) :when :a :a)
+
+    (should (multi--set-equal? '(:a :default) (ht-keys (ht-get multi-methods 'foo))))
+
+    (multimethod foo (x) :when :b :b)
+    (should (multi--set-equal? '(:a :b :default) (ht-keys (ht-get multi-methods 'foo))))
+
+    ;; one method for every match
+    (should (multi--set-equal? '(:a) (mapcar #'car (multi-methods :for 'foo :matching :a))))
+    (should (multi--set-equal? '(:b) (mapcar #'car (multi-methods :for 'foo :matching :b))))
+
+    ;; :default method when no match installed
+    (should (multi--set-equal? '(:default) (mapcar #'car (multi-methods :for 'foo :matching :c))))
+
+    ;; but no longer :default when installed
+    (multimethod foo (x) :when :c :c)
+    (should (multi--set-equal? '(:c) (mapcar #'car (multi-methods :for 'foo :matching :c))))
+
     ;; methods must be functions
-    (should (functionp (cdar (multi-methods :for 'simple2 :matching :a))))
-    (should (functionp (cdar (multi-methods :for 'simple2 :matching :b))))
-    (should (functionp (cdar (multi-methods :for 'simple2 :matching :c))))
-    ;; retrieving relationships should work
-    (multi-rel :rect isa :shape)
-    (multi-rel :square isa :rect)
-    (multi-rel :square isa :parallelogram)
-    ;; TODO use set equality test instead
-    (should (equal '(:shape) (multi-parents :rect)))
-    (should (equal '(:parallelogram :rect) (multi-parents :square)))
-    (should (equal '(:parallelogram :rect :shape) (multi-ancestors :square)))
-    (should (equal '(:rect :square) (multi-descendants :shape)))))
+    (should (cl-every #'functionp (ht-values (ht-get multi-methods 'foo))))
+
+    ;; TODO `multi-remove-method'
+    ;; (multi-remove-method 'foo :a)
+    ;; (should (multi--set-equal? '(:default) (mapcar #'car (multi-methods :for 'foo :matching :a))))
+    ))
 
 
-(ert-deftest multi-test-basic-multimethods ()
+(ert-deftest multi-test-equality-dispatch ()
   "Basic equality based dispatch should work"
-  (multi-test (too-simple)
-    (multi too-simple #'identity)
-    (multimethod too-simple (x) :when :a :a)
-    (multimethod too-simple (x) :when :b :b)
-    (multimethod too-simple (x) :when :default :default)
-    (should (equal :a (too-simple :a)))
-    (should (equal :b (too-simple :b)))
-    (should (equal :default (too-simple :c)))
-    (comment
-     ;; TODO Removing a method works
-     (remove-method too-simple :a)
-     (should (equal :default (too-simple :a)))
-     ;; comment
-     )
-    ;; Adding another method works
-    (multimethod too-simple (x) :when :d :d)
-    (should (equal :d (too-simple :d)))))
+  (multi-test (foo)
+
+    (multi foo #'identity)
+    (multimethod foo (x) :when :a :a)
+    (multimethod foo (x) :when :b :b)
+
+    (should (equal :a (foo :a)))
+    (should (equal :b (foo :b)))))
 
 
 (ert-deftest multi-test-isa-dispatch ()
-    "`multi-isa?' dispatch should work"
+  "Full isa dispatch should work"
   (multi-test (foo)
+
     ;; Example from the multimethod docs.
     (multi-rel 'vector :isa :collection)
     (multi-rel 'hash-table :isa :collection)
     (multi foo #'type-of)
     (multimethod foo (c) :when :collection :a-collection)
     (multimethod foo (s) :when 'string :a-string)
+
     (should (equal :a-collection (foo [])))
     (should (equal :a-collection (foo (ht))))
     (should (equal :a-string (foo "bar")))))
 
 
 (ert-deftest multi-test-ambiguous-methods ()
-    "Dispatch ambiguity should be caught or preferred away"
+  "Dispatch ambiguity should be caught or preferred away"
   (multi-test (bar)
+
     ;; Example from the multimethod docs.
     (multi-rel :rect isa :shape)
     ;; TODO Whould this work?
@@ -158,60 +218,75 @@ message prefix matches PREFIX"
     (multi bar (fn (x y) (vector x y)))
     (multimethod bar (x y) :when [:rect :shape] :rect-shape)
     (multimethod bar (x y) :when [:shape :rect] :shape-rect)
-    (multi-methods :for 'bar :matching [:rect :rect])
+
     (should (multi--error-match "multiple methods" (bar :rect :rect)))
-    (comment
-     ;; TODO `multi-prefer'
 
-     ;; The prefers method returns empty table w/ no prefs
-     (should (null (multi-prefers bar)))
+    ;; TODO `multi-prefer'
+    ;; The prefers method returns empty table w/ no prefs
+    ;; (should (null (multi-prefers bar)))
+    ;; Adding a preference to resolve it dispatches correctly
+    ;; (multi-prefer bar [:rect :shape] :to [:shape :rect])
+    ;; or
+    ;; (multi-prefer bar [:rect :shape] :over [:shape :rect])
+    ;; (should (equal :rect-shape (bar :rect :rect)))
+    ;; The prefers method now returns the correct table
+    ;; (should (equal (ht ([:rect :shape] '([:shape :rect]))) (multi-prefers bar)))
+    ))
 
-     ;; Adding a preference to resolve it dispatches correctly
-     (multi-prefer bar [:rect :shape] :to [:shape :rect])
-     ;; or
-     ;; (multi-prefer bar [:rect :shape] :over [:shape :rect])
-     (should (equal :rect-shape (bar :rect :rect)))
 
-     ;; The prefers method now returns the correct table
-     (should (equal (ht ([:rect :shape] '([:shape :rect]))) (multi-prefers bar)))
-     ;; comment
-     )))
+(ert-deftest multi-test-default-method ()
+  "Default method should work"
+  (multi-test (foo)
+
+    (multi foo #'identity)
+    (multimethod foo (x) :when :a :a)
+
+    ;; pre-installed :default when method missing
+    (should (multi--error-match "no multimethods match" (foo :c)))
+
+    ;; :default when method missing and :default installed
+    (multimethod foo (x) :when :default :default)
+    (should (equal :default (foo :c)))
+
+    ;; no longer :default when installed
+    (multimethod foo (x) :when :c :c)
+    (should (equal :c (foo :c)))
+
+    ;; TODO back to :default when removed
+    ;; (multi-remove-method 'foo :c)
+    ;; (should (equal :default (foo :c)))
+    ))
 
 
 (ert-deftest multi-test-errors ()
-    "Error conditions should be signaled and possible to catch"
+  "Error conditions should be signaled and possible to catch"
   (multi-test (foo bar)
+
     (should (equal "multi-error" (get 'multi-error 'error-message)))
     (should-error (multi-error "foo %s" 'bar) :type 'multi-error)
+
     (multi-rel :rect isa :shape)
     (multi-rel :square isa :rect)
     (multi-rel :square isa :parallelogram)
     (multi foo #'identity)
     (multimethod foo (a) :when :square :square)
     (multimethod foo (a) :when :shape :shape)
+
     ;; signal ambiguous methods
     (should (multi--error-match "multiple methods" (foo :square)))
+
     ;; preinstalled :default method should signal method missing
     (should (multi--error-match "no multimethods match" (foo :triangle)))
+
     ;; catch cycle relationships
     (should (multi--error-match "cycle relationship" (multi-rel :shape isa :square)))
+
     ;; catch malformed arglist in `multi' call
     (should (multi--error-match "malformed arglist" (multi bar :val [a b])))
+
     ;; catch malformed arglist in `multimethod' call
     (should (multi--error-match "malformed arglist" (multimethod bar :val [a b])))))
 
-
-(ert-deftest multi-test-default-methods ()
-    "Default methods should work"
-  (multi-test (foo)
-    (multi-rel :rect isa :shape)
-    (multi foo #'identity)
-    (multimethod foo (a) :when :rect :rect)
-    ;; preinstalled :default method should signal method missing
-    (should (multi--error-match "no multimethods match" (foo :triangle)))
-    ;; custom :default method should work
-    (multimethod foo (a) :when :default :shape)
-    (should (equal :shape (foo :square)))))
 
 
 (comment
