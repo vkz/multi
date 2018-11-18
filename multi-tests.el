@@ -136,8 +136,8 @@ message prefix matches PREFIX"
 
     (should (functionp 'foo))
     (should (multi-methods :for 'foo))
-    (should (multi--set-equal? '(:default) (ht-keys (multi-methods :for 'foo))))
-    (should (functionp (ht-get* (multi-methods :for 'foo) :default)))))
+    (should (null (ht-keys (multi-methods :for 'foo))))
+    (should (functionp (get 'foo :multi-default)))))
 
 
 (ert-deftest multi-test-multimethod ()
@@ -148,10 +148,10 @@ message prefix matches PREFIX"
     (should (multi-methods :for 'foo))
 
     (multimethod foo (x) :when :a :a)
-    (should (multi--set-equal? '(:a :default) (ht-keys (multi-methods :for 'foo))))
+    (should (multi--set-equal? '(:a) (ht-keys (multi-methods :for 'foo))))
 
     (multimethod foo (x) :when :b :b)
-    (should (multi--set-equal? '(:a :b :default) (ht-keys (multi-methods :for 'foo))))
+    (should (multi--set-equal? '(:a :b) (ht-keys (multi-methods :for 'foo))))
 
     ;; one method for every match
     (should (multi--set-equal? '(:a) (mapcar #'car (multi-methods :for 'foo :matching :a))))
@@ -438,7 +438,7 @@ message prefix matches PREFIX"
  (ert-deftest multi-test-multi ()
    "Defining new multi dispatcher should work"
    (multi-test ((set= multi--set-equal?) foo)
-     (expectr (multi-methods :for 'foo) ht-contains? 'foo  :after (multi foo #'identity))
+     (expect (null (multi-methods :for 'foo)) :after (multi foo #'identity))
      (expect '(:default)                set=         (ht-keys (multi-methods :for 'foo)))
      (expect (functionp 'foo))
      (expect (functionp (ht-get* (multi-methods :for 'foo) :default)))))
