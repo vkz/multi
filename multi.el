@@ -226,6 +226,41 @@ global hierarchy"
 ;;* Multi --------------------------------------------------------- *;;
 
 
+;; NOTE on caching. There are two obvious things we can cache.
+;;
+;; One is the dispatch function with respect to its arguments. Since user can
+;; perform all sorts of expensive calculations (even if shouldn't) memoizing
+;; dispatch invocations can speed up calculating the value to be used later to
+;; perform isa? search in a hierarchy. One possible gotcha here is that the
+;; dispatch function must be pure! If the body relies on any external state, then
+;; our cache can quite easily be stale, since it is obviously impossible to
+;; determine when to invalidate it. Luckily, it should be fairly easy to make any
+;; dispatch function pure simply by moving whatever stateful value you're looking
+;; up to its arguments, that is look it up before you make a multi-call and call
+;; with that extra argument. This may, potentially, lead to another gotcha with
+;; respect to concurrency: you want the state lookup and multi-call performed in
+;; transaction else you may end up with a race where relevant state gets updated
+;; while the dispatch is in flight. This is a very generic comment and may not be
+;; relevant to Emacs Lisp - I know nothing at all about its concurrency model -
+;; does it ever have one? First, I need to make note about caching in
+;; documentation; second, we probably want to let user turn this cache on and off
+;; as needed; third, maybe I should allow another attribute in `multi' e.g. (:pure
+;; t) so that user can declare that his dispatch is indeed pure and we can cache
+;; as needed.
+;;
+;; The other is caching isa? hierarchy lookup. This implies that each hierarchy
+;; needs to keep track of its cache and invalidate it every time a relationship is
+;; added or removed. We'll want to change the signature of the `multi-isa?' or
+;; introduce another function. New signature should be: (-> value hierarchy
+;; result) that is it doesn't take a VALUE to check if (isa? val VALUE) but
+;; instead tries every item in the hierarchy. This way we can easily memoize
+;; hierarchy isa? checks with respect to just one val argument. Since this cache
+;; is per hierarchy, every hierarchy should probably carry its isa? relationship
+;; lookup with it. This probably means that hierarchies should be implemented as
+;; structs or given a symbolic name so that they can keep such meta information in
+;; the plist. IMO struct would be cleaner.
+
+
 (pcase-defmacro multi (&rest patterns)
   (pcase patterns
     (`(,id :if ,predicate) `(and ,id (pred ,predicate)))
