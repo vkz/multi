@@ -90,17 +90,11 @@ present. Without KEYS returns the entire table."
 VAL VALUE) relationship holds. If no such pairs exist returns an
 alist of one (:default . default-method), where default-method is
 either a custom user-installed or the pre-installed one. If
-HIERARCHY not supplied defaults to the global hierarchy. If
-called with a single FUN argument returns its full table of
-installed multi-methods. FUN is a symbol.
+HIERARCHY not supplied defaults to the global hierarchy.
 
-\(fn :for fun &optional :matching val :in hierarchy)"
+\(fn :for fun :matching val &optional :in hierarchy)"
   ;; parse args
   (pcase args
-    ;; (multi-methods :for 'fun)
-    (`(:for ,fun)
-     (get fun :multi-methods))
-
     ;; (multi-methods :for 'fun :matching val)
     (`(:for ,fun :matching ,val)
      (multi-methods :for fun :matching val :in multi-global-hierarchy))

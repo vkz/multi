@@ -135,8 +135,8 @@ message prefix matches PREFIX"
     (multi foo #'identity)
 
     (should (functionp 'foo))
-    (should (multi-methods :for 'foo))
-    (should (null (ht-keys (multi-methods :for 'foo))))
+    (should (get 'foo :multi-methods))
+    (should (null (ht-keys (get 'foo :multi-methods))))
     (should (functionp (get 'foo :multi-default)))))
 
 
@@ -145,13 +145,13 @@ message prefix matches PREFIX"
   (multi-test (foo)
 
     (multi foo #'identity)
-    (should (multi-methods :for 'foo))
+    (should (get 'foo :multi-methods))
 
     (multimethod foo (x) :when :a :a)
-    (should (multi--set-equal? '(:a) (ht-keys (multi-methods :for 'foo))))
+    (should (multi--set-equal? '(:a) (ht-keys (get 'foo :multi-methods))))
 
     (multimethod foo (x) :when :b :b)
-    (should (multi--set-equal? '(:a :b) (ht-keys (multi-methods :for 'foo))))
+    (should (multi--set-equal? '(:a :b) (ht-keys (get 'foo :multi-methods))))
 
     ;; one method for every match
     (should (multi--set-equal? '(:a) (mapcar #'car (multi-methods :for 'foo :matching :a))))
@@ -165,7 +165,7 @@ message prefix matches PREFIX"
     (should (multi--set-equal? '(:c) (mapcar #'car (multi-methods :for 'foo :matching :c))))
 
     ;; methods must be functions
-    (should (cl-every #'functionp (ht-values (multi-methods :for 'foo))))
+    (should (cl-every #'functionp (ht-values (get 'foo :multi-methods))))
 
     ;; TODO `multi-remove-method'
     ;; (multi-remove-method 'foo :a)
@@ -438,18 +438,18 @@ message prefix matches PREFIX"
  (ert-deftest multi-test-multi ()
    "Defining new multi dispatcher should work"
    (multi-test ((set= multi--set-equal?) foo)
-     (expect (null (multi-methods :for 'foo)) :after (multi foo #'identity))
-     (expect '(:default)                set=         (ht-keys (multi-methods :for 'foo)))
+     (expect (null (get 'foo :multi-methods)) :after (multi foo #'identity))
+     (expect '(:default)                set=         (ht-keys (get 'foo :multi-methods)))
      (expect (functionp 'foo))
-     (expect (functionp (ht-get* (multi-methods :for 'foo) :default)))))
+     (expect (functionp (ht-get* (get 'foo :multi-methods) :default)))))
 
 
  (ert-deftest multi-test-multimethod ()
    "Installing and removing `multimethod's should work"
    (multi-test ((set= multi--set-equal?) foo)
      (multi foo #'identity)
-     (expect '(:a :default)    set= (ht-keys (multi-methods :for 'foo)) :after (multimethod foo (x) :when :a :a))
-     (expect '(:a :b :default) set= (ht-keys (multi-methods :for 'foo)) :after (multimethod foo (x) :when :b :b))
+     (expect '(:a :default)    set= (ht-keys (get 'foo :multi-methods)) :after (multimethod foo (x) :when :a :a))
+     (expect '(:a :b :default) set= (ht-keys (get 'foo :multi-methods)) :after (multimethod foo (x) :when :b :b))
 
      ;; one method for every match
      (expect '(:a) set= (mapcar #'car (multi-methods :for 'foo :matching :a)))
@@ -461,7 +461,7 @@ message prefix matches PREFIX"
      (expect '(:c)       set= (mapcar #'car (multi-methods :for 'foo :matching :c)) :after (multimethod foo (x) :when :c :c))
 
      ;; methods must be functions
-     (expect #'functionp cl-every (ht-values (multi-methods :for 'foo)))
+     (expect #'functionp cl-every (ht-values (get 'foo :multi-methods)))
 
      ;; TODO `multi-remove-method'
      ;; (multi-remove-method 'foo :a)
