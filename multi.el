@@ -12,8 +12,6 @@
 
 ;; TODO Implement `remove-method'
 
-;; TODO Consider storing multi-methods table on dispatch symbol (get 'foo :multi)
-
 ;; TODO Consider storing hierarchies the way Clojure does it. IMO benefit is that
 ;; descendants are precalculated. Anything else?
 ;;   {:parents     {:rect #{:shape}}
@@ -71,13 +69,6 @@ structure:
   (ht (VAL (ht (:parents (p ...)) (:children (c ...)))) ...)")
 
 
-(defconst multi-methods (ht)
-  "Global table that holds all multimethods. Has the following
-structure:
-
-  (ht (dispatch-fun-sym (ht (dispatch-val method) ...)) ...)")
-
-
 (defun multi-global-hierarchy (&rest keys)
   "Returns the value in the global hierarchy nested table, where
 KEYS is a sequence of keys. Returns nil if the key is not
@@ -87,27 +78,77 @@ present. Without KEYS returns the entire table."
     multi-global-hierarchy))
 
 
-(cl-defun multi-methods (&key ((:for fun))
-                              ((:matching val))
-                              ((:in hierarchy) multi-global-hierarchy))
+(cl-defun multi-methods (&rest args)
   "Returns an alist of (VALUE . method) pairs where (multi-isa?
 VAL VALUE) relationship holds. If HIERARCHY not supplied defaults
-to the global hierarchy.
+to the global hierarchy. If called with a single FUN argument
+returns its full table of installed multi-methods. FUN is a
+symbol.
 
-\(fn :for fun :matching val &optional :in hierarchy)"
-  (default hierarchy :to multi-global-hierarchy)
-  (let* ((methods
-          (-non-nil
-           (ht-map
-            (fn (VAL method)
-              (and (multi-isa? val VAL hierarchy)
-                   (cons VAL method)))
-            (ht-get multi-methods fun))))
-         (default-method
-           (unless methods
-             (list
-              (cons :default (ht-get* multi-methods fun :default))))))
-    (or methods default-method)))
+\(fn :for fun &optional :matching val :in hierarchy)"
+  ;; parse args
+  (pcase args
+    ;; (multi-methods :for 'fun)
+    (`(:for ,fun)
+     (get fun :multi-methods))
+
+    ;; (multi-methods :for 'fun :matching val)
+    (`(:for ,fun :matching ,val)
+     (multi-methods :for fun :matching val :in multi-global-hierarchy))
+
+    ;; (multi-methods :for 'fun :matching val :in hierarchy)
+    (`(:for ,fun :matching ,val :in ,hierarchy)
+     (let* ((multi-methods (get fun :multi-methods))
+            (methods
+             (-non-nil
+              (ht-map
+               (fn (VAL method)
+                 (and (multi-isa? val VAL hierarchy)
+                      (cons VAL method)))
+               multi-methods)))
+            (default-method
+              (unless methods
+                (list
+                 ;; TODO Custom :default may not be present if removed, so we need
+                 ;; to fallback to the pre-installed default method. If I switch
+                 ;; to storing method table in a struct, don't forget to fix here.
+                 (cons :default (ht-get* multi-methods :default))))))
+       (or methods default-method)))
+
+    (otherwise
+     (multi-error "malformed arglist at %s" args))))
+
+
+(defun multi--reset-dispatch (fun-symbol dispatch)
+  "Reset "
+  (setf (get fun-symbol :multi-dispatch) dispatch))
+
+
+(defun multi--reset-methods-table (fun-symbol)
+  "Resets FUN-SYMBOL's :multi-methods property to a fresh
+multi-methods table with just :default method pre-installed."
+  (let* ((table (ht (:default
+                     (fn (&rest args)
+                       (multi-error
+                        "no multimethods match dispatch value %s for dispatch %s "
+                        (apply (get fun-symbol :multi-dispatch) args)
+                        fun-symbol))))))
+    (setf (get fun-symbol :multi-methods) table)))
+
+
+;; TODO Invalidate dispatch cache
+;; (defun multi--reset-cache (fun-symbol))
+
+
+;; TODO Subtle bug here. If we ever install a custom :default method and then
+;; remove it, there will no longer be any :default method, but we really ought to
+;; reinstall the default :default. One possible solution is to store methods in a
+;; (struct :default default :methods (ht)), here the :default holds on to
+;; pre-installed default and any custom :default ends up in the :methods table.
+(defun multi--install-method (fun-symbol val method)
+  "Installs (or updates) VAL to METHOD entry in the multi-methods
+table for FUN-SYMBOL."
+  (setf (ht-get* (get fun-symbol :multi-methods) val) method))
 
 
 ;;* Hierarchies --------------------------------------------------- *;;
@@ -340,7 +381,7 @@ a function.
 
         (defun ,fun (&rest args)
           ,doc
-          (let* ((val     (apply ,dispatch args))
+          (let* ((val     (apply (get ',fun :multi-dispatch) args))
                  (methods (multi-methods :for ',fun :matching val :in ,hierarchy))
                  ;; => ((VAL . method) ...)
                  ;; TODO Choose method with prefer method instead of cdar here
@@ -351,12 +392,17 @@ a function.
                val ',fun))
             (apply method args)))
 
-        (setf (ht-get multi-methods ',fun)
-              (ht (:default (fn (&rest args)
-                              (multi-error
-                               "no multimethods match dispatch value %s for dispatch %s "
-                               (apply ,dispatch args)
-                               ',fun)))))))))
+        ;; reset dispatch prop to the dispatch function
+        (multi--reset-dispatch ',fun ,dispatch)
+
+        ;; reset multi-methods prop to a fresh table with :default pre-installed
+        (multi--reset-methods-table ',fun)
+
+        ;; TODO Invalidate multi-methods cache here. Need to do this to catch
+        ;; cases where fun simply gets redefined and may hold cache for previous
+        ;; dispatch function
+        ;; (multi--reset-cache ',fun)
+        ))))
 
 
 (comment
@@ -397,7 +443,12 @@ Lisp conventions.
     (`(:when ,val . ,body)
      (let ((method `(fn ,arglist ,@body)))
        `(progn
-          (setf (ht-get* multi-methods ',fun ,val) ,method))))
+          ;; add new method to the multi-methods table
+          (multi--install-method ',fun ,val ,method)
+
+          ;; TODO invalidate multi-methods cache
+          ;; (multi--reset-cache ',fun)
+          )))
     (otherwise
      `(multi-error "malformed arglist at %s" ',args))))
 

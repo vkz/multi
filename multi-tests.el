@@ -10,10 +10,6 @@
 
 ;; TODO Would implementing expect macro as per examples below be worth it?
 
-;; TODO ht-* functionality below exposes implementation, introduce relevant API
-;; and replace all that hash-table junk. I should be able to swap underlying data
-;; structures at will without breaking tests.
-
 
 ;;* Prelude ------------------------------------------------------- *;;
 
@@ -138,10 +134,10 @@ message prefix matches PREFIX"
 
     (multi foo #'identity)
 
-    (should (ht-contains? multi-methods 'foo))
     (should (functionp 'foo))
-    (should (multi--set-equal? '(:default) (ht-keys (ht-get multi-methods 'foo))))
-    (should (functionp (ht-get* multi-methods 'foo :default)))))
+    (should (multi-methods :for 'foo))
+    (should (multi--set-equal? '(:default) (ht-keys (multi-methods :for 'foo))))
+    (should (functionp (ht-get* (multi-methods :for 'foo) :default)))))
 
 
 (ert-deftest multi-test-multimethod ()
@@ -149,12 +145,13 @@ message prefix matches PREFIX"
   (multi-test (foo)
 
     (multi foo #'identity)
-    (multimethod foo (x) :when :a :a)
+    (should (multi-methods :for 'foo))
 
-    (should (multi--set-equal? '(:a :default) (ht-keys (ht-get multi-methods 'foo))))
+    (multimethod foo (x) :when :a :a)
+    (should (multi--set-equal? '(:a :default) (ht-keys (multi-methods :for 'foo))))
 
     (multimethod foo (x) :when :b :b)
-    (should (multi--set-equal? '(:a :b :default) (ht-keys (ht-get multi-methods 'foo))))
+    (should (multi--set-equal? '(:a :b :default) (ht-keys (multi-methods :for 'foo))))
 
     ;; one method for every match
     (should (multi--set-equal? '(:a) (mapcar #'car (multi-methods :for 'foo :matching :a))))
@@ -168,7 +165,7 @@ message prefix matches PREFIX"
     (should (multi--set-equal? '(:c) (mapcar #'car (multi-methods :for 'foo :matching :c))))
 
     ;; methods must be functions
-    (should (cl-every #'functionp (ht-values (ht-get multi-methods 'foo))))
+    (should (cl-every #'functionp (ht-values (multi-methods :for 'foo))))
 
     ;; TODO `multi-remove-method'
     ;; (multi-remove-method 'foo :a)
@@ -247,6 +244,10 @@ message prefix matches PREFIX"
     (multimethod foo (x) :when :c :c)
     (should (equal :c (foo :c)))
 
+    ;; TODO removing custom :default should restore pre-installed :default
+    ;; (multi-remove-method 'foo :default)
+    ;; (should (multi--error-match "no multimethods match" (foo :d)))
+
     ;; TODO back to :default when removed
     ;; (multi-remove-method 'foo :c)
     ;; (should (equal :default (foo :c)))
@@ -291,6 +292,8 @@ message prefix matches PREFIX"
   `(let ((start (float-time)))
      ,@body
      (- (float-time) start)))
+
+;; TODO Test multimethod isa vs struct inheritance?
 
 ;; NOTE Rather ugly way to measure performance, but does the trick. We stack up
 ;; multimethods against built-in generic dispatch. Our generic dispatches on the
@@ -435,18 +438,18 @@ message prefix matches PREFIX"
  (ert-deftest multi-test-multi ()
    "Defining new multi dispatcher should work"
    (multi-test ((set= multi--set-equal?) foo)
-     (expectr multi-methods ht-contains? 'foo  :after (multi foo #'identity))
-     (expect '(:default)    set=         (ht-keys (ht-get multi-methods 'foo)))
+     (expectr (multi-methods :for 'foo) ht-contains? 'foo  :after (multi foo #'identity))
+     (expect '(:default)                set=         (ht-keys (multi-methods :for 'foo)))
      (expect (functionp 'foo))
-     (expect (functionp (ht-get* multi-methods 'foo :default)))))
+     (expect (functionp (ht-get* (multi-methods :for 'foo) :default)))))
 
 
  (ert-deftest multi-test-multimethod ()
    "Installing and removing `multimethod's should work"
    (multi-test ((set= multi--set-equal?) foo)
      (multi foo #'identity)
-     (expect '(:a :default)    set= (ht-keys (ht-get multi-methods 'foo)) :after (multimethod foo (x) :when :a :a))
-     (expect '(:a :b :default) set= (ht-keys (ht-get multi-methods 'foo)) :after (multimethod foo (x) :when :b :b))
+     (expect '(:a :default)    set= (ht-keys (multi-methods :for 'foo)) :after (multimethod foo (x) :when :a :a))
+     (expect '(:a :b :default) set= (ht-keys (multi-methods :for 'foo)) :after (multimethod foo (x) :when :b :b))
 
      ;; one method for every match
      (expect '(:a) set= (mapcar #'car (multi-methods :for 'foo :matching :a)))
@@ -458,7 +461,7 @@ message prefix matches PREFIX"
      (expect '(:c)       set= (mapcar #'car (multi-methods :for 'foo :matching :c)) :after (multimethod foo (x) :when :c :c))
 
      ;; methods must be functions
-     (expect #'functionp cl-every (ht-values (ht-get multi-methods 'foo)))
+     (expect #'functionp cl-every (ht-values (multi-methods :for 'foo)))
 
      ;; TODO `multi-remove-method'
      ;; (multi-remove-method 'foo :a)
