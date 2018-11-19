@@ -258,7 +258,12 @@ global hierarchy"
 ;; documentation; second, we probably want to let user turn this cache on and off
 ;; as needed; third, maybe I should allow another attribute in `multi' e.g. (:pure
 ;; t) so that user can declare that his dispatch is indeed pure and we can cache
-;; as needed.
+;; as needed. Another potential issue with caching is that arguments maybe
+;; something difficult to test for equality e.g. anonymous functions. Appears that
+;; Emacs Lisp somehow manages to equate (lambda (x) x) with (lambda (x) x) but I
+;; suspect it must be a hack that doesn't work in general. Since we are to use
+;; args as keys in cache table this lead to said table to explode in size in tight
+;; loops when keys are structurally equal, but Elisp can't really know that.
 ;;
 ;; The other is caching isa? hierarchy lookup. This implies that each hierarchy
 ;; needs to keep track of its cache and invalidate it every time a relationship is

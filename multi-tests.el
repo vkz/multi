@@ -87,6 +87,18 @@ message prefix matches PREFIX"
 ;;* Tests --------------------------------------------------------- *;;
 
 
+(ert-deftest multi-implementation-details ()
+  "Low-level implementation details should work until
+  implementation changes"
+  (multi-test (foo)
+    (multi foo #'identity)
+    (should (ht? (get 'foo :multi-methods)))
+    (should (functionp (get 'foo :multi-dispatch)))
+    (should (functionp (get 'foo :multi-default)))
+    ;; TODO dispatch cache
+    ;; (should (ht? (get 'foo :multi-cache)))
+    ))
+
 (ert-deftest multi-test-rel ()
   "Creating `multi-isa?' hierachy should work"
   (multi-test ()
