@@ -1,5 +1,8 @@
-;; NOTE I leave lexical binding off, cause I suspect my multi-test may on occasion
-;; not work, cause it captures stuff lexically.
+
+
+;; TODO I leave lexical binding off, cause I suspect my multi-test may on occasion
+;; not work, cause it captures stuff lexically. I need to investigate cause I'd
+;; rather have lexical scope here, too.
 
 
 (require 'ert)
@@ -87,7 +90,7 @@ message prefix matches PREFIX"
 ;;* Tests --------------------------------------------------------- *;;
 
 
-(ert-deftest multi-implementation-details ()
+(ert-deftest multi-test-implementation-details ()
   "Low-level implementation details should work until
   implementation changes"
   (multi-test (foo)
@@ -294,6 +297,42 @@ message prefix matches PREFIX"
 
     ;; catch malformed arglist in `multimethod' call
     (should (multi--error-match "malformed arglist" (multimethod bar :val [a b])))))
+
+
+(ert-deftest multi-test-custom-hierarchy ()
+  "Multimethods should work with custom hierarchies"
+  ;; TODO Current implementation bakes the hierarchy at (multi foo ...)
+  ;; definition, so every (foo ...) invocation will use the same hierarchy. In
+  ;; this respect we follow Clojure. My hunch, however, is this introduces
+  ;; unnecessary coupling between multimethods and hierarchies. IMO hierarchies
+  ;; are in fact independent, so why marry the two linked but orthogonal concepts?
+  ;; Understandably, the case could be made that decoupling them doesn't add
+  ;; expressive power that would actually be used. That's certainly a good reason
+  ;; to follow Clojure.
+
+  ;; NOTE see note on lexical vs dynamic scope in `multi.el'
+
+  (eval
+   ;; NOTICE that we must `quote' the form for this to work!!!
+   '(multi-test (bar)
+      (let ((hierarchy (ht)))
+        ;; override :rect rel in custom hierarchy
+        (multi-rel :rect isa :parallelogram in hierarchy)
+        (multi-rel :square isa :rect in hierarchy)
+        ;; define multi-dispatch over the custom hierarchy
+        (multi bar #'identity :in hierarchy)
+        (multimethod bar (a) :when :parallelogram :parallelogram)
+        (let ((hierarchy (ht)))
+          (multi-rel :rect isa :shape in hierarchy)
+          (multi-rel :square isa :rect in hierarchy)
+          ;; Method calls should still use custom hierarchy, so that :rect and
+          ;; :square are :parallelograms
+          (should (equal :parallelogram (bar :rect)))
+          (should (equal :parallelogram (bar :square)))))
+      ;; even outside of both `let's we should get the same result
+      (should (equal :parallelogram (bar :rect)))
+      (should (equal :parallelogram (bar :square))))
+   'lexical-scope))
 
 
 ;;* Perf ---------------------------------------------------------- *;;

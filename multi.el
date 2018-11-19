@@ -294,6 +294,43 @@ global hierarchy"
  )
 
 
+;; TODO Lexical vs dynamic scope. Something I ran into by chance. `multi-tests.el'
+;; doesn't have lexical scope on and this has interesting implications for
+;; multimethods. Say, this example won't work as expected in dynamic scope:
+;;
+;;   (let ((hierarchy (ht))
+;;         (b 42))
+;;     (multi-rel :rect isa :shape in hierarchy)
+;;     (multi baz (lambda (x) (princ b) x) :in hierarchy)
+;;     (multimethod baz (x) :when :shape :shape)
+;;     (baz :rect)
+;;     ;; prints  42 and returns :shape as expected
+;;     )
+;;
+;;   ;; but outside of `let' neither variables hierarchy or b are bound due to dynamic
+;;   ;; scope
+;;
+;;   (baz :rect)
+;;   ;; => Error symbol value is void 'b
+;;
+;; Problem here is that although `multi' macro is defined in lexical scope, it
+;; expansion may happen in dynamic scope (if the user so chooses or, like me,
+;; forgets to enable lexical scope) and then much bafflement follows. E.g.
+;; `hierarchy' parameter in the definition of `multi' is assumed to be bound in
+;; the surrounding scope, so if that scope is dynamic the defined dispatch
+;; function we intorduce doesn't close over `hirarchy', nor yet any other external
+;; binding. So, if at any point those bindings go away dispatch goes ka-boom!
+;;
+;; If my stackoverflow question
+;; https://emacs.stackexchange.com/questions/46088/forcing-lexical-scope-in-the-middle-of-dynamic-scope
+;; ever gets answered I could check for `lexical-binding' at call site and
+;; optionally hijack or force lexical scope for the body of my macro. For the rare
+;; case where the user does actually mean dynamic scope, I could control whether
+;; to force lexical or not with a variable they could set.
+;;
+;; At the very minimum I should make a note of this gotcha in documentation.
+
+
 (defmacro multi (fun &rest args)
   "Creates a new multimethod dispatch function. The DOCSTRING and
 HIERARCHY are optional. HIERARCHY if not supplied defaults to the
