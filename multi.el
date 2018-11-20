@@ -69,6 +69,27 @@ exactly like `error'
 ;;* State  -------------------------------------------------------- *;;
 
 
+(defcustom multi-lexical-binding 'error
+  "Control if multimethods can be defined when `lexical-binding'
+ is disabled. Default to signaling an error if an attempt is made
+ to define a new multi dispatch or method while in a dynamically
+ scoped environment.")
+
+
+(defun multi-lexical-binding ()
+  "Signal an error depending on the setting of
+`multi-lexical-binding' and `lexical-binding'."
+  (when multi-lexical-binding
+    (unless lexical-binding
+      (multi-error
+       (string-join
+        (list
+         "multimethods require `lexical-binding' to work properly."
+         "If you know what you are doing you may disable this check"
+         "by unsetting `multi-lexical-binding'.")
+        " ")))))
+
+
 (defconst multi-global-hierarchy (ht)
   "Global table that holds global hierachy. Has the following
 structure:
@@ -392,6 +413,8 @@ a function.
      err
      `(progn
 
+        (multi-lexical-binding)
+
         (defun ,fun (&rest args)
           ,doc
           (let* ((val     (apply (get ',fun :multi-dispatch) args))
@@ -463,6 +486,7 @@ Lisp conventions.
     (`(:when ,val . ,body)
      (let ((method `(fn ,arglist ,@body)))
        `(progn
+          (multi-lexical-binding)
           ;; add new method to the multi-methods table
           (setf (ht-get* (get ',fun :multi-methods) ,val) ,method)
 

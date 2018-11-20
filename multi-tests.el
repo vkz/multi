@@ -1,5 +1,8 @@
 
 
+;; Disable lexical-binding check for now
+(setq multi-lexical-binding nil)
+
 ;; TODO I leave lexical binding off, cause I suspect my multi-test may on occasion
 ;; not work, cause it captures stuff lexically. I need to investigate cause I'd
 ;; rather have lexical scope here, too.
