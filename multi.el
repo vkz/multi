@@ -2,6 +2,9 @@
 
 (require 'cl)
 
+;; TODO when reporting errors include function or macro name that thrown e.g. "in
+;; multi-methods malformed arglist ..."
+
 ;; TODO dispatch cache
 
 ;; TODO hierarchy cache
@@ -120,14 +123,64 @@ present. Without KEYS returns the entire table. Calls are
   (apply #'multi-hierarchy multi-global-hierarchy keys))
 
 
-(cl-defun multi-methods (&rest args)
-  "Returns an alist of (VALUE . method) pairs where (multi-isa?
-VAL VALUE) relationship holds. If no such pairs exist returns an
-alist of one (:default . default-method), where default-method is
-either a custom user-installed or the pre-installed one. If
-HIERARCHY not supplied defaults to the global hierarchy.
+(defun multi--methods (fun-symbol &rest keys)
+  "Returns the multi-methods hash-table of FUN-SYMBOL or the
+value nested in that table if the sequence of KEYS is supplied.
+This form is `setf'-able."
+  (declare
+   (gv-setter (lambda (val)
+                (if keys
+                    ;; with keys set corresponding value in :multi-methods table
+                    `(setf (ht-get* (get ,fun-symbol :multi-methods) ,@keys) ,val)
+                  ;; without keys set :multi-methods prop itself to a new table
+                  `(setf (get ,fun-symbol :multi-methods) ,val)))))
+  (if keys
+      (apply #'ht-get* (get fun-symbol :multi-methods) keys)
+    (get fun-symbol :multi-methods)))
 
-\(fn :for fun :matching val &optional :in hierarchy)"
+
+;; TODO the (multi-methods 'fun &rest keys) interface suggests an interesting
+;; feature. We could go a bit further than Clojure and allow :before, :after,
+;; :arround methods, so the multi-methods table doesn't just maps an isa? pattern
+;; to a method but potentionally to a map of methods:
+;;
+;; (ht (:before #'before-fun)
+;;     (:after #'after-fun)
+;;     (:main #'main-fun))
+;;
+;; Can I come up with interesting semantics?
+
+
+(defun multi-methods (&rest args)
+  "When called with :for and :matching keywords returns an alist
+of (VALUE . method) pairs where (multi-isa? VAL VALUE)
+relationship holds. If no such pairs exist returns an alist of
+one (:default . default-method), where default-method is either a
+custom user-installed or the pre-installed one. If HIERARCHY not
+supplied defaults to the global hierarchy.
+
+When called without :for and :matching keywords returns the
+multi-methods hash-table of FUN-SYM or the value nested in that
+table if the sequence of KEYS is supplied. The form is
+`setf'-able.
+
+May be called according to one the following signatures:
+
+  (multi-methods :for fun-sym :matching val &optional :in hierarchy)
+  (multi-methods fun-sym &rest keys)
+  (setf (multi-methods fun-sym &rest keys) val)
+
+
+\(fn :for fun-sym :matching val &optional :in hierarchy)"
+  (declare
+   (gv-setter (lambda (val)
+                (message "%s" args)
+                (pcase args
+                  (`((quote ,(multi fun-symbol :if symbolp)) . ,keys)
+                   `(setf (multi--methods ',fun-symbol ,@keys) ,val))
+
+                  (otherwise
+                   `(multi-error "malformed arglist at %s" '(,@args)))))))
   ;; parse args
   (pcase args
     ;; (multi-methods :for 'fun :matching val)
@@ -152,6 +205,10 @@ HIERARCHY not supplied defaults to the global hierarchy.
                  (cons :default (or (ht-get* multi-methods :default)
                                     (get fun :multi-default)))))))
        (or methods default-method)))
+
+    ;; (multi-methods 'fun :rect)
+    (`(,(multi fun-symbol :if symbolp) . ,keys)
+     (apply #'multi--methods fun-symbol keys))
 
     (otherwise
      (multi-error "malformed arglist at %s" args))))
@@ -427,6 +484,7 @@ a function.
      err
      `(progn
 
+        ;; check if lexical binding is enabled
         (multi-lexical-binding)
 
         (defun ,fun (&rest args)
@@ -500,7 +558,10 @@ Lisp conventions.
     (`(:when ,val . ,body)
      (let ((method `(fn ,arglist ,@body)))
        `(progn
+
+          ;; check if lexical binding is enabled
           (multi-lexical-binding)
+
           ;; add new method to the multi-methods table
           (setf (ht-get* (get ',fun :multi-methods) ,val) ,method)
 
