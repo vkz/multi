@@ -2,11 +2,6 @@
 
 (require 'cl)
 
-;; TODO Consider struct to hold hierarchies
-;; (defstruct multi-hierarchy
-;;   (table (ht))
-;;   (cache (ht)))
-
 ;; TODO dispatch cache
 
 ;; TODO hierarchy cache
@@ -90,7 +85,24 @@ exactly like `error'
         " ")))))
 
 
-(defconst multi-global-hierarchy (ht)
+(defstruct multi-hierarchy
+  (table (ht))
+  (cache (ht)))
+
+
+(defun multi-hierarchy (hierarchy &rest keys)
+  "Returns the value in the HIERARCHY's nested table, where KEYS
+is a sequence of keys. Returns nil if the key is not present.
+Without KEYS returns the entire table. Calls are `setf'-able."
+  (declare
+   (gv-setter (lambda (val)
+                `(setf (ht-get* (multi-hierarchy-table ,hierarchy) ,@keys) ,val))))
+  (if keys
+      (apply #'ht-get* (multi-hierarchy-table hierarchy) keys)
+    (multi-hierarchy-table hierarchy)))
+
+
+(defconst multi-global-hierarchy (make-multi-hierarchy)
   "Global table that holds global hierachy. Has the following
 structure:
 
@@ -100,10 +112,12 @@ structure:
 (defun multi-global-hierarchy (&rest keys)
   "Returns the value in the global hierarchy nested table, where
 KEYS is a sequence of keys. Returns nil if the key is not
-present. Without KEYS returns the entire table."
-  (if keys
-      (apply #'ht-get* multi-global-hierarchy keys)
-    multi-global-hierarchy))
+present. Without KEYS returns the entire table. Calls are
+`setf'-able."
+  (declare
+   (gv-setter (lambda (val)
+                `(setf (multi-hierarchy multi-global-hierarchy ,@keys) ,val))))
+  (apply #'multi-hierarchy multi-global-hierarchy keys))
 
 
 (cl-defun multi-methods (&rest args)
@@ -154,7 +168,7 @@ defaults to the global hierarchy"
   (or (equal item parent)
       (ormap
        (lambda (ancestor) (multi--cycle? item ancestor hierarchy))
-       (ht-get* hierarchy parent :parents))))
+       (multi-hierarchy hierarchy parent :parents))))
 
 
 (defmacro multi-rel (&rest args)
@@ -176,8 +190,8 @@ the global hierarchy.
            (when (multi--cycle? ,child ,parent ,hierarchy)
              (multi-error "cycle relationship between %s and %s "
                           ,child ,parent))
-           (pushnew ,parent (ht-get* ,hierarchy ,child :parents))
-           (pushnew ,child (ht-get* ,hierarchy ,parent :children))
+           (pushnew ,parent (multi-hierarchy ,hierarchy ,child :parents))
+           (pushnew ,child (multi-hierarchy ,hierarchy  ,parent :children))
            ,hierarchy)))))
 
 
@@ -214,20 +228,20 @@ HIERARCHY not supplied defaults to the global hierarchy
    ((equal x y)
     (cons :generation generation))
 
-   ((member y (ht-get* hierarchy x :parents))
+   ((member y (multi-hierarchy hierarchy x :parents))
     (cons :generation (1+ generation)))
 
    (:else
     (ormap
      (lambda (parent) (multi-isa? parent y hierarchy (1+ generation)))
-     (ht-get* hierarchy x :parents)))))
+     (multi-hierarchy hierarchy x :parents)))))
 
 
 (defun multi-parents (x &optional hierarchy)
   "Returns immediate parents (multi-isa? X PARENT) of X. If
 HIERARCHY not supplied defaults to the global hierarchy"
   (default hierarchy :to multi-global-hierarchy)
-  (ht-get* hierarchy x :parents))
+  (multi-hierarchy hierarchy x :parents))
 
 
 (defun multi-ancestors (x &optional hierarchy)
@@ -235,7 +249,7 @@ HIERARCHY not supplied defaults to the global hierarchy"
 ANCESTOR) of X. If HIERARCHY not supplied defaults to the global
 hierarchy"
   (default hierarchy :to multi-global-hierarchy)
-  (let ((parents (ht-get* hierarchy x :parents)))
+  (let ((parents (multi-hierarchy hierarchy x :parents)))
     (append parents
             (seq-mapcat
              (lambda (parent)
@@ -248,7 +262,7 @@ hierarchy"
 DESCENDANT X) of X. If HIERARCHY not supplied defaults to the
 global hierarchy"
   (default hierarchy :to multi-global-hierarchy)
-  (let ((children (ht-get* hierarchy x :children)))
+  (let ((children (multi-hierarchy hierarchy x :children)))
     (append children
             (seq-mapcat
              (lambda (child)

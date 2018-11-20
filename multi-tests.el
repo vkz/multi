@@ -38,8 +38,7 @@ BODY, allowing it to bind them as needed. Restore everything
 after BODY."
   (declare (indent defun))
   (let ((multis (mapcar (fn (m) `((multi--symbol-function ',m) :unbind)) multis)))
-    `(cl-letf ((multi-global-hierarchy (ht))
-               (multi-methods          (ht))
+    `(cl-letf ((multi-global-hierarchy (make-multi-hierarchy))
                ,@multis)
        ,@body)))
 
@@ -97,10 +96,28 @@ message prefix matches PREFIX"
   "Low-level implementation details should work until
   implementation changes"
   (multi-test (foo)
+    ;; store multi-methods table on the symbol
     (multi foo #'identity)
     (should (ht? (get 'foo :multi-methods)))
     (should (functionp (get 'foo :multi-dispatch)))
     (should (functionp (get 'foo :multi-default)))
+
+    ;; hierarchy is a struct that stores relationships in a table
+    (let ((h (make-multi-hierarchy)))
+      (should (multi-hierarchy-p h))
+
+      ;; nested table values must be settable
+      (setf (multi-hierarchy h :rect :parents) '(:shape))
+      (should (multi--set-equal? '(:shape) (multi-hierarchy h :rect :parents)))
+
+      ;; table is a hash-table
+      (should (ht? (multi-hierarchy h))))
+
+    ;; same should be true of the `multi-global-hierarchy'
+    (setf (multi-global-hierarchy :rect :parents) '(:shape))
+    (should (multi--set-equal? '(:shape) (multi-global-hierarchy :rect :parents)))
+    (should (ht? (multi-global-hierarchy)))
+
     ;; TODO dispatch cache
     ;; (should (ht? (get 'foo :multi-cache)))
     ))
@@ -108,11 +125,11 @@ message prefix matches PREFIX"
 (ert-deftest multi-test-rel ()
   "Creating `multi-isa?' hierachy should work"
   (multi-test ()
-    (should (multi--set-equal? '(:rect :shape) (ht-keys (multi-rel :rect isa :shape))))
-    (should (multi--set-equal? '(:rect :shape :square) (ht-keys (multi-rel :square isa :rect))))
-    (should (member :shape (ht-get* (multi-global-hierarchy) :rect :parents)))
-    (should (member :rect (ht-get* (multi-global-hierarchy) :square :parents)))
-    (should (member :square (ht-get* (multi-global-hierarchy) :rect :children)))))
+    (should (multi--set-equal? '(:rect :shape) (ht-keys (multi-hierarchy (multi-rel :rect isa :shape)))))
+    (should (multi--set-equal? '(:rect :shape :square) (ht-keys (multi-hierarchy (multi-rel :square isa :rect)))))
+    (should (member :shape (multi-global-hierarchy :rect :parents)))
+    (should (member :rect (multi-global-hierarchy :square :parents)))
+    (should (member :square (multi-global-hierarchy :rect :children)))))
 
 
 (ert-deftest multi-test-ancestors-descendants ()
@@ -318,14 +335,14 @@ message prefix matches PREFIX"
   (eval
    ;; NOTICE that we must `quote' the form for this to work!!!
    '(multi-test (bar)
-      (let ((hierarchy (ht)))
+      (let ((hierarchy (make-multi-hierarchy)))
         ;; override :rect rel in custom hierarchy
         (multi-rel :rect isa :parallelogram in hierarchy)
         (multi-rel :square isa :rect in hierarchy)
         ;; define multi-dispatch over the custom hierarchy
         (multi bar #'identity :in hierarchy)
         (multimethod bar (a) :when :parallelogram :parallelogram)
-        (let ((hierarchy (ht)))
+        (let ((hierarchy (make-multi-hierarchy)))
           (multi-rel :rect isa :shape in hierarchy)
           (multi-rel :square isa :rect in hierarchy)
           ;; Method calls should still use custom hierarchy, so that :rect and
@@ -461,9 +478,9 @@ message prefix matches PREFIX"
      (expect '(:rect :shape)         set= (ht-keys (multi-rel :rect isa :shape)))
      (expect '(:rect :shape :square) set= (ht-keys (multi-rel :square isa :rect)))
 
-     (expect :shape  member (ht-get* (multi-global-hierarchy) :rect :parents))
-     (expect :rect   member (ht-get* (multi-global-hierarchy) :square :parents))
-     (expect :square member (ht-get* (multi-global-hierarchy) :rect :children))))
+     (expect :shape  member (multi-global-hierarchy :rect :parents))
+     (expect :rect   member (multi-global-hierarchy :square :parents))
+     (expect :square member (multi-global-hierarchy :rect :children))))
 
 
  (ert-deftest multi-test-relationships ()
