@@ -460,7 +460,7 @@ global hierarchy"
 HIERARCHY are optional. HIERARCHY if not supplied defaults to the
 global hierarchy.
 
-May be called according to one the following signatures:
+May be called according to one of the following signatures:
 
   (multi name argvector &optional docstring :in hierarchy body...)
   (multi name function &optional docstring :in hierarchy)
@@ -528,8 +528,11 @@ a function.
                  (method  (cdar methods)))
             (unless (null (cdr methods))
               (multi-error
-               "multiple methods match dispatch value %s for dispatch %s"
-               val ',fun))
+               "multiple methods match dispatch value %s for dispatch %s:\n%s\n%s"
+               val ',fun (string-join
+                          (mapcar (fn ((VAL . _)) (format "  %s :isa %s" val VAL)) methods)
+                          "\n")
+               "and neither is preferred"))
             (apply method args)))
 
         ;; set fun value slot to return its quoted form, this lets us pass fun
