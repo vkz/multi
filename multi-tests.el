@@ -315,9 +315,13 @@ message prefix matches PREFIX"
     (multi-rel :rect isa :shape)
     (multi-rel :square isa :rect)
     (multi-rel :square isa :parallelogram)
+
     (multi foo #'identity)
     (multimethod foo (a) :when :square :square)
     (multimethod foo (a) :when :shape :shape)
+
+    ;; catch malformed arglist in `multi-rel' call
+    (should (multi--error-match "in multi-rel malformed arglist" (multi-rel :foo :bar)))
 
     ;; signal ambiguous methods
     (should (multi--error-match "multiple methods" (foo :square)))
@@ -326,13 +330,13 @@ message prefix matches PREFIX"
     (should (multi--error-match "no multimethods match" (foo :triangle)))
 
     ;; catch cycle relationships
-    (should (multi--error-match "cycle relationship" (multi-rel :shape isa :square)))
+    (should (multi--error-match "in multi-rel cycle relationship" (multi-rel :shape isa :square)))
 
     ;; catch malformed arglist in `multi' call
-    (should (multi--error-match "malformed arglist" (multi bar :val [a b])))
+    (should (multi--error-match "in multi malformed arglist" (multi bar :val [a b])))
 
     ;; catch malformed arglist in `multimethod' call
-    (should (multi--error-match "malformed arglist" (multimethod bar :val [a b])))))
+    (should (multi--error-match "in multimethod malformed arglist" (multimethod bar :val [a b])))))
 
 
 (ert-deftest multi-test-custom-hierarchy ()

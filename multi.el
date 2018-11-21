@@ -180,7 +180,7 @@ May be called according to one the following signatures:
                    `(setf (multi--methods ',fun-symbol ,@keys) ,val))
 
                   (otherwise
-                   `(multi-error "malformed arglist at %s" '(,@args)))))))
+                   `(multi-error "in multi-methods malformed arglist at %s" ',args))))))
   ;; parse args
   (pcase args
     ;; (multi-methods :for 'fun :matching val)
@@ -211,7 +211,7 @@ May be called according to one the following signatures:
      (apply #'multi--methods fun-symbol keys))
 
     (otherwise
-     (multi-error "malformed arglist at %s" args))))
+     (multi-error "in multi-methods malformed arglist at %s" args))))
 
 
 ;;* Hierarchies --------------------------------------------------- *;;
@@ -235,21 +235,24 @@ the global hierarchy.
 
 \(fn child :isa parent &optional :in hierarchy)"
   (destructuring-bind
-      (child parent hierarchy)
-      ;; TODO report malformed arglist the last pcase
+      (err child parent hierarchy)
       (pcase args
-        (`(,child ,(or 'isa :isa) ,parent) (list child parent nil))
-        (`(,child ,(or 'isa :isa) ,parent ,(or 'in :in) ,hierarchy) (list child parent hierarchy)))
-    (let ((hierarchy (or hierarchy 'multi-global-hierarchy)))
-      `(progn
-         (let ((child ,child)
-               (parent ,parent))
-           (when (multi--cycle? ,child ,parent ,hierarchy)
-             (multi-error "cycle relationship between %s and %s "
-                          ,child ,parent))
-           (pushnew ,parent (multi-hierarchy ,hierarchy ,child :parents))
-           (pushnew ,child (multi-hierarchy ,hierarchy  ,parent :children))
-           ,hierarchy)))))
+        (`(,child ,(or 'isa :isa) ,parent) (list nil child parent nil))
+        (`(,child ,(or 'isa :isa) ,parent ,(or 'in :in) ,hierarchy) (list nil child parent hierarchy))
+        (otherwise
+         (list `(multi-error "in multi-rel malformed arglist at %s" ',args) nil nil nil)))
+    (or
+     err
+     (let ((hierarchy (or hierarchy 'multi-global-hierarchy)))
+       `(progn
+          (let ((child ,child)
+                (parent ,parent))
+            (when (multi--cycle? ,child ,parent ,hierarchy)
+              (multi-error "in multi-rel cycle relationship between %s and %s "
+                           ,child ,parent))
+            (pushnew ,parent (multi-hierarchy ,hierarchy ,child :parents))
+            (pushnew ,child (multi-hierarchy ,hierarchy  ,parent :children))
+            ,hierarchy))))))
 
 
 (defun ormap (pred lst)
@@ -374,7 +377,7 @@ global hierarchy"
   (pcase patterns
     (`(,id :if ,predicate) `(and ,id (pred ,predicate)))
     (otherwise
-     (multi-error "malformed pcase multi pattern"))))
+     `(multi-error "malformed pcase multi pattern"))))
 
 
 (example
@@ -479,7 +482,7 @@ a function.
          ;; would catch it, because IIUC it only traps runtime but we throw at
          ;; macro expansion, so instead I need to generate code that throws.
          ;; Wonder if there is a way to trap compile time errors?
-         (list `(multi-error "malformed arglist at %s" ',args) nil nil nil)))
+         (list `(multi-error "in multi malformed arglist at %s" ',args) nil nil nil)))
     (or
      err
      `(progn
@@ -568,7 +571,7 @@ Lisp conventions.
           ;; TODO invalidate multi-methods cache
           )))
     (otherwise
-     `(multi-error "malformed arglist at %s" ',args))))
+     `(multi-error "in multimethod malformed arglist at %s" ',args))))
 
 
 ;;* Playground ---------------------------------------------------- *;;
