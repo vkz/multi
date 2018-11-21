@@ -2,8 +2,25 @@
 
 (require 'cl)
 
-;; TODO when reporting errors include function or macro name that thrown e.g. "in
-;; multi-methods malformed arglist ..."
+;; TODO parsing all those defun args has become very tedious. I almost wish I
+;; didn't insist on optional keyword args so much. Bulk of the code here does this
+;; nonsence. Should drop this and go with the flow, or does Elisp has some hidden
+;; way of dealing with them? Or maybe my patterns are repetitive enough that I
+;; could abstract them into a macro?
+
+;; TODO Instead of poluting symbol slots maybe I should have a multi struct. This
+;; may make code quite a bit cleaner
+;;
+;;   (defstruct multi
+;;     (methods (ht))
+;;     default
+;;     dispatch)
+;;
+;; I'll have to overload multi-methods accessor function so it can do what current
+;; `multi-methods' can do. One interesting aspect is that the value of foo then
+;; becomes a struct and predicate (multi-p foo) works as expected, this however
+;; necessitates passing quoted foo where expected, but we could work around this
+;; by adding an extra :name or :id or :symbol slot, what would carry 'foo.
 
 ;; TODO dispatch cache
 
@@ -164,7 +181,7 @@ multi-methods hash-table of FUN-SYM or the value nested in that
 table if the sequence of KEYS is supplied. The form is
 `setf'-able.
 
-May be called according to one the following signatures:
+May be called according to one of the following signatures:
 
   (multi-methods :for fun-sym :matching val &optional :in hierarchy)
   (multi-methods fun-sym &rest keys)
@@ -176,8 +193,14 @@ May be called according to one the following signatures:
    (gv-setter (lambda (val)
                 (message "%s" args)
                 (pcase args
+
+                  ;; (setf (multi-methods 'foo &rest keys) val)
                   (`((quote ,(multi fun-symbol :if symbolp)) . ,keys)
                    `(setf (multi--methods ',fun-symbol ,@keys) ,val))
+
+                  ;; (setf (multi-methods foo &rest keys) val)
+                  (`(,(multi fun-symbol :if symbolp) . ,keys)
+                   `(setf (multi--methods ,fun-symbol ,@keys) ,val))
 
                   (otherwise
                    `(multi-error "in multi-methods malformed arglist at %s" ',args))))))
@@ -502,6 +525,10 @@ a function.
                "multiple methods match dispatch value %s for dispatch %s"
                val ',fun))
             (apply method args)))
+
+        ;; set fun value slot to return its quoted form, this lets us pass fun
+        ;; around as value and still not break functions that expect a symbol
+        (setf ,fun ',fun)
 
         ;; reset dispatch prop to the dispatch function
         (setf (get ',fun :multi-dispatch) ,dispatch)
