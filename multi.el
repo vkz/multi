@@ -237,6 +237,12 @@ May be called according to one of the following signatures:
      (multi-error "in multi-methods malformed arglist at %s" args))))
 
 
+;; NOTE this naming `multi-methods-remove' becomes more consistent if or when we
+;; allow :before :after :around methods
+(defun multi-methods-remove (fun dispatch-value)
+  "Removes the multimethod FUN associated with DISPATCH-VALUE."
+  (ht-remove! (multi-methods fun) dispatch-value))
+
 ;;* Hierarchies --------------------------------------------------- *;;
 
 

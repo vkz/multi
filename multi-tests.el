@@ -218,10 +218,9 @@ message prefix matches PREFIX"
     ;; methods must be functions
     (should (cl-every #'functionp (ht-values (multi-methods 'foo))))
 
-    ;; TODO `multi-remove-method'
-    ;; (multi-remove-method 'foo :a)
-    ;; (should (multi--set-equal? '(:default) (mapcar #'car (multi-methods :for 'foo :matching :a))))
-    ))
+    ;; removing a method should work
+    (multi-methods-remove foo :a)
+    (should (multi--set-equal? '(:default) (mapcar #'car (multi-methods :for 'foo :matching :a))))))
 
 
 (ert-deftest multi-test-equality-dispatch ()
@@ -295,14 +294,9 @@ message prefix matches PREFIX"
     (multimethod foo (x) :when :c :c)
     (should (equal :c (foo :c)))
 
-    ;; TODO removing custom :default should restore pre-installed :default
-    ;; (multi-remove-method 'foo :default)
-    ;; (should (multi--error-match "no multimethods match" (foo :d)))
-
-    ;; TODO back to :default when removed
-    ;; (multi-remove-method 'foo :c)
-    ;; (should (equal :default (foo :c)))
-    ))
+    ;; removing custom :default should restore pre-installed :default
+    (multi-methods-remove 'foo :default)
+    (should (multi--error-match "no multimethods match" (foo :d)))))
 
 
 (ert-deftest multi-test-errors ()
@@ -554,10 +548,9 @@ message prefix matches PREFIX"
      ;; methods must be functions
      (expect #'functionp cl-every (ht-values (multi-methods 'foo)))
 
-     ;; TODO `multi-remove-method'
-     ;; (multi-remove-method 'foo :a)
-     ;; (should (multi--set-equal? '(:default) (mapcar #'car (multi-methods :for 'foo :matching :a))))
-     ))
+     ;; removing a multimethod should work
+     (multi-methods-remove 'foo :a)
+     (should (multi--set-equal? '(:default) (mapcar #'car (multi-methods :for 'foo :matching :a))))))
 
 
  (ert-deftest multi-test-equality-dispatch ()
@@ -573,9 +566,8 @@ message prefix matches PREFIX"
      ;; no :default when installed
      (expect :c       equal (too :c) :after (multimethod foo (x) :when :c :c))
 
-     ;; TODO back to :default when removed
-     ;; (expect :default equal (foo :c) :after (multi-remove-method 'foo :c))
-     ))
+     ;; back to :default when removed
+     (expect :default equal (foo :c) :after (multi-methods-remove 'foo :c))))
 
 
  (ert-deftest multi-test-isa-dispatch ()
