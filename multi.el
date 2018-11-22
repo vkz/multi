@@ -30,10 +30,6 @@
 
 ;; TODO Create Makefile (stick to ANSI make): ert batch test, measure perf
 
-;; TODO Implement `prefer-method' for disambiguation
-
-;; TODO Implement `remove-method'
-
 ;; TODO Consider storing hierarchies the way Clojure does it. IMO benefit is that
 ;; descendants are precalculated. Anything else?
 ;;   {:parents     {:rect #{:shape}}
@@ -106,6 +102,8 @@ exactly like `error'
 
 
 (defstruct multi-hierarchy
+  ;; TODO should this be an UUID or gensym is enough to avoid collisions?
+  (id (gensym "multi-hierarchy"))
   (table (ht))
   (cache (ht)))
 
@@ -241,6 +239,109 @@ May be called according to one of the following signatures:
 (defun multi-methods-remove (fun dispatch-value)
   "Removes the multimethod FUN associated with DISPATCH-VALUE."
   (ht-remove! (multi-methods fun) dispatch-value))
+
+
+;; TODO make hierarchy optional defaulting to the global hierarchy
+(defun multi-prefers (fun hierarchy &rest keys)
+  "Returns a table of (preferred value :over set of other values)
+in the hierarchy. If VAL supplied returns just tha set of other
+values over which VAL is preferred. This form is `setf'-able.
+
+\(multi-prefers fun hierarchy &optional val)"
+  (declare
+   (gv-setter (lambda (val)
+                (if (cdr keys)
+                    `(multi-error "in multi-prefers malformed arglist expected no more than one key, given %s" ',keys)
+                  `(setf (ht-get* (get ,fun :multi-prefers) (multi-hierarchy-id ,hierarchy) ,@keys) ,val)))))
+  (if (cdr keys)
+      ;; expect no more than one argument (VAL to prefer over others)
+      (multi-error "in multi-prefers malformed arglist expected no more than one key, given %s" keys)
+    ;; return list of values over which (car keys) is preferred in hierarchy, or
+    ;; the entire prefers table for hierarchy if no keys supplied
+    (apply #'ht-get* (get fun :multi-prefers) (multi-hierarchy-id hierarchy) keys)))
+
+
+(defun multi-prefer (fun &rest args)
+  "Causes the multimethod FUN to prefer matches of dispatch VAL-X
+over dispatch VAL-Y when there is a conflict.
+
+May be called according to one of the following signatures:
+
+  (multi-prefer foo val-x :to val-y &optional :in hierarchy)
+  (multi-prefer foo val-x val-y &optional :in hierarchy)
+
+\(multi-prefer foo val-x :over val-y &optional :in hierarchy)"
+  (destructuring-bind
+      (x y hierarchy)
+      (pcase args
+
+        ;; (multi-prefer foo x :over y :in hierarchy)
+        (`(,x ,(or :over :to) ,y . ,(or `(:in ,hierarchy) '()))
+         (list x y (or hierarchy multi-global-hierarchy)))
+
+        ;; (multi-prefer foo x y :in hierarchy)
+        (`(,x ,y . ,(or `(:in ,hierarchy) '()))
+         (list x y (or hierarchy multi-global-hierarchy)))
+
+        (otherwise
+         (multi-error "in multi-prefer malformed arglist at %s" args)))
+    (pushnew y (multi-prefers fun hierarchy x))
+    ;; (pushnew y (ht-get* (get fun :multi-prefers) (multi-hierarchy-id hierarchy) x))
+    ))
+
+
+;; TODO We don't really need to implement `multi-prefers-remove' because we've
+;; already made `multi-prefers' `setf'-able, so the following should work:
+;;
+;; (setf (multi-prefers foo hierachy [:rect :shape]) '(some-values)
+;; (ht-remove! (multi-prefers foo hierachy) [:rect :shape])
+;;
+;; Does providing `multi-prefers-remove' make things more consistent? I should
+;; make a note about removing prefers in documentation regardless.
+
+
+(defun multi-prefers-remove (fun &rest args)
+  "Causes the multimethod FUN to not prefer matches of dispatch
+VAL-X over dispatch VAL-Y when there is a conflict. If VAL-Y not
+supplied removes all prefers for VAL-X. If HIERARCHY not supplied
+defaults to the global hierarchy.
+
+May be called according to one of the following signatures:
+
+  (multi-prefers-remove foo val-x :to val-y &optional :in hierarchy)
+  (multi-prefers-remove foo val-x val-y &optional :in hierarchy)
+  (multi-prefers-remove foo val-x &optional :in hierarchy)
+  (multi-prefers-remove foo &optional :in hierarchy)
+
+\(multi-prefers-remove foo val-x :over val-y &optional :in hierarchy)"
+  (pcase args
+
+    ;; TODO fml matching order here matters! If we reorder earlier cases may fire.
+    ;; This adds complexity that I don't like. Do I really want to offer this
+    ;; calling freedom?
+
+    ;; (multi-prefers-remove foo &optional :in hierarchy)
+    ((or `(:in ,hierarchy) `())
+     (setf (multi-prefers fun (or hierarchy multi-global-hierarchy)) (ht)))
+
+    ;; (multi-prefers-remove foo x :over y &optional :in hierarchy)
+    (`(,x ,(or :over :to) ,y . ,(or `(:in ,hierarchy) '()))
+     ;; remove just the Y value from X's prefers
+     (cl-callf2 remove y (multi-prefers fun (or hierarchy multi-global-hierarchy) x)))
+
+    ;; (multi-prefers-remove foo x &optional :in hierarchy)
+    (`(,x . ,(or `(:in ,hierarchy) '()))
+     ;; remove all prefers for X
+     (ht-remove! (multi-prefers fun (or hierarchy multi-global-hierarchy)) x))
+
+    ;; (multi-prefers-remove foo x y &optional :in hierarchy)
+    (`(,x ,y . ,(or `(:in ,hierarchy) '()))
+     ;; remove just the Y value from X's prefers
+     (cl-callf2 remove y (multi-prefers fun (or hierarchy multi-global-hierarchy) x)))
+
+    (otherwise
+     (multi-error "in multi-prefers-remove malformed arglist at %s" args))))
+
 
 ;;* Hierarchies --------------------------------------------------- *;;
 
@@ -543,6 +644,10 @@ a function.
 
         ;; reset multi-methods prop to a fresh table with :default pre-installed
         (setf (get ',fun :multi-methods) (ht))
+
+        ;; reset multi-prefers prop to a fresh table
+        (setf (get ',fun :multi-prefers) (ht))
+        (setf (multi-prefers ',fun ,hierarchy) (ht))
 
         ;; pre-install default method
         (setf (get ',fun :multi-default)

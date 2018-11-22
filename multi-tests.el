@@ -119,6 +119,7 @@ message prefix matches PREFIX"
     ;; hierarchy is a struct that stores relationships in a table
     (let ((h (make-multi-hierarchy)))
       (should (multi-hierarchy-p h))
+      (should (symbolp (multi-hierarchy-id h)))
 
       ;; nested table values must be settable
       (setf (multi-hierarchy h :rect :parents) '(:shape))
@@ -259,18 +260,42 @@ message prefix matches PREFIX"
     (multimethod bar (x y) :when [:rect :shape] :rect-shape)
     (multimethod bar (x y) :when [:shape :rect] :shape-rect)
 
+    ;; since no val is preferred, we start with an empty prefers table
+    (should (ht-empty? (multi-prefers bar multi-global-hierarchy)))
+
+    ;; and therefore report error when unable to choose a method
     (should (multi--error-match "multiple methods" (bar :rect :rect)))
 
-    ;; TODO `multi-prefer'
-    ;; The prefers method returns empty table w/ no prefs
-    ;; (should (null (multi-prefers bar)))
-    ;; Adding a preference to resolve it dispatches correctly
-    ;; (multi-prefer bar [:rect :shape] :to [:shape :rect])
-    ;; or
-    ;; (multi-prefer bar [:rect :shape] :over [:shape :rect])
+    ;; we should be able to register a prefer
+    (multi-prefer 'bar [:rect :shape] :over [:shape :rect])
+    (should (multi--set-equal?
+             '([:shape :rect])
+             (multi-prefers bar multi-global-hierarchy [:rect :shape])))
+
+    ;; TODO and the registered prefer should resolve the ambiguity
     ;; (should (equal :rect-shape (bar :rect :rect)))
-    ;; The prefers method now returns the correct table
-    ;; (should (equal (ht ([:rect :shape] '([:shape :rect]))) (multi-prefers bar)))
+
+    ;; we should be able to register more than one prefer for the same value
+    (multi-prefer 'bar [:rect :shape] :over [:parallelogram :rect])
+    (should (multi--set-equal?
+             '([:shape :rect] [:parallelogram :rect])
+             (multi-prefers bar multi-global-hierarchy [:rect :shape])))
+
+    ;; we should be able to remove a prefer
+    (multi-prefers-remove bar [:rect :shape] :over [:parallelogram :rect])
+    (should (multi--set-equal?
+             '([:shape :rect])
+             (multi-prefers bar multi-global-hierarchy [:rect :shape])))
+
+    ;; we should be able to remove all prefers for a value
+    (multi-prefers-remove bar [:rect :shape])
+    (should-not (multi-prefers bar multi-global-hierarchy [:rect :shape]))
+
+    ;; we should be able to remove all registered prefers
+    (multi-prefers-remove bar :in multi-global-hierarchy)
+    (should (ht-empty? (multi-prefers bar multi-global-hierarchy)))
+
+    ;; TODO Maybe test the above with a custom hierarchy
     ))
 
 
