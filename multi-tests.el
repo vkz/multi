@@ -77,9 +77,8 @@ message prefix matches PREFIX"
     (multi-error
      "in multi--set-equal? expected list arguments, but got %s and %s"
      s1 s2))
-  (and (null (cl-set-difference s1 s2))
-       (null (cl-set-difference s2 s1))))
-
+  (and (null (cl-set-difference s1 s2 :test #'equal))
+       (null (cl-set-difference s2 s1 :test #'equal))))
 
 (example
  (multi--set-equal? (list 1 2 3) (list 3 2 1))
@@ -93,8 +92,7 @@ message prefix matches PREFIX"
 
 
 (ert-deftest multi-test-implementation-details ()
-  "Low-level implementation details should work until
-  implementation changes"
+  "Low-level implementation details should work until implementation changes"
   (multi-test (foo)
 
     ;; store multi-methods table on the symbol

@@ -191,7 +191,6 @@ May be called according to one of the following signatures:
 \(fn :for fun-sym :matching val &optional :in hierarchy)"
   (declare
    (gv-setter (lambda (val)
-                (message "%s" args)
                 (pcase args
 
                   ;; (setf (multi-methods 'foo &rest keys) val)
