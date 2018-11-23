@@ -267,6 +267,32 @@ values over which VAL is preferred. This form is `setf'-able.
     (apply #'ht-get* (get fun :multi-prefers) (multi-hierarchy-id hierarchy) keys)))
 
 
+;; TODO is this code correct?
+(defun multi--preference-cycle? (item parent fun &optional hierarchy)
+  "Checks if ITEM prefer over PARENT would form a cycle were the
+relationship added the multi-prefers of FUN assuming HIERARCHY
+and return that cycle. If HIERARCHY not supplied defaults to the
+global hierarchy"
+  (default hierarchy :to multi-global-hierarchy)
+  (if (equal item parent)
+      (list parent)
+    (when-let ((cycle (some
+                       (lambda (ancestor) (multi--preference-cycle? item ancestor fun hierarchy))
+                       (multi-prefers fun hierarchy parent))))
+      (cons parent cycle))))
+
+
+(comment
+ (multi-test (baz)
+   (multi baz #'identity)
+   (multi-prefer 'baz [:rect :shape] :over [:shape :rect])
+   (multi-prefer 'baz [:shape :rect] :over [:parallelogram :rect])
+   ;; (multi-prefer 'baz [:parallelogram :rect] :over [:rect :shape])
+   (multi--preference-cycle? [:parallelogram :rect] [:rect :shape] 'baz multi-global-hierarchy))
+ ;; comment
+ )
+
+
 (defun multi-prefer (fun &rest args)
   "Causes the multimethod FUN to prefer matches of dispatch VAL-X
 over dispatch VAL-Y when there is a conflict.
@@ -291,9 +317,14 @@ May be called according to one of the following signatures:
 
         (otherwise
          (multi-error "in multi-prefer malformed arglist at %s" args)))
-    (pushnew y (multi-prefers fun hierarchy x))
-    ;; (pushnew y (ht-get* (get fun :multi-prefers) (multi-hierarchy-id hierarchy) x))
-    ))
+
+    ;; installing the preference mustn't create a cycle in multi-prefers
+    (when-let ((cycle (multi--preference-cycle? x y fun hierarchy)))
+      (multi-error "in multi-prefer cyclic preference %s over %s would form a cycle %s"
+                   x y cycle))
+
+    ;; install the preference x :over y
+    (pushnew y (multi-prefers fun hierarchy x))))
 
 
 ;; TODO We don't really need to implement `multi-prefers-remove' because we've
@@ -352,12 +383,14 @@ May be called according to one of the following signatures:
 ;;* Hierarchies --------------------------------------------------- *;;
 
 
+;; TODO accumulate path so we can report the actual cycle
 (defun multi--cycle? (item parent &optional hierarchy)
   "Checks if ITEM and would be PARENT would form a cycle were the
 relationship added to the HIERARCHY. If HIERARCHY not supplied
 defaults to the global hierarchy"
   (default hierarchy :to multi-global-hierarchy)
   (or (equal item parent)
+      ;; TODO is ormap the same as the built-in `some'?
       (ormap
        (lambda (ancestor) (multi--cycle? item ancestor hierarchy))
        (multi-hierarchy hierarchy parent :parents))))
@@ -561,6 +594,53 @@ global hierarchy"
 ;; At the very minimum I should make a note of this gotcha in documentation.
 
 
+(defun multi--select-preferred (fun methods hierarchy dispatch-val)
+  "Narrows METHODS matching DISPATCH-VAL down to a single method
+based on preferences registered for multidispatch FUN and
+HIERARCHY. Returns that method or signals an error."
+  (if (= (ht-size methods) 1)
+
+      ;; just one method, no ambiguity
+      (car (ht-values methods))
+
+    ;; multiple methods matching dispatch-val, use preferences to resolve
+    (let* ((prefers (multi-prefers fun hierarchy))
+
+           ;; for all keys in methods collect all values they prefer away
+           (filter-set (seq-mapcat (lambda (val) (ht-get prefers val)) (ht-keys methods)))
+
+           ;; trimp methods by removing all entries with keys in the filter-set
+           (preferred (ht-reject (lambda (k v) (member k filter-set)) methods))
+
+           ;; size is one of 0, 1, 2...
+           (size (ht-size preferred)))
+      (cond
+       ;; one method wins, return it
+       ((= size 1)
+        (car (ht-values preferred)))
+
+       ;; more than one method remains
+       ((> size 1)
+        (multi-error
+         "multiple methods match dispatch value %s for dispatch %s:\n%s\n%s"
+         dispatch-val fun
+         (string-join
+          (ht-map (fn (VAL _) (format "  %s :isa %s" dispatch-val VAL)) preferred)
+          "\n")
+         "and neither is preferred"))
+
+       ;; no methods at all can only ever happen if the user managed to register
+       ;; preferences that are mutually inconsitent i.e. create a cycle. If this
+       ;; ever happens, our `multi--preference-cycle?' must be buggy.
+       ((= size 0)
+        (multi-error
+         (string-join
+          (list "inconsintency in registered multi-prefers unable to prefer any of" "  %s"
+           "with registered preferences" "  %s") "\n")
+         (ht-keys methods)
+         prefers))))))
+
+
 (defmacro multi (fun &rest args)
   "Creates a new multimethod dispatch function. The DOCSTRING and
 HIERARCHY are optional. HIERARCHY if not supplied defaults to the
@@ -625,20 +705,12 @@ a function.
         ;; check if lexical binding is enabled
         (multi-lexical-binding)
 
+        ;; create a dispatch function
         (defun ,fun (&rest args)
           ,doc
           (let* ((val     (apply (get ',fun :multi-dispatch) args))
                  (methods (multi-methods :for ',fun :matching val :in ,hierarchy))
-                 ;; => ((VAL . method) ...)
-                 ;; TODO Choose method with prefer method instead of cdar here
-                 (method  (cdar methods)))
-            (unless (null (cdr methods))
-              (multi-error
-               "multiple methods match dispatch value %s for dispatch %s:\n%s\n%s"
-               val ',fun (string-join
-                          (mapcar (fn ((VAL . _)) (format "  %s :isa %s" val VAL)) methods)
-                          "\n")
-               "and neither is preferred"))
+                 (method  (multi--select-preferred ',fun methods ,hierarchy val)))
             (apply method args)))
 
         ;; set fun value slot to return its quoted form, this lets us pass fun

@@ -272,20 +272,23 @@ message prefix matches PREFIX"
              '([:shape :rect])
              (multi-prefers bar multi-global-hierarchy [:rect :shape])))
 
-    ;; TODO and the registered prefer should resolve the ambiguity
-    ;; (should (equal :rect-shape (bar :rect :rect)))
-
     ;; we should be able to register more than one prefer for the same value
     (multi-prefer 'bar [:rect :shape] :over [:parallelogram :rect])
     (should (multi--set-equal?
              '([:shape :rect] [:parallelogram :rect])
              (multi-prefers bar multi-global-hierarchy [:rect :shape])))
 
+    ;; and the registered prefers should resolve the ambiguity
+    (should (equal :rect-shape (bar :rect :rect)))
+
     ;; we should be able to remove a prefer
-    (multi-prefers-remove bar [:rect :shape] :over [:parallelogram :rect])
+    (multi-prefers-remove bar [:rect :shape] :over [:shape :rect])
     (should (multi--set-equal?
-             '([:shape :rect])
+             '([:parallelogram :rect])
              (multi-prefers bar multi-global-hierarchy [:rect :shape])))
+
+    ;; and go back to ambiguity
+    (should (multi--error-match "multiple methods" (bar :rect :rect)))
 
     ;; we should be able to remove all prefers for a value
     (multi-prefers-remove bar [:rect :shape])
@@ -294,6 +297,12 @@ message prefix matches PREFIX"
     ;; we should be able to remove all registered prefers
     (multi-prefers-remove bar :in multi-global-hierarchy)
     (should (ht-empty? (multi-prefers bar multi-global-hierarchy)))
+
+    ;; inconsintent preferences shouldn't make it into multi-prefers
+    (multi-prefer 'bar [:rect :shape] :over [:shape :rect])
+    (multi-prefer 'bar [:shape :rect] :over [:parallelogram :rect])
+    (multi--error-match "in multi-prefer cyclic preference "
+                        (multi-prefer 'bar [:parallelogram :rect] :over [:rect :shape]))
 
     ;; TODO Maybe test the above with a custom hierarchy
     ))
