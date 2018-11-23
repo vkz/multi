@@ -204,22 +204,22 @@ message prefix matches PREFIX"
     (should (multi--set-equal? '(:a :b) (ht-keys (multi-methods 'foo))))
 
     ;; one method for every match
-    (should (multi--set-equal? '(:a) (mapcar #'car (multi-methods :for 'foo :matching :a))))
-    (should (multi--set-equal? '(:b) (mapcar #'car (multi-methods :for 'foo :matching :b))))
+    (should (multi--set-equal? '(:a) (ht-keys (multi-methods :for 'foo :matching :a))))
+    (should (multi--set-equal? '(:b) (ht-keys (multi-methods :for 'foo :matching :b))))
 
     ;; :default method when no match installed
-    (should (multi--set-equal? '(:default) (mapcar #'car (multi-methods :for 'foo :matching :c))))
+    (should (multi--set-equal? '(:default) (ht-keys (multi-methods :for 'foo :matching :c))))
 
     ;; but no longer :default when installed
     (multimethod foo (x) :when :c :c)
-    (should (multi--set-equal? '(:c) (mapcar #'car (multi-methods :for 'foo :matching :c))))
+    (should (multi--set-equal? '(:c) (ht-keys (multi-methods :for 'foo :matching :c))))
 
     ;; methods must be functions
     (should (cl-every #'functionp (ht-values (multi-methods 'foo))))
 
     ;; removing a method should work
     (multi-methods-remove foo :a)
-    (should (multi--set-equal? '(:default) (mapcar #'car (multi-methods :for 'foo :matching :a))))))
+    (should (multi--set-equal? '(:default) (ht-keys (multi-methods :for 'foo :matching :a))))))
 
 
 (ert-deftest multi-test-equality-dispatch ()

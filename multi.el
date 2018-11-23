@@ -59,7 +59,13 @@
 ;; (if (multi-rel y parent-of? x) do stuff) or define (multi-rel? ...)?
 
 ;; TODO How hard would it be to add body from (example foo body) forms to the
-;; docstring of 'foo?
+;; docstring of 'foo? Might be worth implementing something like:
+;;
+;;   (defun/example foo (&rest args)
+;;     :doc "docstring"
+;;     :example (example that runs whenever defun is evaled
+;;                       and its stringified copy appended to docstring)
+;;     body)
 
 
 ;;* Errors -------------------------------------------------------- *;;
@@ -167,24 +173,23 @@ This form is `setf'-able."
 
 
 (defun multi-methods (&rest args)
-  "When called with :for and :matching keywords returns an alist
-of (VALUE . method) pairs where (multi-isa? VAL VALUE)
-relationship holds. If no such pairs exist returns an alist of
-one (:default . default-method), where default-method is either a
-custom user-installed or the pre-installed one. If HIERARCHY not
-supplied defaults to the global hierarchy.
+  "Returns a hash-table of FUN-SYM multimethods, where each entry
+is a (value . method) pair.
+
+When called with :for and :matching keywords limits the table to
+pairs where (multi-isa? VAL value) relationship holds or
+the (:default . method) if none match. If HIERARCHY not supplied
+defaults to the global hierarchy.
 
 When called without :for and :matching keywords returns the
-multi-methods hash-table of FUN-SYM or the value nested in that
-table if the sequence of KEYS is supplied. The form is
-`setf'-able.
+entire table or the value nested in it if the sequence of KEYS is
+supplied. This form is `setf'-able.
 
 May be called according to one of the following signatures:
 
   (multi-methods :for fun-sym :matching val &optional :in hierarchy)
   (multi-methods fun-sym &rest keys)
   (setf (multi-methods fun-sym &rest keys) val)
-
 
 \(fn :for fun-sym :matching val &optional :in hierarchy)"
   (declare
@@ -209,21 +214,22 @@ May be called according to one of the following signatures:
 
     ;; (multi-methods :for 'fun :matching val :in hierarchy)
     (`(:for ,fun :matching ,val :in ,hierarchy)
-     (let* ((multi-methods (get fun :multi-methods))
+     (let* ((multi-methods
+             (get fun :multi-methods))
+
             (methods
-             (-non-nil
-              (ht-map
-               (fn (VAL method)
-                 (and (multi-isa? val VAL hierarchy)
-                      (cons VAL method)))
-               multi-methods)))
+             (ht-select (fn (VAL _) (multi-isa? val VAL hierarchy)) multi-methods))
+
+            (methods
+             (unless (ht-empty? methods) methods))
+
             (default-method
               (unless methods
-                (list
+                (ht
                  ;; Use custom :default if installed, fallback to the
                  ;; pre-installed default method otherwise
-                 (cons :default (or (ht-get* multi-methods :default)
-                                    (get fun :multi-default)))))))
+                 (:default (or (ht-get* multi-methods :default)
+                               (get fun :multi-default)))))))
        (or methods default-method)))
 
     ;; (multi-methods 'fun :rect)
