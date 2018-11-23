@@ -32,9 +32,61 @@
 
 ;; TODO Consider storing hierarchies the way Clojure does it. IMO benefit is that
 ;; descendants are precalculated. Anything else?
+;;
 ;;   {:parents     {:rect #{:shape}}
 ;;    :ancestors   {:rect #{shape}}
 ;;    :descendants {:shape #{rect}}}
+;;
+;; Aha, this is very clever! Both multi-prefer :over and multi-isa :isa relations
+;; would benefit from storing descendants and ancestors. Both have essentially the
+;; above structure and can be thought of in terms of :parents :ancestors
+;; :descendants. Access to :descendants or :ancestors makes checking for cycle
+;; trivial e.g. for prefers:
+;;
+;; Essentially installing an a-prefer amounts to these relationships:
+;; #{a's descendants} :over a :over #{a's ancestors}
+;;
+;; Registering b :over c would require a simple check:
+;;
+;;   not (c :over b)
+;;
+;; or equivalently
+;;
+;;   not (b is c's ancestor)
+;;   not (c is b's descendant)
+;;
+;; or in our notation
+;;
+;;   (not (member b (multi-prefers fun hierarchy c :ancestors)))
+;;   (not (member c (multi-prefers fun hierarchy b :descendants)))
+;;
+;; since ancestor and descendant relations imply one another, just keeping track
+;; of :ancestors and having just one of the above checks should suffice. So with a
+;; bit of redundancy our structs should be something like:
+;;
+;; Prefers:
+;;   (ht
+;;    ;; :parents
+;;    (:over (set))
+;;    ;; :ancestors
+;;    (:transitive-closure-over (set))
+;;    ;; :children
+;;    (:below (set))
+;;    ;; :descendants
+;;    (:transitive-closure-below (set)))
+;;
+;; Hierarchy:
+;;   (ht
+;;    (:parents (set))
+;;    ;; transitive closure of parents
+;;    (:ancestors (set))
+;;    ;; :children
+;;    (:children (set))
+;;    ;; transitive closure of children
+;;    (:descendants (set)))
+;;
+;; The right data-structure does make code simpler!
+
 
 ;; Extras
 ;; --------
