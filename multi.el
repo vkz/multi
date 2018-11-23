@@ -65,25 +65,18 @@
 ;; bit of redundancy our structs should be something like:
 ;;
 ;; Prefers:
-;;   (ht
-;;    ;; :parents
-;;    (:over (set))
-;;    ;; :ancestors
-;;    (:transitive-closure-over (set))
-;;    ;; :children
-;;    (:below (set))
-;;    ;; :descendants
-;;    (:transitive-closure-below (set)))
+;; (ht
+;;  ;; relation
+;;  (:over (set))
+;;  ;; ancestors
+;;  (:transitive-closure (set)))
 ;;
 ;; Hierarchy:
-;;   (ht
-;;    (:parents (set))
-;;    ;; transitive closure of parents
-;;    (:ancestors (set))
-;;    ;; :children
-;;    (:children (set))
-;;    ;; transitive closure of children
-;;    (:descendants (set)))
+;; (ht
+;;  ;; relation
+;;  (:isa (set))
+;;  ;; ancestors
+;;  (:transitive-closure (set)))
 ;;
 ;; The right data-structure does make code simpler!
 
