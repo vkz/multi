@@ -8,6 +8,10 @@
 ;; way of dealing with them? Or maybe my patterns are repetitive enough that I
 ;; could abstract them into a macro?
 
+;; TODO Using list as a set is dumb and f-ing slow for membership lookup. Could I
+;; just fake a set as a hash-table {:member t, ...}? That would speed up
+;; membership lookup in methods, hierarchies, prefers.
+
 ;; TODO Instead of poluting symbol slots maybe I should have a multi struct. This
 ;; may make code quite a bit cleaner
 ;;
@@ -36,6 +40,12 @@
 ;;   {:parents     {:rect #{:shape}}
 ;;    :ancestors   {:rect #{shape}}
 ;;    :descendants {:shape #{rect}}}
+;;
+;; Ok, so isa? test becomes as trivial as (member VAL (multi-ancestors val))
+;; unless you want to know the exact lineage between VAL and val. Performance wise
+;; atm I pay the price of traversing hierarchy every time isa? is called, with
+;; ancestors the price is paid upfront to calculate the ancestors! If you ever
+;; need lineage, compute it from :parents :children as needed.
 ;;
 ;; Aha, this is very clever! Both multi-prefer :over and multi-isa :isa relations
 ;; would benefit from storing descendants and ancestors. Both have essentially the
@@ -78,7 +88,43 @@
 ;;  ;; ancestors
 ;;  (:transitive-closure (set)))
 ;;
+;; Not only are both structures very similar, but their supporting code is almost
+;; the same:
+;;
+;; `multi-hierarchy' = `multi-prefers',
+;; `multi-rel'       = `multi-prefer'
+;;
+;; So, perhaps its worth abstracting `multi-rel' to work with any relationship we
+;; care to define?
+;;
 ;; The right data-structure does make code simpler!
+;;
+;; Notice tha multimethod defines a relation, too. Observe:
+;;
+;; (multimethod foo :when [a b c] :then #'method)
+;;
+;; [a b c] :then  method
+;; method  :when  [a b c]
+;;
+;; Not immediately clear if its useful, since VAL and METHOD aren't of the same
+;; domain, there isn't an obvious transitive closure to compute. Note, that isa?
+;; is a one-to-many relation, while :then is a many-to-one.
+;;
+;; but also potential optimization is to blow up [a b c] there int a hash-table
+;; [(descendants a) x (descendants b) x (descendants c)]. While computing keys in
+;; that hash-table if we ever arrive at the same key we need to use multi-prefers
+;; to disambiguate (choose a single method). All this "at compile time" that is
+;; before we ever run any code that makes use of defined multimethods. Basically,
+;; we trade memory footprint for potentially zero-cost dispatch (one hash-table
+;; lookup). If you think about it, its exactly like caching an isa? lookup but the
+;; cost of the latter is amortized over the lifetime of the code that uses
+;; multimethods. Caching is "being lazy", hash-table blow up is "aot compilation".
+;;
+;; Pre-computing :then and :when relations feels static, don't forget that we are
+;; in a dynamic language, so new methods could be added any time, so can new isa?
+;; relations. I'd rather have them as "partial" relations, that is only between
+;; VALs and METHODs as defined by the user. Then figuring out what VAL the
+;; dispatch value isa? at dispatch time and caching that.
 
 
 ;; Extras
