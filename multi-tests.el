@@ -151,14 +151,54 @@ message prefix matches PREFIX"
   "Retrieving parents, ancestors, descendants should work"
   (multi-test ()
 
+    ;; :dot  ->  :square  ->  :rect   *-> :shape
+    ;;            |                   ^
+    ;;            |                   |
+    ;;            *->  :parallelogram *-> :multiangle
+
+    (multi-rel :dot isa :square)
     (multi-rel :rect isa :shape)
     (multi-rel :square isa :rect)
     (multi-rel :square isa :parallelogram)
+    (multi-rel :parallelogram isa :multiangle)
+    (multi-rel :parallelogram isa :shape)
 
-    (should (multi--set-equal? '(:shape) (multi-parents :rect)))
-    (should (multi--set-equal? '(:parallelogram :rect) (multi-parents :square)))
-    (should (multi--set-equal? '(:parallelogram :rect :shape) (multi-ancestors :square)))
-    (should (multi--set-equal? '(:rect :square) (multi-descendants :shape)))))
+    ;; always computing multi-ancestors and multi-descendants should work
+    (should (multi--set-equal?
+             (list :parallelogram :rect :shape :multiangle)
+             (multi-ancestors :square multi-global-hierarchy 'compute)))
+    (should (multi--set-equal?
+             (list :parallelogram :rect :square :dot :square)
+             (multi-descendants :shape multi-global-hierarchy 'compute)))
+
+    ;; accumulated :ancestors and :descendants must match recomputed
+    (should (multi--set-equal?
+             (multi-ancestors :parallelogram)
+             (multi-ancestors :parallelogram multi-global-hierarchy 'compute)))
+    (should (multi--set-equal?
+             (multi-descendants :parallelogram)
+             (multi-descendants :parallelogram multi-global-hierarchy 'compute)))
+
+    (should (multi--set-equal?
+             (multi-ancestors :multiangle)
+             (multi-ancestors :multiangle multi-global-hierarchy 'compute)))
+    (should (multi--set-equal?
+             (multi-descendants :multiangle)
+             (multi-descendants :multiangle multi-global-hierarchy 'compute)))
+
+    (should (multi--set-equal?
+             (multi-ancestors :shape)
+             (multi-ancestors :shape multi-global-hierarchy 'compute)))
+    (should (multi--set-equal?
+             (multi-descendants :shape)
+             (multi-descendants :shape multi-global-hierarchy 'compute)))
+
+    (should (multi--set-equal?
+             (multi-ancestors :square)
+             (multi-ancestors :square multi-global-hierarchy 'compute)))
+    (should (multi--set-equal?
+             (multi-descendants :square)
+             (multi-descendants :square multi-global-hierarchy 'compute)))))
 
 
 (ert-deftest multi-test-isa-hierarchy ()

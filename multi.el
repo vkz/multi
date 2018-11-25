@@ -487,12 +487,59 @@ defaults to the global hierarchy"
        (multi-hierarchy hierarchy parent :parents))))
 
 
+(defun multi--rel (child parent hierarchy)
+  "Installs CHILD - PARENT relation in HIERARCHY, propagates any
+necessary :descendant - :ancestor relations up and down the
+HIERARCHY tree. Returns updated HIERARCHY."
+
+  ;; don't allow cyclic relations
+  (when (multi--cycle? child parent hierarchy)
+    (multi-error "in multi-rel cycle relationship between %s and %s "
+                 child parent))
+
+  ;; Update child and its descendants
+  (progn
+    ;; add parent to child's :parents
+    (pushnew parent (multi-hierarchy hierarchy child :parents))
+    ;; add parent to child's :ancestors
+    (pushnew parent (multi-hierarchy hierarchy child :ancestors))
+    ;; extend child's :ancestors with parent's :ancestors
+    (callf cl-union (multi-hierarchy hierarchy child :ancestors)
+      (multi-hierarchy hierarchy parent :ancestors))
+    ;; propagate now extended child's :ancestors down the family tree by
+    ;; extending every child descendant's :ancestors with child's
+    ;; :ancestors
+    (dolist (descendant (multi-hierarchy hierarchy child :descendants))
+      (callf cl-union (multi-hierarchy hierarchy descendant :ancestors)
+        (multi-hierarchy hierarchy child :ancestors))))
+
+  ;; Update parent and its ancestors
+  (progn
+    ;; add child to parent's :children
+    (pushnew child (multi-hierarchy hierarchy parent :children))
+    ;; add child to parent's :descendants
+    (pushnew child (multi-hierarchy hierarchy parent :descendants))
+    ;; extend parent's :descendants with child's :descendants
+    (callf cl-union (multi-hierarchy hierarchy parent :descendants)
+      (multi-hierarchy hierarchy child :descendants))
+    ;; propagate now extended parent's :descendants up the family tree by
+    ;; extending every parent ancestor's :descendants with parent's
+    ;; :descendants
+    (dolist (ancestor (multi-hierarchy hierarchy parent :ancestors))
+      (callf cl-union (multi-hierarchy hierarchy ancestor :descendants)
+        (multi-hierarchy hierarchy parent :descendants))))
+
+  ;; return hierarchy
+  hierarchy)
+
+
 (defmacro multi-rel (&rest args)
   "Establishes an isa? (parent/child) relationship between PARENT
 and CHILD. If HIERARCHY not supplied defaults to, and modifies,
 the global hierarchy.
 
 \(fn child :isa parent &optional :in hierarchy)"
+  (declare (debug t))
   (destructuring-bind
       (err child parent hierarchy)
       (pcase args
@@ -503,15 +550,7 @@ the global hierarchy.
     (or
      err
      (let ((hierarchy (or hierarchy 'multi-global-hierarchy)))
-       `(progn
-          (let ((child ,child)
-                (parent ,parent))
-            (when (multi--cycle? ,child ,parent ,hierarchy)
-              (multi-error "in multi-rel cycle relationship between %s and %s "
-                           ,child ,parent))
-            (pushnew ,parent (multi-hierarchy ,hierarchy ,child :parents))
-            (pushnew ,child (multi-hierarchy ,hierarchy  ,parent :children))
-            ,hierarchy))))))
+       `(multi--rel ,child ,parent ,hierarchy)))))
 
 
 (defun ormap (pred lst)
@@ -556,37 +595,47 @@ HIERARCHY not supplied defaults to the global hierarchy
      (multi-hierarchy hierarchy x :parents)))))
 
 
-(defun multi-parents (x &optional hierarchy)
-  "Returns immediate parents (multi-isa? X PARENT) of X. If
-HIERARCHY not supplied defaults to the global hierarchy"
-  (default hierarchy :to multi-global-hierarchy)
-  (multi-hierarchy hierarchy x :parents))
-
-
-(defun multi-ancestors (x &optional hierarchy)
-  "Returns an immediate and indirect ancestors (multi-isa? X
-ANCESTOR) of X. If HIERARCHY not supplied defaults to the global
-hierarchy"
-  (default hierarchy :to multi-global-hierarchy)
+(defun multi--ancestors (x hierarchy)
+  "Returns ancestors of X by walking the HIERARCHY tree. List may
+have duplicates."
   (let ((parents (multi-hierarchy hierarchy x :parents)))
     (append parents
             (seq-mapcat
              (lambda (parent)
-               (multi-ancestors parent hierarchy))
+               (multi--ancestors parent hierarchy))
              parents))))
 
-
-(defun multi-descendants (x &optional hierarchy)
-  "Returns an immediate and indirect descendants (multi-isa?
-DESCENDANT X) of X. If HIERARCHY not supplied defaults to the
-global hierarchy"
+(defun multi-ancestors (x &optional hierarchy compute?)
+  "Returns all ancestors of X such that (multi-isa? X ancestor).
+If HIERARCHY not supplied defaults to the global hierarchy. If
+COMPUTE? is t actually computes ancestors by walking the tree."
   (default hierarchy :to multi-global-hierarchy)
+  (default compute? :to nil)
+  (if compute?
+      (cl-delete-duplicates (multi--ancestors x hierarchy) :test #'equal)
+    (multi-hierarchy hierarchy x :ancestors)))
+
+
+(defun multi--descendants (x hierarchy)
+  "Returns descendants of X by walking the HIERARCHY tree. List
+may have duplicates."
   (let ((children (multi-hierarchy hierarchy x :children)))
     (append children
             (seq-mapcat
              (lambda (child)
-               (multi-descendants child hierarchy))
+               (multi--descendants child hierarchy))
              children))))
+
+(defun multi-descendants (x &optional hierarchy compute?)
+  "Returns all descendants of X such that (multi-isa? descendant
+X). If HIERARCHY not supplied defaults to the global hierarchy.
+If COMPUTE? is t actually computes descendants by walking the
+tree."
+  (default hierarchy :to multi-global-hierarchy)
+  (default compute? :to nil)
+  (if compute?
+      (cl-delete-duplicates (multi--descendants x hierarchy) :test #'equal)
+    (multi-hierarchy hierarchy x :descendants)))
 
 
 ;;* Multi --------------------------------------------------------- *;;
