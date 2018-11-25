@@ -2,6 +2,13 @@
 
 (require 'cl)
 
+
+;; TODO Elisp specific idea is to allow supplying setters in multimethods, so that
+;; multimethod invocation can be used with gv setters like `setf', `push', `callf'
+;; etc. That makes perfect sence if your dispatch is for looking up some location
+;; based on arguments. It may on occasion be quite natural to use the same syntax
+;; to set new value to that location.
+
 ;; TODO parsing all those defun args has become very tedious. I almost wish I
 ;; didn't insist on optional keyword args so much. Bulk of the code here does this
 ;; nonsence. Should drop this and go with the flow, or does Elisp has some hidden
