@@ -408,6 +408,14 @@ message prefix matches PREFIX"
     (multi-rel :square isa :rect)
     (multi-rel :square isa :parallelogram)
 
+    ;; should signal attempt to relate structured data
+    (should (multi--error-match "in multi-rel no meaningful semantics"
+                                (multi-rel [:a :b] isa [:c :d])))
+    (should (multi--error-match "in multi-rel no meaningful semantics"
+                                (multi-rel "foo" isa "bar")))
+    (should (multi--error-match "in multi-rel no meaningful semantics"
+                                (multi-rel (make-multi-hierarchy) :isa (make-multi-hierarchy))))
+
     (multi foo #'identity)
     (multimethod foo (a) :when :square :square)
     (multimethod foo (a) :when :shape :shape)

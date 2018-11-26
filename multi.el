@@ -41,98 +41,6 @@
 
 ;; TODO Create Makefile (stick to ANSI make): ert batch test, measure perf
 
-;; TODO Consider storing hierarchies the way Clojure does it. IMO benefit is that
-;; descendants are precalculated. Anything else?
-;;
-;;   {:parents     {:rect #{:shape}}
-;;    :ancestors   {:rect #{shape}}
-;;    :descendants {:shape #{rect}}}
-;;
-;; Ok, so isa? test becomes as trivial as (member VAL (multi-ancestors val))
-;; unless you want to know the exact lineage between VAL and val. Performance wise
-;; atm I pay the price of traversing hierarchy every time isa? is called, with
-;; ancestors the price is paid upfront to calculate the ancestors! If you ever
-;; need lineage, compute it from :parents :children as needed.
-;;
-;; Aha, this is very clever! Both multi-prefer :over and multi-isa :isa relations
-;; would benefit from storing descendants and ancestors. Both have essentially the
-;; above structure and can be thought of in terms of :parents :ancestors
-;; :descendants. Access to :descendants or :ancestors makes checking for cycle
-;; trivial e.g. for prefers:
-;;
-;; Essentially installing an a-prefer amounts to these relationships:
-;; #{a's descendants} :over a :over #{a's ancestors}
-;;
-;; Registering b :over c would require a simple check:
-;;
-;;   not (c :over b)
-;;
-;; or equivalently
-;;
-;;   not (b is c's ancestor)
-;;   not (c is b's descendant)
-;;
-;; or in our notation
-;;
-;;   (not (member b (multi-prefers fun hierarchy c :ancestors)))
-;;   (not (member c (multi-prefers fun hierarchy b :descendants)))
-;;
-;; since ancestor and descendant relations imply one another, just keeping track
-;; of :ancestors and having just one of the above checks should suffice. So with a
-;; bit of redundancy our structs should be something like:
-;;
-;; Prefers:
-;; (ht
-;;  ;; relation
-;;  (:over (set))
-;;  ;; ancestors
-;;  (:transitive-closure (set)))
-;;
-;; Hierarchy:
-;; (ht
-;;  ;; relation
-;;  (:isa (set))
-;;  ;; ancestors
-;;  (:transitive-closure (set)))
-;;
-;; Not only are both structures very similar, but their supporting code is almost
-;; the same:
-;;
-;; `multi-hierarchy' = `multi-prefers',
-;; `multi-rel'       = `multi-prefer'
-;;
-;; So, perhaps its worth abstracting `multi-rel' to work with any relationship we
-;; care to define?
-;;
-;; The right data-structure does make code simpler!
-;;
-;; Notice tha multimethod defines a relation, too. Observe:
-;;
-;; (multimethod foo :when [a b c] :then #'method)
-;;
-;; [a b c] :then  method
-;; method  :when  [a b c]
-;;
-;; Not immediately clear if its useful, since VAL and METHOD aren't of the same
-;; domain, there isn't an obvious transitive closure to compute. Note, that isa?
-;; is a one-to-many relation, while :then is a many-to-one.
-;;
-;; but also potential optimization is to blow up [a b c] there int a hash-table
-;; [(descendants a) x (descendants b) x (descendants c)]. While computing keys in
-;; that hash-table if we ever arrive at the same key we need to use multi-prefers
-;; to disambiguate (choose a single method). All this "at compile time" that is
-;; before we ever run any code that makes use of defined multimethods. Basically,
-;; we trade memory footprint for potentially zero-cost dispatch (one hash-table
-;; lookup). If you think about it, its exactly like caching an isa? lookup but the
-;; cost of the latter is amortized over the lifetime of the code that uses
-;; multimethods. Caching is "being lazy", hash-table blow up is "aot compilation".
-;;
-;; Pre-computing :then and :when relations feels static, don't forget that we are
-;; in a dynamic language, so new methods could be added any time, so can new isa?
-;; relations. I'd rather have them as "partial" relations, that is only between
-;; VALs and METHODs as defined by the user. Then figuring out what VAL the
-;; dispatch value isa? at dispatch time and caching that.
-
 
 ;; Extras
 ;; --------
@@ -364,12 +272,6 @@ May be called according to one of the following signatures:
   (ht-remove! (multi-methods fun) dispatch-value))
 
 
-;; TODO Prefers should be a hierarchy, not a custom map like now, then I should be
-;; able to re-use `multi-hierarchy' instead of `multi-prefers', `multi--cycle?'
-;; instead of `multi--preference-cycle?', and `multi-rel' instead of
-;; `multi-prefer'.
-
-
 ;; TODO make hierarchy optional defaulting to the global hierarchy
 (defun multi-prefers (fun hierarchy &rest keys)
   "Returns a table of (preferred value :over set of other values)
@@ -538,6 +440,16 @@ using already stored in the HIERARCHY."
   "Installs CHILD - PARENT relation in HIERARCHY, propagates any
 necessary :descendant - :ancestor relations up and down the
 HIERARCHY tree. Returns updated HIERARCHY."
+
+  ;; there's no meaningful semantics to relate structured data
+  (when (or (ht-p child)
+            (ht-p parent)
+            (and (seqp child) (not (null child)))
+            (and (seqp parent) (not (null parent)))
+            (cl-struct-p child)
+            (cl-struct-p parent))
+    (multi-error "in multi-rel no meaningful semantics relate structured data\n  %s\n  %s"
+                 child parent))
 
   ;; don't allow cyclic relations
   (when-let ((cycle (multi--cycle? child parent hierarchy)))
