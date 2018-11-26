@@ -166,6 +166,25 @@
 ;;     body)
 
 
+;;* Prelude ------------------------------------------------------- *;;
+
+
+(pcase-defmacro multi (&rest patterns)
+  (pcase patterns
+    (`(,id :if ,predicate) `(and ,id (pred ,predicate)))
+    (otherwise
+     `(multi-error "malformed pcase multi pattern"))))
+
+
+(example
+ (pcase '([a b] "doc")
+   (`(,(multi arglist :if vectorp) ,(multi doc :if stringp)) (list arglist doc))
+   (otherwise
+    (error "no match")))
+ ;; example
+ )
+
+
 ;;* Errors -------------------------------------------------------- *;;
 
 
@@ -345,6 +364,12 @@ May be called according to one of the following signatures:
   (ht-remove! (multi-methods fun) dispatch-value))
 
 
+;; TODO Prefers should be a hierarchy, not a custom map like now, then I should be
+;; able to re-use `multi-hierarchy' instead of `multi-prefers', `multi--cycle?'
+;; instead of `multi--preference-cycle?', and `multi-rel' instead of
+;; `multi-prefer'.
+
+
 ;; TODO make hierarchy optional defaulting to the global hierarchy
 (defun multi-prefers (fun hierarchy &rest keys)
   "Returns a table of (preferred value :over set of other values)
@@ -365,7 +390,6 @@ values over which VAL is preferred. This form is `setf'-able.
     (apply #'ht-get* (get fun :multi-prefers) (multi-hierarchy-id hierarchy) keys)))
 
 
-;; TODO is this code correct?
 (defun multi--preference-cycle? (item parent fun &optional hierarchy)
   "Checks if ITEM prefer over PARENT would form a cycle were the
 relationship added the multi-prefers of FUN assuming HIERARCHY
@@ -481,17 +505,33 @@ May be called according to one of the following signatures:
 ;;* Hierarchies --------------------------------------------------- *;;
 
 
-;; TODO accumulate path so we can report the actual cycle
-(defun multi--cycle? (item parent &optional hierarchy)
-  "Checks if ITEM and would be PARENT would form a cycle were the
-relationship added to the HIERARCHY. If HIERARCHY not supplied
-defaults to the global hierarchy"
+;; TODO is this code correct?
+(defun multi--cycle (child parent hierarchy)
+  "Reports the cycle that the CHILD - PARENT relation would've
+created in HIERARCHY if installed, nil if no cycle."
+  (if (equal child parent)
+      (list parent)
+    (when-let ((cycle (some
+                       (lambda (ancestor) (multi--cycle child ancestor hierarchy))
+                       (multi-hierarchy hierarchy parent :parents))))
+      (cons parent cycle))))
+
+
+(defun multi--cycle? (child parent &optional hierarchy compute?)
+  "Checks if CHILD and would be PARENT would form a cycle were
+the relationship added to the HIERARCHY. If HIERARCHY not
+supplied defaults to the global hierarchy. If COMPUTE? is t
+actually computes PARENT's ancestors for the check instead of
+using already stored in the HIERARCHY."
   (default hierarchy :to multi-global-hierarchy)
-  (or (equal item parent)
-      ;; TODO is ormap the same as the built-in `some'?
-      (ormap
-       (lambda (ancestor) (multi--cycle? item ancestor hierarchy))
-       (multi-hierarchy hierarchy parent :parents))))
+  (default compute? :to nil)
+  (when (or (equal child parent)
+            (member child
+                    (if compute?
+                        (multi-ancestors parent hierarchy 'compute)
+                      (multi-ancestors parent hierarchy))))
+    ;; compute and report full cycle for debugging
+    (multi--cycle child parent hierarchy)))
 
 
 (defun multi--rel (child parent hierarchy)
@@ -500,9 +540,18 @@ necessary :descendant - :ancestor relations up and down the
 HIERARCHY tree. Returns updated HIERARCHY."
 
   ;; don't allow cyclic relations
-  (when (multi--cycle? child parent hierarchy)
-    (multi-error "in multi-rel cycle relationship between %s and %s "
-                 child parent))
+  (when-let ((cycle (multi--cycle? child parent hierarchy)))
+    (multi-error "in multi-rel cyclic relationship between %s and %s: %s"
+                 child parent cycle))
+
+  ;; TODO fixing :ancestors and :descendants is too easy to get wrong, as should
+  ;; be obvious from the code below. Another thing we could do is to recompute
+  ;; :ancestors and :descendants for every item in hierarchy by invoking e.g.
+  ;; (multi-ancestors item hierarchy 'compute). That'd result in a ton of
+  ;; redundant computation, but we could simply memoize `multi-ancestors' and
+  ;; `multi-descendants'. Their cache would have to be wiped every new relation
+  ;; installed with multi-rel, naturally. IMO it'd be performant enough and much
+  ;; more readable than the code below.
 
   ;; Update child and its descendants
   (progn
@@ -560,19 +609,28 @@ the global hierarchy.
        `(multi--rel ,child ,parent ,hierarchy)))))
 
 
-(defun ormap (pred lst)
-  (when lst
-    (or (funcall pred (car lst))
-        (ormap pred (cdr lst)))))
+(defun multi-isa? (x y &optional hierarchy)
+  "Checks if CHILD is isa? related to PARENT in HIERARCHY. If
+HIERARCHY not supplied defaults to the global hierarchy
+
+\(fn child parent &optional hierarchy)"
+  (default hierarchy :to multi-global-hierarchy)
+  (or (equal x y)
+      (and (sequencep x)
+           (sequencep y)
+           (equal (length x) (length y))
+           (every (lambda (x y) (multi-isa? x y hierarchy)) x y))
+      (and (not (sequencep y))
+           (member y (multi-ancestors x hierarchy)))))
 
 
-(cl-defun multi--seq-isa? (seqx seqy hierarchy)
-  (let ((rels (seq-mapn (lambda (x y) (multi-isa? x y hierarchy)) seqx seqy)))
+(cl-defun multi--generations (seqx seqy hierarchy)
+  (let ((rels (seq-mapn (lambda (x y) (multi-isa/generations? x y hierarchy)) seqx seqy)))
     (and (cl-notany #'null rels)
          rels)))
 
 
-(cl-defun multi-isa? (x y &optional (hierarchy) (generation 0))
+(cl-defun multi-isa/generations? (x y &optional (hierarchy) (generation 0))
   "Returns (generation 0) if (equal CHILD PARENT), or (generation
 N) if CHILD is directly or indirectly derived from PARENT, where
 N signifies how far down generations PARENT is from CHILD. If
@@ -584,7 +642,7 @@ HIERARCHY not supplied defaults to the global hierarchy
    ((sequencep x)
     (and (sequencep y)
          (equal (length x) (length y))
-         (multi--seq-isa? x y hierarchy)))
+         (multi--generations x y hierarchy)))
 
    ((sequencep y)
     ;; then x wasn't a seq or failed x isa? y test
@@ -597,8 +655,8 @@ HIERARCHY not supplied defaults to the global hierarchy
     (cons :generation (1+ generation)))
 
    (:else
-    (ormap
-     (lambda (parent) (multi-isa? parent y hierarchy (1+ generation)))
+    (some
+     (lambda (parent) (multi-isa/generations? parent y hierarchy (1+ generation)))
      (multi-hierarchy hierarchy x :parents)))))
 
 
@@ -606,6 +664,8 @@ HIERARCHY not supplied defaults to the global hierarchy
   "Returns ancestors of X by walking the HIERARCHY tree. List may
 have duplicates."
   (let ((parents (multi-hierarchy hierarchy x :parents)))
+    ;; TODO instead of append I could cl-union to avoid cl-delete-duplicates use
+    ;; later, but this is fine too?
     (append parents
             (seq-mapcat
              (lambda (parent)
@@ -686,22 +746,6 @@ tree."
 ;; lookup with it. This probably means that hierarchies should be implemented as
 ;; structs or given a symbolic name so that they can keep such meta information in
 ;; the plist. IMO struct would be cleaner.
-
-
-(pcase-defmacro multi (&rest patterns)
-  (pcase patterns
-    (`(,id :if ,predicate) `(and ,id (pred ,predicate)))
-    (otherwise
-     `(multi-error "malformed pcase multi pattern"))))
-
-
-(example
- (pcase '([a b] "doc")
-   (`(,(multi arglist :if vectorp) ,(multi doc :if stringp)) (list arglist doc))
-   (otherwise
-    (error "no match")))
- ;; example
- )
 
 
 ;; TODO Lexical vs dynamic scope. Something I ran into by chance. `multi-tests.el'

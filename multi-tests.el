@@ -88,6 +88,20 @@ message prefix matches PREFIX"
  )
 
 
+(defmacro multi--install-shape-rels ()
+  ;; :dot  ->  :square  ->  :rect   *-> :shape
+  ;;            |                   ^
+  ;;            |                   |
+  ;;            *->  :parallelogram *-> :multiangle
+  `(progn
+     (multi-rel :dot isa :square)
+     (multi-rel :rect isa :shape)
+     (multi-rel :square isa :rect)
+     (multi-rel :square isa :parallelogram)
+     (multi-rel :parallelogram isa :multiangle)
+     (multi-rel :parallelogram isa :shape)))
+
+
 ;;* Tests --------------------------------------------------------- *;;
 
 
@@ -137,6 +151,7 @@ message prefix matches PREFIX"
     ;; (should (ht? (get 'foo :multi-cache)))
     ))
 
+
 (ert-deftest multi-test-rel ()
   "Creating `multi-isa?' hierachy should work"
   (multi-test ()
@@ -150,18 +165,7 @@ message prefix matches PREFIX"
 (ert-deftest multi-test-ancestors-descendants ()
   "Retrieving parents, ancestors, descendants should work"
   (multi-test ()
-
-    ;; :dot  ->  :square  ->  :rect   *-> :shape
-    ;;            |                   ^
-    ;;            |                   |
-    ;;            *->  :parallelogram *-> :multiangle
-
-    (multi-rel :dot isa :square)
-    (multi-rel :rect isa :shape)
-    (multi-rel :square isa :rect)
-    (multi-rel :square isa :parallelogram)
-    (multi-rel :parallelogram isa :multiangle)
-    (multi-rel :parallelogram isa :shape)
+    (multi--install-shape-rels)
 
     ;; always computing multi-ancestors and multi-descendants should work
     (should (multi--set-equal?
@@ -204,18 +208,36 @@ message prefix matches PREFIX"
 (ert-deftest multi-test-isa-hierarchy ()
   "Checking isa relationship should work"
   (multi-test ()
+    (multi--install-shape-rels)
 
-    (multi-rel :rect isa :shape)
-    (multi-rel :square isa :rect)
-
-    (should (equal '(:generation . 0) (multi-isa? 42 42)))
-    (should (equal '(:generation . 1) (multi-isa? :rect :shape)))
-    (should (equal '(:generation . 2) (multi-isa? :square :shape)))
-    (should (equal '((:generation . 1) (:generation . 1)) (multi-isa? [:square :rect] [:rect :shape])))
-    (should (equal '((:generation . 1) (:generation . 0)) (multi-isa? [:square :shape] [:rect :shape])))
+    ;; atomic rels should work
+    (should (multi-isa? 42 42))
+    (should (multi-isa? :rect :shape))
+    (should (multi-isa? :square :shape))
+    ;; sequential rels should work
+    (should (multi-isa? [:square :rect] [:rect :shape]))
+    (should (multi-isa? [:square :shape] [:rect :shape]))
+    (should (multi-isa? [[:dot :parallelogram] :square] [[:shape :multiangle] :rect]))
+    ;; unrelated entities should fail
     (should (null (multi-isa? [:square :rect] [:shape :square])))
     (should (null (multi-isa? [:square] :rect)))
-    (should (null (multi-isa? [:square] [])))))
+    (should (null (multi-isa? [:square] [])))
+
+    ;; atomic rels should report correct generation
+    (should (equal '(:generation . 0) (multi-isa/generations? 42 42)))
+    (should (equal '(:generation . 1) (multi-isa/generations? :rect :shape)))
+    (should (equal '(:generation . 2) (multi-isa/generations? :square :shape)))
+    ;; sequential rels should report correct generatinos
+    (should (equal '((:generation . 1) (:generation . 1)) (multi-isa/generations? [:square :rect] [:rect :shape])))
+    (should (equal '((:generation . 1) (:generation . 0)) (multi-isa/generations? [:square :shape] [:rect :shape])))
+    (should (equal '(((:generation . 3)
+                      (:generation . 1))
+                     (:generation . 1))
+                   (multi-isa/generations? [[:dot :parallelogram] :square] [[:shape :multiangle] :rect])))
+    ;; unrelated entities should fail returning no generations
+    (should (null (multi-isa/generations? [:square :rect] [:shape :square])))
+    (should (null (multi-isa/generations? [:square] :rect)))
+    (should (null (multi-isa/generations? [:square] [])))))
 
 
 (ert-deftest multi-test-multi ()
@@ -266,12 +288,16 @@ message prefix matches PREFIX"
   "Basic equality based dispatch should work"
   (multi-test (foo)
 
-    (multi foo #'identity)
-    (multimethod foo (x) :when :a :a)
-    (multimethod foo (x) :when :b :b)
+    (multi foo (fn (&rest args) (apply #'vector args)))
+    (multimethod foo (&rest x) :when [:a] :a)
+    (multimethod foo (&rest x) :when [:b] :b)
+    (multimethod foo (&rest x) :when [:a :a] :a)
+    (multimethod foo (&rest x) :when [:b :b] :b)
 
     (should (equal :a (foo :a)))
-    (should (equal :b (foo :b)))))
+    (should (equal :b (foo :b)))
+    (should (equal :a (foo :a :a)))
+    (should (equal :b (foo :b :b)))))
 
 
 (ert-deftest multi-test-isa-dispatch ()
@@ -396,7 +422,9 @@ message prefix matches PREFIX"
     (should (multi--error-match "no multimethods match" (foo :triangle)))
 
     ;; catch cycle relationships
-    (should (multi--error-match "in multi-rel cycle relationship" (multi-rel :shape isa :square)))
+    (should (multi--error-match "in multi-rel cyclic relationship" (multi-rel :shape isa :square)))
+    ;; full cycle path should be reported
+    (should (equal '(:square :rect :shape) (multi--cycle? :shape :square)))
 
     ;; catch malformed arglist in `multi' call
     (should (multi--error-match "in multi malformed arglist" (multi bar :val [a b])))
