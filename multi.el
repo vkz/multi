@@ -22,11 +22,6 @@
  )
 
 
-;; TODO Although we repurpose [] for our own patterns, there maybe a way to gain
-;; matching on vectors back, since pcase vector pattern is expected to be
-;; backquoted i.e. `[pats], so in theory I may just be able to allow the same
-;; pattern and if I match it before [] I maybe able to match on vectors too.
-
 ;; TODO define `multicase-defmacro' similar to `pcase-defmacro' to define custom
 ;; patterns that use multicase dsl.
 
@@ -86,6 +81,8 @@ unquoted context."
     (`(app ,fun ,pat) (list 'app fun (multicase--init pat)))
     (`(let ,pat ,exp) (list 'let (multicase--init pat) exp))
     (`(quote ,(pred symbolp)) pat)
+    ;; vector pattern
+    (`(\` ,(pred vectorp)) (list '\` (multicase--inside pat)))
     ;; TODO catch all for other (foo ...) standard and custom patterns. If I ever
     ;; implement `multicase-defmacro' its custom macros would need to match before
     ;; this clause
@@ -103,6 +100,8 @@ quoted context i.e. a list matching pattern."
     ((pred vectorp) (let ((pats (mapcar #'multicase--inside pat)))
                       (list '\` `(,@pats))))
     (`(quote ,(and (pred symbolp) sym)) sym)
+    ;; vector pattern
+    (`(\` ,(and vpat (pred vectorp))) (seq-into (mapcar #'multicase--inside vpat) 'vector))
     ((pred keywordp) pat)
     ((pred symbolp) (list '\, pat))
     ;; TODO do I need to check for an empty list here?
@@ -112,14 +111,15 @@ quoted context i.e. a list matching pattern."
      (multi-error "in multicase unrecognized pattern %S" ,pat))))
 
 
-
 (example
 
- ;; TODO vectors almost work! Just need to match on `[] then map-convert vector's
- ;; contents. We can even be more powerful than pcase by allowing &rest pattern!
- ;; This example already works.
- (multicase (list 'a [b c])
-   ([a `[,b ,c]] (list b c)))
+ (should (equal '(1 2)
+                (multicase [1 2]
+                  (`[b c] (list b c)))))
+
+ (should (equal '(b c)
+                (multicase (list 'a [b c])
+                  ([a `[b c]] (list b c)))))
 
  (should
   (multi--error-match "in multicase malformed &rest"
