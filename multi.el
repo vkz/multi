@@ -22,99 +22,207 @@
  )
 
 
+;; TODO Although we repurpose [] for our own patterns, there maybe a way to gain
+;; matching on vectors back, since pcase vector pattern is expected to be
+;; backquoted i.e. `[pats], so in theory I may just be able to allow the same
+;; pattern and if I match it before [] I maybe able to match on vectors too.
+
+;; TODO define `multicase-defmacro' similar to `pcase-defmacro' to define custom
+;; patterns that use multicase dsl.
+
+;; NOTE Although `multicase--init' and `multicase--inside' are superficially the
+;; same, we need that split to take care of pcase clause that may start with a
+;; standard (or, and, pred, etc) or custom (pcase-macropattern) pattern, which
+;; need not be unquoted, so to avoid generating an unquoted pcase pattern we start
+;; by matching with `multicase--init'. More generally `multicase--inside' is
+;; assumed to be inside a quoted pattern e.g. `(foo ,bar), while `multicase--init'
+;; isn't.
+
+
 (defmacro multicase (e &rest clauses)
-  `(pcase ,e
-     ,@(mapcar #'multicase--clause clauses)))
+  "`pcase' like matching and destructuring with less noise."
+  (declare (indent 1))
+  (condition-case err
+      `(pcase ,e
+         ,@(mapcar #'multicase--clause clauses))
+    (multi-error `(multi-error ,(cadr err)))))
 
 
 (cl-defun multicase--clause ((pat . body))
   `(,(multicase--init pat) ,@body))
 
 
+(defun multicase--rest (pat)
+  "Generate a pcase pattern from the tail pattern PAT of a
+multicase pattern that comes after `&rest' e.g. [... &rest PAT]"
+  (pcase pat
+    (`[] '())
+    ((pred vectorp) (let ((pats (mapcar #'multicase--inside pat)))
+                      `(,@pats)))
+    (otherwise
+     (multicase--inside pat))))
+
+
 (defun multicase--init (pat)
-  (cond
-   ((equal 'otherwise) pat)
-   ((vectorp pat)  (let* ((split (-split-on '&rest (seq-into pat 'list)))
-                          (head (car split))
-                          (tail (cadr split)))
-                     (when (> (length tail) 1)
-                       (multi-error "in multicase malformed &rest pattern %S" tail))
-                     (let* ((head (multicase--pattern (seq-into head 'vector)))
-                            (tail (and tail (multicase--pattern (car tail)))))
-                       ;; append tail to head's body under backquote to form a
-                       ;; complete pcase pattern
-                       (callf append (cadr head) tail)
-                       ;; return pcase compatible pattern
-                       head)))
-   ;; TODO only transform inside for standard pcase patterns and skip for anything
-   ;; custom (custom macros should take care of their own bodies): or, and, let,
-   ;; app, map (not using it, though). What else? Skip pred, guard since they
-   ;; don't take patterns.
-   ((listp pat) (cons (car pat) (mapcar #'multicase--pattern (cdr pat))))
-   (t
-    (multicase--pattern pat))))
+  "Generate a pcase pattern from a multicase pattern assuming an
+unquoted context."
+  (pcase pat
+    ('otherwise pat)
+    ((pred symbolp) pat)
+    ;; TODO replace `-split-on' with some cl- combo
+    ((pred vectorp) (let* ((split (-split-on '&rest (seq-into pat 'list)))
+                           (head (car split))
+                           (tail (cadr split)))
+                      (when (> (length tail) 1)
+                        (multi-error "in multicase malformed &rest pattern %S" ,tail))
+                      (let* ((head (multicase--inside (seq-into head 'vector)))
+                             (tail (and tail (multicase--rest (car tail)))))
+                        ;; append tail to head's body under backquote to form a
+                        ;; complete pcase pattern
+                        (callf append (cadr head) tail)
+                        head)))
+    (`(or . ,pats) (cons 'or (mapcar #'multicase--init pats)))
+    (`(and . ,pats) (cons 'and (mapcar #'multicase--init pats)))
+    (`(app ,fun ,pat) (list 'app fun (multicase--init pat)))
+    (`(let ,pat ,exp) (list 'let (multicase--init pat) exp))
+    (`(quote ,(pred symbolp)) pat)
+    ;; TODO catch all for other (foo ...) standard and custom patterns. If I ever
+    ;; implement `multicase-defmacro' its custom macros would need to match before
+    ;; this clause
+    ((pred listp) pat)
+    ((pred atom) pat)
+    (otherwise
+     (multi-error "in multicase unrecognized pattern %S" ,pat))))
 
 
-(defun multicase--pattern (pat)
-  (cond
-   ((equal [] pat) (list '\` '()))
-   ((vectorp pat) (let ((pats (mapcar #'multicase--pattern pat)))
-                    (list '\` `(,@pats))))
-   ((listp pat) (list '\, (multicase--init pat)))
-   ((keywordp pat) pat)
-   ((symbolp pat) (list '\, pat))))
+(defun multicase--inside (pat)
+  "Generate a pcase pattern from a multicase pattern assuming an
+quoted context i.e. a list matching pattern."
+  (pcase pat
+    (`[] (list '\` '()))
+    ((pred vectorp) (let ((pats (mapcar #'multicase--inside pat)))
+                      (list '\` `(,@pats))))
+    (`(quote ,(and (pred symbolp) sym)) sym)
+    ((pred keywordp) pat)
+    ((pred symbolp) (list '\, pat))
+    ;; TODO do I need to check for an empty list here?
+    ((pred listp) (list '\, (multicase--init pat)))
+    ((pred atom) pat)
+    (otherwise
+     (multi-error "in multicase unrecognized pattern %S" ,pat))))
+
 
 
 (example
- (multicase '(a :over b)
-   ([x (or :over :to) y :in hierarchy]
-    (list x y hierarchy))
-   ([x (or :over :to) y]
-    (list x y 'no-hier)))
 
- (multicase '(a :over b :in h)
-   ([x (or :over :to) y &rest (or [:in hierarchy] [])]
-    (list x y (or hierarchy 'default-hierarchy)))
-   ([x]
-    (list x 'default-y 'default-hierarchy)))
+ ;; TODO vectors almost work! Just need to match on `[] then map-convert vector's
+ ;; contents. We can even be more powerful than pcase by allowing &rest pattern!
+ ;; This example already works.
+ (multicase (list 'a [b c])
+   ([a `[,b ,c]] (list b c)))
 
- (multicase '(a)
-   ([x (or :over :to) y &rest (or [:in hierarchy] [])]
-    (list x y (or hierarchy 'default-hierarchy)))
-   ([x]
-    (list x 'default-y 'default-hierarchy)))
+ (should
+  (multi--error-match "in multicase malformed &rest"
+                      (multicase '(a b c)
+                        (['a &rest foo bar] 'oops))))
+
+
+ (should (equal 'match
+                (multicase '(a b c)
+                  (['a _ 'c] 'match))))
+
+ (should (equal '(b c)
+                (multicase '(a b c)
+                  (['a &rest tail] tail))))
+
+ (should (equal 'c (multicase '(a b c)
+                     (['a &rest ['b last]] last))))
+
+ (should (equal 'c (multicase '(a b c)
+                     (['a &rest (or [] ['b last])] last))))
+
+ (should (equal 'yep (multicase '(a)
+                       (['a &rest (or [] ['b last])] 'yep))))
+
+ (should (equal '(a b no-hier) (multicase '(a :over b)
+                                 ([x (or :over :to) y :in hierarchy]
+                                  (list x y hierarchy))
+                                 ([x (or :over :to) y]
+                                  (list x y 'no-hier)))))
+
+ (should (equal '(a b h) (multicase '(a :over b :in h)
+                           ([x (or :over :to) y &rest (or [:in hierarchy] [])]
+                            (list x y (or hierarchy 'default-hierarchy)))
+                           ([x]
+                            (list x 'default-y 'default-hierarchy)))))
+
+ (should (equal '(a default-y default-hierarchy) (multicase '(a)
+                                                   ([x (or :over :to) y &rest (or [:in hierarchy] [])]
+                                                    (list x y (or hierarchy 'default-hierarchy)))
+                                                   ([x]
+                                                    (list x 'default-y 'default-hierarchy)))))
+
+ (should (equal 'empty (multicase '()
+                         ([x (or :over :to) y &rest (or [:in hierarchy] [])]
+                          (list x y (or hierarchy 'default-hierarchy)))
+                         ([x]
+                          (list x 'default-y 'default-hierarchy))
+                         (otherwise
+                          'empty))))
+
+ (should (equal '(a over b no-hier) (multicase '(a over b)
+                                      ([x (and (pred symbolp) (or 'over 'to) rel) y]
+                                       (list x rel y 'no-hier)))))
+
+ (should (equal '(1 2 3) (multicase '(1 2)
+                           ([(and (pred numberp) (app 1- 0) x)
+                             (and num (let y 3))]
+                            (list x num y)))))
 
  (defmacro multicase--clause-test (expr pat &rest body)
+   (declare (indent 1))
    `(pcase ,expr
-      ,(multicase--clause (cons ,pat ,body))))
+      ,(multicase--clause (cons ,pat ,body))
+      (otherwise
+       `'no-match)))
 
- (multicase--clause-test (list :key) [:key] 'yep)
- ;; yep
 
- (multicase--clause-test (list :key) [x] x)
- ;; :key
+ (should (equal 'bar
+                (multicase--clause-test (list 'foo 'bar)
+                  [(or 'bar 'foo) (and x 'bar)] x)))
 
- (multicase--clause-test '(a (:over) b)
-                         [x (or [rel] :to) y]
-                         (list x rel y))
- ;; (a :over b)
+ (should (equal 'symbol
+                (multicase--clause-test (list 'key)
+                  ['key] 'symbol)))
 
- (multicase--clause-test '()
-                         []
-                         'yep)
- ;; yep
+ (should (equal 'yep
+                (multicase--clause-test (list :key)
+                  [:key] 'yep)))
 
- (multicase--clause-test '(a :over b :in hier)
-                         [x (or :over :to) y &rest (or [:in hierarchy] [])]
-                         (list x y (or hierarchy 'hfoo)))
- ;; (a b hier)
+ (should (equal :key
+                (multicase--clause-test (list :key)
+                  [x] x)))
+
+ (should (equal '(a :over b)
+                (multicase--clause-test '(a (:over) b)
+                  [x (or [rel] :to) y] (list x rel y))))
+
+ (should (equal 'yep
+                (multicase--clause-test '()
+                  [] 'yep)))
+
+ (should (equal '(a b hier)
+                (multicase--clause-test '(a :over b :in hier)
+                  [x (or :over :to) y &rest (or [:in hierarchy] [])]
+                  (list x y (or hierarchy 'hfoo)))))
 
  ;; example
  )
 
 
-(defmacro multifun ()
-  (declare (indent defun)))
+(defmacro multifun (e)
+  (declare (indent defun))
+  `',e)
 
 (defmacro multimacro ()
   (declare (indent defun)))
