@@ -21,7 +21,10 @@
  ;; example
  )
 
-;; TODO Match alists and hash-tables
+;; TODO Also allow | instead of &rest, which gets much too heavy when matching
+;; alists
+
+;; TODO Match hash-tables
 
 ;; TODO we can redeem sequential nature of pattern matching so it works for list
 ;; and vectors alike simply by replacing any seq pattern with an app-pattern like
@@ -41,21 +44,6 @@
 ;; isn't.
 
 
-;; TODO Nested lists are borken.
-(comment
- (multicase '(1 (a b))
-   ([_ [foo bar]] (list foo bar)))
-
- ;; fails
- (multicase '((a . b))
-   ([[foo &rest bar]] (list foo bar)))
-
- ;; but pcase works
- (pcase '((a . b))
-   (`((,foo . ,bar)) (list foo bar)))
- ;; comment
- )
-
 (defmacro multicase (e &rest clauses)
   "`pcase' like matching and destructuring with less noise."
   (declare (indent 1))
@@ -69,35 +57,13 @@
   `(,(multicase--init pat) ,@body))
 
 
-(defun multicase--rest (pat)
-  "Generate a pcase pattern from the tail pattern PAT of a
-multicase pattern that comes after `&rest' e.g. [... &rest PAT]"
-  (pcase pat
-    (`[] '())
-    ((pred vectorp) (let ((pats (mapcar #'multicase--inside pat)))
-                      `(,@pats)))
-    (otherwise
-     (multicase--inside pat))))
-
-
 (defun multicase--init (pat)
   "Generate a pcase pattern from a multicase pattern assuming an
 unquoted context."
   (pcase pat
     ('otherwise pat)
     ((pred symbolp) pat)
-    ;; TODO replace `-split-on' with some cl- combo
-    ((pred vectorp) (let* ((split (-split-on '&rest (seq-into pat 'list)))
-                           (head (car split))
-                           (tail (cadr split)))
-                      (when (> (length tail) 1)
-                        (multi-error "in multicase malformed &rest pattern %S" tail))
-                      (let* ((head (multicase--inside (seq-into head 'vector)))
-                             (tail (and tail (multicase--rest (car tail)))))
-                        ;; append tail to head's body under backquote to form a
-                        ;; complete pcase pattern
-                        (callf append (cadr head) tail)
-                        head)))
+    ((pred vectorp) (list '\` (multicase--inside pat)))
     (`(or . ,pats) (cons 'or (mapcar #'multicase--init pats)))
     (`(and . ,pats) (cons 'and (mapcar #'multicase--init pats)))
     (`(app ,fun ,pat) (list 'app fun (multicase--init pat)))
@@ -118,9 +84,16 @@ unquoted context."
   "Generate a pcase pattern from a multicase pattern assuming an
 quoted context i.e. a list matching pattern."
   (pcase pat
-    (`[] (list '\` '()))
-    ((pred vectorp) (let ((pats (mapcar #'multicase--inside pat)))
-                      (list '\` `(,@pats))))
+    (`[] '())
+    ;; TODO replace `-split-on' with some cl- combo
+    ((pred vectorp) (let* ((split (-split-on '&rest (seq-into pat 'list)))
+                           (head (car split))
+                           (tail (cadr split)))
+                      (when (> (length tail) 1)
+                        (multi-error "in multicase malformed &rest pattern %S" tail))
+                      (let* ((head (mapcar #'multicase--inside head))
+                             (tail (and tail (multicase--inside (car tail)))))
+                        (append head tail))))
     (`(quote ,(and (pred symbolp) sym)) sym)
     ;; vector pattern
     (`(\` ,(and vpat (pred vectorp))) (seq-into (mapcar #'multicase--inside vpat) 'vector))

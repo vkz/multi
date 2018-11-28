@@ -568,12 +568,14 @@ message prefix matches PREFIX"
                              (list x y (or z 'none)))))))
 
 
-;; TODO
 (ert-deftest multi-test-multicase-nested-list-patterns ()
   "Multicase should allow nested list patterns"
 
   (should (equal '(a b) (multicase '(1 (a b))
-                          ([_ [foo bar]] (list foo bar))))))
+                          ([_ [foo bar]] (list foo bar)))))
+
+  (should (equal '(1 2 3 4) (multicase '((1 . 2) (3 . 4))
+                              ([[a &rest b] [c &rest d]] (list a b c d))))))
 
 
 (ert-deftest multi-test-multicase-vector-patterns ()
