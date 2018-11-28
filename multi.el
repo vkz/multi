@@ -32,54 +32,54 @@
 ;; make it optional? Looks like pcase has a (seq pat ...) but it has funky
 ;; semantics in the way it handles seq tails. We could allow it or build on it.
 
-;; TODO define `multicase-defmacro' similar to `pcase-defmacro' to define custom
-;; patterns that use multicase dsl.
+;; TODO define `multi-case-defmacro' similar to `pcase-defmacro' to define custom
+;; patterns that use multi-case dsl.
 
-;; NOTE Although `multicase--init' and `multicase--inside' are superficially the
-;; same we need both because `multicase--inside' assumes to be inside backquoted
+;; NOTE Although `multi-case--init' and `multi-case--inside' are superficially the
+;; same we need both because `multi-case--inside' assumes to be inside backquoted
 ;; pattern e.g. `(,foo ,bar) in pcase syntax or [foo bar] in our dsl , while
-;; `multicase--init' assumes to work either outside of a backquoted context or
+;; `multi-case--init' assumes to work either outside of a backquoted context or
 ;; inside of an unquoted pattern.
 
 
-(defmacro multicase (e &rest clauses)
+(defmacro multi-case (e &rest clauses)
   "`pcase' like matching and destructuring with less noise."
   (declare (indent 1))
   (condition-case err
       `(pcase ,e
-         ,@(mapcar #'multicase--clause clauses))
+         ,@(mapcar #'multi-case--clause clauses))
     (multi-error `(multi-error ,(cadr err)))))
 
 
-(cl-defun multicase--clause ((pat . body))
-  `(,(multicase--init pat) ,@body))
+(cl-defun multi-case--clause ((pat . body))
+  `(,(multi-case--init pat) ,@body))
 
 
-(defun multicase--init (pat)
-  "Generate a pcase pattern from a multicase pattern assuming an
+(defun multi-case--init (pat)
+  "Generate a pcase pattern from a multi-case pattern assuming an
 unquoted context."
   (pcase pat
     ('otherwise               pat)
     ((pred symbolp)           pat)
-    ((pred vectorp)           (list '\` (multicase--inside pat)))
-    (`(or . ,pats)            (cons 'or (mapcar #'multicase--init pats)))
-    (`(and . ,pats)           (cons 'and (mapcar #'multicase--init pats)))
-    (`(app ,fun ,pat)         (list 'app fun (multicase--init pat)))
-    (`(let ,pat ,exp)         (list 'let (multicase--init pat) exp))
+    ((pred vectorp)           (list '\` (multi-case--inside pat)))
+    (`(or . ,pats)            (cons 'or (mapcar #'multi-case--init pats)))
+    (`(and . ,pats)           (cons 'and (mapcar #'multi-case--init pats)))
+    (`(app ,fun ,pat)         (list 'app fun (multi-case--init pat)))
+    (`(let ,pat ,exp)         (list 'let (multi-case--init pat) exp))
     (`(quote ,(pred symbolp)) pat)
     ;; vector pattern
-    (`(\` ,(pred vectorp))    (list '\` (multicase--inside pat)))
+    (`(\` ,(pred vectorp))    (list '\` (multi-case--inside pat)))
     ;; TODO catch all for other (foo ...) standard and custom patterns. If I ever
-    ;; implement `multicase-defmacro' its custom macros would need to match before
+    ;; implement `multi-case-defmacro' its custom macros would need to match before
     ;; this clause
     ((pred listp)             pat)
     ((pred atom)              pat)
     (otherwise
-     (multi-error "in multicase unrecognized pattern %S" pat))))
+     (multi-error "in multi-case unrecognized pattern %S" pat))))
 
 
-(defun multicase--inside (pat)
-  "Generate a pcase pattern from a multicase pattern assuming an
+(defun multi-case--inside (pat)
+  "Generate a pcase pattern from a multi-case pattern assuming an
 quoted context i.e. a list matching pattern."
   (pcase pat
     (`[] '())
@@ -88,31 +88,37 @@ quoted context i.e. a list matching pattern."
                            (head (car split))
                            (tail (cadr split)))
                       (when (> (length tail) 1)
-                        (multi-error "in multicase malformed &rest pattern %S" tail))
-                      (let* ((head (mapcar #'multicase--inside head))
-                             (tail (and tail (multicase--inside (car tail)))))
+                        (multi-error "in multi-case malformed &rest pattern %S" tail))
+                      (let* ((head (mapcar #'multi-case--inside head))
+                             (tail (and tail (multi-case--inside (car tail)))))
                         (append head tail))))
     ;; vector pattern
-    (`(\` ,(pred vectorp))    (seq-into (mapcar #'multicase--inside (cadr pat)) 'vector))
+    (`(\` ,(pred vectorp))    (seq-into (mapcar #'multi-case--inside (cadr pat)) 'vector))
     (`(quote ,(pred symbolp)) (cadr pat))
     ((pred keywordp)          pat)
     ((pred symbolp)           (list '\, pat))
     ;; TODO do I need to check for an empty list here?
-    ((pred listp)             (list '\, (multicase--init pat)))
+    ((pred listp)             (list '\, (multi-case--init pat)))
     ((pred atom)              pat)
     (otherwise
-     (multi-error "in multicase unrecognized pattern %S" pat))))
+     (multi-error "in multi-case unrecognized pattern %S" pat))))
 
 
-(defmacro multifun (e)
+(defmacro multi-let (&rest args)
+  (declare (indent 1))
+  nil)
+
+(defmacro multi-fun (&rest args)
   (declare (indent defun))
-  `',e)
+  `',(car args))
 
-(defmacro multimacro ()
-  (declare (indent defun)))
+(defmacro multi-macro (&rest args)
+  (declare (indent defun))
+  nil)
 
-(defmacro multi-defun (&rest args) nil)
-(defmacro multi-defmacro (&rest args) nil)
+(defmacro multi-method (&rest args)
+  (declare (indent defun))
+  nil)
 
 
 ;;* Errors -------------------------------------------------------- *;;
@@ -134,7 +140,7 @@ exactly like `error'
 
 
 (defcustom multi-lexical-binding 'error
-  "Control if multimethods can be defined when `lexical-binding'
+  "Control if multi-methods can be defined when `lexical-binding'
  is disabled. Default to signaling an error if an attempt is made
  to define a new multi dispatch or method while in a dynamically
  scoped environment.")
@@ -148,7 +154,7 @@ exactly like `error'
       (multi-error
        (string-join
         (list
-         "multimethods require `lexical-binding' to work properly."
+         "multi-methods require `lexical-binding' to work properly."
          "If you know what you are doing you may disable this check"
          "by unsetting `multi-lexical-binding'.")
         " ")))))
@@ -426,7 +432,7 @@ This form is `setf'-able."
 
 
 (defun multi-methods (&rest args)
-  "Returns a hash-table of FUN-SYM multimethods, where each entry
+  "Returns a hash-table of FUN-SYM multi-methods, where each entry
 is a (value . method) pair.
 
 When called with :for and :matching keywords limits the table to
@@ -496,7 +502,7 @@ May be called according to one of the following signatures:
 ;; NOTE this naming `multi-methods-remove' becomes more consistent if or when we
 ;; allow :before :after :around methods
 (defun multi-methods-remove (fun dispatch-value)
-  "Removes the multimethod FUN associated with DISPATCH-VALUE."
+  "Removes the multi-method FUN associated with DISPATCH-VALUE."
   (ht-remove! (multi-methods fun) dispatch-value))
 
 
@@ -549,7 +555,7 @@ global hierarchy"
 
 
 (defun multi-prefer (fun &rest args)
-  "Causes the multimethod FUN to prefer matches of dispatch VAL-X
+  "Causes the multi-method FUN to prefer matches of dispatch VAL-X
 over dispatch VAL-Y when there is a conflict.
 
 May be called according to one of the following signatures:
@@ -593,7 +599,7 @@ May be called according to one of the following signatures:
 
 
 (defun multi-prefers-remove (fun &rest args)
-  "Causes the multimethod FUN to not prefer matches of dispatch
+  "Causes the multi-method FUN to not prefer matches of dispatch
 VAL-X over dispatch VAL-Y when there is a conflict. If VAL-Y not
 supplied removes all prefers for VAL-X. If HIERARCHY not supplied
 defaults to the global hierarchy.
@@ -686,7 +692,7 @@ HIERARCHY. Returns that method or signals an error."
 
 
 (defmacro multi (fun &rest args)
-  "Creates a new multimethod dispatch function. The DOCSTRING and
+  "Creates a new multi-method dispatch function. The DOCSTRING and
 HIERARCHY are optional. HIERARCHY if not supplied defaults to the
 global hierarchy.
 
@@ -775,7 +781,7 @@ a function.
         (setf (get ',fun :multi-default)
               (fn (&rest args)
                 (multi-error
-                 "no multimethods match dispatch value %s for dispatch %s "
+                 "no multi-methods match dispatch value %s for dispatch %s "
                  (apply (get ',fun :multi-dispatch) args)
                  ',fun)))
 
@@ -805,7 +811,7 @@ Lisp conventions.
           ;; TODO invalidate multi-methods cache
           )))
     (otherwise
-     `(multi-error "in multimethod malformed arglist at %s" ',args))))
+     `(multi-error "in multi-method malformed arglist at %s" ',args))))
 
 
 ;;* Playground ---------------------------------------------------- *;;
@@ -842,8 +848,12 @@ Lisp conventions.
 (provide 'multi)
 
 
-;; TODO Elisp specific idea is to allow supplying setters in multimethods, so that
-;; multimethod invocation can be used with gv setters like `setf', `push', `callf'
+;; TODO hoist all error messages to Error section
+
+;; TODO maybe `curry' and `rcurry'?
+
+;; TODO Elisp specific idea is to allow supplying setters in multi-methods, so that
+;; multi-method invocation can be used with gv setters like `setf', `push', `callf'
 ;; etc. That makes perfect sence if your dispatch is for looking up some location
 ;; based on arguments. It may on occasion be quite natural to use the same syntax
 ;; to set new value to that location.
@@ -921,13 +931,13 @@ Lisp conventions.
 
 ;; TODO Lexical vs dynamic scope. Something I ran into by chance. `multi-tests.el'
 ;; doesn't have lexical scope on and this has interesting implications for
-;; multimethods. Say, this example won't work as expected in dynamic scope:
+;; multi-methods. Say, this example won't work as expected in dynamic scope:
 ;;
 ;;   (let ((hierarchy (ht))
 ;;         (b 42))
 ;;     (multi-rel :rect isa :shape in hierarchy)
 ;;     (multi baz (lambda (x) (princ b) x) :in hierarchy)
-;;     (multimethod baz (x) :when :shape :shape)
+;;     (multi-method baz (x) :when :shape :shape)
 ;;     (baz :rect)
 ;;     ;; prints  42 and returns :shape as expected
 ;;     )
@@ -975,23 +985,23 @@ Lisp conventions.
 ;; although I have no experienc with those.
 
 ;; TODO Allow isa? with "_" patterns
-;; (multimethod foo (&rest args) :when [a b _] body)
+;; (multi-method foo (&rest args) :when [a b _] body)
 
 ;; TODO Allow predicates in patterns
 ;; degenerate case where computed multi val maybe a seq, pred-p should still be
 ;; applied even though this here val isn't a seq
-;; (multimethod foo (&rest args) :when (?  pred-p) body)
+;; (multi-method foo (&rest args) :when (?  pred-p) body)
 
 
 ;; TODO Hierarchy is orthogonal to `multi' dispatch function. However in Clojure
 ;; you may change it (only?) in `defmulti', but IMO it makes more sence to be able
-;; to pass it to multimethod invocations (not even definitions). Need to think if
+;; to pass it to multi-method invocations (not even definitions). Need to think if
 ;; that'd be consistent and whether it has any practical value.
 
 ;; TODO Could we allow arbitrary relations? E.g. `parent-of'. Would that have any
 ;; practical benefit? When? How?
-;; (multimethod foo (a b) :isa :b body)
-;; (multimethod foo (a b) :parent-of :b body)
+;; (multi-method foo (a b) :isa :b body)
+;; (multi-method foo (a b) :parent-of :b body)
 
 ;; TODO Should I overload (multi-rel x relates-to? x) to be used as predicate:
 ;; (if (multi-rel y parent-of? x) do stuff) or define (multi-rel? ...)?

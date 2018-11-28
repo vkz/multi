@@ -105,7 +105,7 @@ message prefix matches PREFIX"
 ;;* Tests --------------------------------------------------------- *;;
 
 
-;;** - multimethods ----------------------------------------------- *;;
+;;** - multi-methods ----------------------------------------------- *;;
 
 
 (ert-deftest multi-test-implementation-details ()
@@ -120,8 +120,8 @@ message prefix matches PREFIX"
     (should (functionp (get 'foo :multi-dispatch)))
     (should (functionp (get 'foo :multi-default)))
 
-    ;; lookup a multimethod by key
-    (multimethod foo (x) :when :rect :rect)
+    ;; lookup a multi-method by key
+    (multi-method foo (x) :when :rect :rect)
     (should (functionp (multi-methods 'foo :rect)))
     (should (equal :rect (funcall (multi-methods 'foo :rect) :rect)))
 
@@ -255,17 +255,17 @@ message prefix matches PREFIX"
     (should (functionp (get 'foo :multi-default)))))
 
 
-(ert-deftest multi-test-multimethod ()
-  "Installing and removing `multimethod's should work"
+(ert-deftest multi-test-multi-method ()
+  "Installing and removing `multi-method's should work"
   (multi-test (foo)
 
     (multi foo #'identity)
     (should (ht? (multi-methods 'foo)))
 
-    (multimethod foo (x) :when :a :a)
+    (multi-method foo (x) :when :a :a)
     (should (multi--set-equal? '(:a) (ht-keys (multi-methods 'foo))))
 
-    (multimethod foo (x) :when :b :b)
+    (multi-method foo (x) :when :b :b)
     (should (multi--set-equal? '(:a :b) (ht-keys (multi-methods 'foo))))
 
     ;; one method for every match
@@ -276,7 +276,7 @@ message prefix matches PREFIX"
     (should (multi--set-equal? '(:default) (ht-keys (multi-methods :for 'foo :matching :c))))
 
     ;; but no longer :default when installed
-    (multimethod foo (x) :when :c :c)
+    (multi-method foo (x) :when :c :c)
     (should (multi--set-equal? '(:c) (ht-keys (multi-methods :for 'foo :matching :c))))
 
     ;; methods must be functions
@@ -292,10 +292,10 @@ message prefix matches PREFIX"
   (multi-test (foo)
 
     (multi foo (fn (&rest args) (apply #'vector args)))
-    (multimethod foo (&rest x) :when [:a] :a)
-    (multimethod foo (&rest x) :when [:b] :b)
-    (multimethod foo (&rest x) :when [:a :a] :a)
-    (multimethod foo (&rest x) :when [:b :b] :b)
+    (multi-method foo (&rest x) :when [:a] :a)
+    (multi-method foo (&rest x) :when [:b] :b)
+    (multi-method foo (&rest x) :when [:a :a] :a)
+    (multi-method foo (&rest x) :when [:b :b] :b)
 
     (should (equal :a (foo :a)))
     (should (equal :b (foo :b)))
@@ -307,12 +307,12 @@ message prefix matches PREFIX"
   "Full isa dispatch should work"
   (multi-test (foo)
 
-    ;; Example from the multimethod docs.
+    ;; Example from the multi-method docs.
     (multi-rel 'vector :isa :collection)
     (multi-rel 'hash-table :isa :collection)
     (multi foo #'type-of)
-    (multimethod foo (c) :when :collection :a-collection)
-    (multimethod foo (s) :when 'string :a-string)
+    (multi-method foo (c) :when :collection :a-collection)
+    (multi-method foo (s) :when 'string :a-string)
 
     (should (equal :a-collection (foo [])))
     (should (equal :a-collection (foo (ht))))
@@ -323,11 +323,11 @@ message prefix matches PREFIX"
   "Dispatch ambiguity should be caught or preferred away"
   (multi-test (bar)
 
-    ;; Example from the multimethod docs.
+    ;; Example from the multi-method docs.
     (multi-rel :rect isa :shape)
     (multi bar #'vector)
-    (multimethod bar (x y) :when [:rect :shape] :rect-shape)
-    (multimethod bar (x y) :when [:shape :rect] :shape-rect)
+    (multi-method bar (x y) :when [:rect :shape] :rect-shape)
+    (multi-method bar (x y) :when [:shape :rect] :shape-rect)
 
     ;; since no val is preferred, we start with an empty prefers table
     (should (ht-empty? (multi-prefers bar multi-global-hierarchy)))
@@ -382,22 +382,22 @@ message prefix matches PREFIX"
   (multi-test (foo)
 
     (multi foo #'identity)
-    (multimethod foo (x) :when :a :a)
+    (multi-method foo (x) :when :a :a)
 
     ;; pre-installed :default when method missing
-    (should (multi--error-match "no multimethods match" (foo :c)))
+    (should (multi--error-match "no multi-methods match" (foo :c)))
 
     ;; :default when method missing and :default installed
-    (multimethod foo (x) :when :default :default)
+    (multi-method foo (x) :when :default :default)
     (should (equal :default (foo :c)))
 
     ;; no longer :default when installed
-    (multimethod foo (x) :when :c :c)
+    (multi-method foo (x) :when :c :c)
     (should (equal :c (foo :c)))
 
     ;; removing custom :default should restore pre-installed :default
     (multi-methods-remove 'foo :default)
-    (should (multi--error-match "no multimethods match" (foo :d)))))
+    (should (multi--error-match "no multi-methods match" (foo :d)))))
 
 
 (ert-deftest multi-test-errors ()
@@ -420,8 +420,8 @@ message prefix matches PREFIX"
                                 (multi-rel (make-multi-hierarchy) :isa (make-multi-hierarchy))))
 
     (multi foo #'identity)
-    (multimethod foo (a) :when :square :square)
-    (multimethod foo (a) :when :shape :shape)
+    (multi-method foo (a) :when :square :square)
+    (multi-method foo (a) :when :shape :shape)
 
     ;; catch malformed arglist in `multi-rel' call
     (should (multi--error-match "in multi-rel malformed arglist" (multi-rel :foo :bar)))
@@ -430,7 +430,7 @@ message prefix matches PREFIX"
     (should (multi--error-match "multiple methods" (foo :square)))
 
     ;; preinstalled :default method should signal method missing
-    (should (multi--error-match "no multimethods match" (foo :triangle)))
+    (should (multi--error-match "no multi-methods match" (foo :triangle)))
 
     ;; catch cycle relationships
     (should (multi--error-match "in multi-rel cyclic relationship" (multi-rel :shape isa :square)))
@@ -440,16 +440,16 @@ message prefix matches PREFIX"
     ;; catch malformed arglist in `multi' call
     (should (multi--error-match "in multi malformed arglist" (multi bar :val [a b])))
 
-    ;; catch malformed arglist in `multimethod' call
-    (should (multi--error-match "in multimethod malformed arglist" (multimethod bar :val [a b])))))
+    ;; catch malformed arglist in `multi-method' call
+    (should (multi--error-match "in multi-method malformed arglist" (multi-method bar :val [a b])))))
 
 
 (ert-deftest multi-test-custom-hierarchy ()
-  "Multimethods should work with custom hierarchies"
+  "Multi-Methods should work with custom hierarchies"
   ;; TODO Current implementation bakes the hierarchy at (multi foo ...)
   ;; definition, so every (foo ...) invocation will use the same hierarchy. In
   ;; this respect we follow Clojure. My hunch, however, is this introduces
-  ;; unnecessary coupling between multimethods and hierarchies. IMO hierarchies
+  ;; unnecessary coupling between multi-methods and hierarchies. IMO hierarchies
   ;; are in fact independent, so why marry the two linked but orthogonal concepts?
   ;; Understandably, the case could be made that decoupling them doesn't add
   ;; expressive power that would actually be used. That's certainly a good reason
@@ -466,7 +466,7 @@ message prefix matches PREFIX"
         (multi-rel :square isa :rect in hierarchy)
         ;; define multi-dispatch over the custom hierarchy
         (multi bar #'identity :in hierarchy)
-        (multimethod bar (a) :when :parallelogram :parallelogram)
+        (multi-method bar (a) :when :parallelogram :parallelogram)
         (let ((hierarchy (make-multi-hierarchy)))
           (multi-rel :rect isa :shape in hierarchy)
           (multi-rel :square isa :rect in hierarchy)
@@ -483,63 +483,63 @@ message prefix matches PREFIX"
 ;;** - multicase -------------------------------------------------- *;;
 
 
-(ert-deftest multi-test-simple-multicase-patterns ()
-  "Multicase should match simple patterns"
+(ert-deftest multi-test-simple-multi-case-patterns ()
+  "Multi-Case should match simple patterns"
 
-  (should (equal 'match (multicase '(a)
+  (should (equal 'match (multi-case '(a)
                           (_ 'match))))
 
-  (should (equal '(a) (multicase '(a)
+  (should (equal '(a) (multi-case '(a)
                         (lst lst))))
 
-  (should (equal '(a) (multicase '(a)
+  (should (equal '(a) (multi-case '(a)
                         ([x y] (list x y))
                         ([x] (list x)))))
 
-  (should (equal 'empty (multicase '()
+  (should (equal 'empty (multi-case '()
                           ([x] x)
                           (otherwise 'empty))))
 
-  (should (equal 'match (multicase '(a b c)
+  (should (equal 'match (multi-case '(a b c)
                           (['a _ 'c] 'match))))
 
-  (defmacro multicase--clause-test (expr pat &rest body)
+  (defmacro multi-case--clause-test (expr pat &rest body)
     (declare (indent 1))
     `(pcase ,expr
-       ,(multicase--clause (cons pat body))
+       ,(multi-case--clause (cons pat body))
        (otherwise
         'no-match)))
 
-  (should (equal 'match (multicase--clause-test '()
+  (should (equal 'match (multi-case--clause-test '()
                           [] 'match)))
 
-  (should (equal 'symbol (multicase--clause-test '(a)
+  (should (equal 'symbol (multi-case--clause-test '(a)
                            ['a] 'symbol)))
 
-  (should (equal 'b (multicase--clause-test '(a b)
+  (should (equal 'b (multi-case--clause-test '(a b)
                       [(or 'a 'b) (and x 'b)] x)))
 
-  (should (equal 'match (multicase--clause-test '(:key)
+  (should (equal 'match (multi-case--clause-test '(:key)
                           [:key] 'match)))
 
-  (should (equal :key (multicase--clause-test '(:key)
+  (should (equal :key (multi-case--clause-test '(:key)
                         [x] x)))
 
-  (should (equal '(a :over b) (multicase--clause-test '(a (:over) b)
+  (should (equal '(a :over b) (multi-case--clause-test '(a (:over) b)
                                 [x (or [rel] :to) y] (list x rel y)))))
 
 
-(ert-deftest multi-test-standard-multicase-patterns ()
-  "Multicase should allow standard pcase patterns"
+(ert-deftest multi-test-standard-multi-case-patterns ()
+  "Multi-Case should allow standard pcase patterns"
 
-  (should (equal '(a over b none) (multicase '(a over b)
+  (should (equal '(a over b none) (multi-case '(a over b)
                                     ([x
                                       (and (pred symbolp)
                                            (or 'over 'to) rel)
                                       y]
                                      (list x rel y 'none)))))
 
-  (should (equal '(1 2 3) (multicase '(1 2)
+  (should (equal '(1 2 3) (multi-case '(1 2)
                             ([(and (pred numberp)
                                    (app 1- 0)
                                    x)
@@ -548,33 +548,33 @@ message prefix matches PREFIX"
                              (list x num y))))))
 
 
-(ert-deftest multi-test-multicase-rest-patterns ()
-  "Multicase should allow matching the rest of a list"
+(ert-deftest multi-test-multi-case-rest-patterns ()
+  "Multi-Case should allow matching the rest of a list"
 
-  (should (equal '(b c) (multicase '(a b c)
+  (should (equal '(b c) (multi-case '(a b c)
                           (['a &rest tail] tail))))
 
-  (should (equal 'c (multicase '(a b c)
+  (should (equal 'c (multi-case '(a b c)
                       (['a &rest ['b last]] last))))
 
-  (should (equal 'c (multicase '(a b c)
+  (should (equal 'c (multi-case '(a b c)
                       (['a &rest (or [] ['b last])] last))))
 
-  (should (equal 'match (multicase '(a)
+  (should (equal 'match (multi-case '(a)
                           (['a &rest (or [] ['b last])] 'match))))
 
-  (should (equal '(a b h) (multicase '(a :over b :in h)
+  (should (equal '(a b h) (multi-case '(a :over b :in h)
                             ([x (or :over :to) y &rest (or [:in z] [])]
                              (list x y (or z 'none)))))))
 
 
-(ert-deftest multi-test-multicase-nested-list-patterns ()
-  "Multicase should allow nested list patterns"
+(ert-deftest multi-test-multi-case-nested-list-patterns ()
+  "Multi-Case should allow nested list patterns"
 
-  (should (equal '(2 3) (multicase '(1 (2 3))
+  (should (equal '(2 3) (multi-case '(1 (2 3))
                           ([_ [a b]] (list a b)))))
 
-  (should (equal '(1 2 3 4) (multicase '((1 . 2) (3 . 4))
+  (should (equal '(1 2 3 4) (multi-case '((1 . 2) (3 . 4))
                               ([[a &rest b]
                                 [(and (pred numberp) c)
                                  &rest
@@ -582,21 +582,21 @@ message prefix matches PREFIX"
                                (list a b c d))))))
 
 
-(ert-deftest multi-test-multicase-vector-patterns ()
-  "Multicase should simple vector patterns"
+(ert-deftest multi-test-multi-case-vector-patterns ()
+  "Multi-Case should simple vector patterns"
 
   (should (equal '(1 2)
-                 (multicase [1 2]
+                 (multi-case [1 2]
                    (`[b c] (list b c)))))
 
   (should (equal '(b c)
-                 (multicase (list 'a [b c])
+                 (multi-case (list 'a [b c])
                    ([a `[b c]] (list b c))))))
 
-(ert-deftest multi-test-multicase-errors ()
-  "Multicase should signal malformed patterns"
+(ert-deftest multi-test-multi-case-errors ()
+  "Multi-Case should signal malformed patterns"
   (should
-   (multi--error-match "in multicase malformed &rest" (multicase '(a b c)
+   (multi--error-match "in multi-case malformed &rest" (multi-case '(a b c)
                                                         (['a &rest foo bar] 'oops)))))
 
 
@@ -609,20 +609,20 @@ message prefix matches PREFIX"
      ,@body
      (- (float-time) start)))
 
-;; TODO Test multimethod isa vs struct inheritance?
+;; TODO Test multi-method isa vs struct inheritance?
 
 ;; NOTE Rather ugly way to measure performance, but does the trick. We stack up
-;; multimethods against built-in generic dispatch. Our generic dispatches on the
+;; multi-methods against built-in generic dispatch. Our generic dispatches on the
 ;; type of its first argument, so to compare apples to apples we use #'type-of as
-;; our multi-dispatch. For multimethods we run 10'000 repeats, each repeat
+;; our multi-dispatch. For multi-methods we run 10'000 repeats, each repeat
 ;; performs 7 dispatches for a total of 70'000 dispatches. We do the same for
 ;; generic dispatch.
 ;;
-;; Without caching multimethods are ~100x slower:
+;; Without caching multi-methods are ~100x slower:
 ;;
 ;; (multi-test-perf)
 ;; =>
-;; ((:multimethod (:total . 2.364870071411133)
+;; ((:multi-method (:total . 2.364870071411133)
 ;;                (:average . 3.3783858163016185e-05))
 ;;  (:defmethod   (:total . 0.021378040313720703)
 ;;                (:average . 3.0540057591029576e-07)))
@@ -630,13 +630,13 @@ message prefix matches PREFIX"
 
 (defun multi-test-perf ()
   (multi foo-test #'type-of)
-  (multimethod foo-test (x) :when 'foo-struct-1 1)
-  (multimethod foo-test (x) :when 'foo-struct-2 2)
-  (multimethod foo-test (x) :when 'foo-struct-3 3)
-  (multimethod foo-test (x) :when 'foo-struct-4 4)
-  (multimethod foo-test (x) :when 'foo-struct-5 5)
-  (multimethod foo-test (x) :when 'foo-struct-6 6)
-  (multimethod foo-test (x) :when :default 0)
+  (multi-method foo-test (x) :when 'foo-struct-1 1)
+  (multi-method foo-test (x) :when 'foo-struct-2 2)
+  (multi-method foo-test (x) :when 'foo-struct-3 3)
+  (multi-method foo-test (x) :when 'foo-struct-4 4)
+  (multi-method foo-test (x) :when 'foo-struct-5 5)
+  (multi-method foo-test (x) :when 'foo-struct-6 6)
+  (multi-method foo-test (x) :when :default 0)
 
   (cl-defstruct foo-struct-0)
   (cl-defstruct foo-struct-1)
@@ -677,7 +677,7 @@ message prefix matches PREFIX"
          (list (cons :total total)
                (cons :average average))))
 
-      (:multimethod
+      (:multi-method
        (let* ((total (multi-test-time
                        (cl-loop repeat 10000
                                 do (foo-test s0)
@@ -760,12 +760,12 @@ message prefix matches PREFIX"
      (expect (functionp (multi-methods 'foo :default)))))
 
 
- (ert-deftest multi-test-multimethod ()
-   "Installing and removing `multimethod's should work"
+ (ert-deftest multi-test-multi-method ()
+   "Installing and removing `multi-method's should work"
    (multi-test ((set= multi--set-equal?) foo)
      (multi foo #'identity)
-     (expect '(:a :default)    set= (ht-keys (multi-methods 'foo)) :after (multimethod foo (x) :when :a :a))
-     (expect '(:a :b :default) set= (ht-keys (multi-methods 'foo)) :after (multimethod foo (x) :when :b :b))
+     (expect '(:a :default)    set= (ht-keys (multi-methods 'foo)) :after (multi-method foo (x) :when :a :a))
+     (expect '(:a :b :default) set= (ht-keys (multi-methods 'foo)) :after (multi-method foo (x) :when :b :b))
 
      ;; one method for every match
      (expect '(:a) set= (mapcar #'car (multi-methods :for 'foo :matching :a)))
@@ -774,12 +774,12 @@ message prefix matches PREFIX"
      ;; :default method when no method installed
      (expect '(:default) set= (mapcar #'car (multi-methods :for 'foo :matching :c)))
      ;; but no longer :default when installed
-     (expect '(:c)       set= (mapcar #'car (multi-methods :for 'foo :matching :c)) :after (multimethod foo (x) :when :c :c))
+     (expect '(:c)       set= (mapcar #'car (multi-methods :for 'foo :matching :c)) :after (multi-method foo (x) :when :c :c))
 
      ;; methods must be functions
      (expect #'functionp cl-every (ht-values (multi-methods 'foo)))
 
-     ;; removing a multimethod should work
+     ;; removing a multi-method should work
      (multi-methods-remove 'foo :a)
      (should (multi--set-equal? '(:default) (mapcar #'car (multi-methods :for 'foo :matching :a))))))
 
@@ -788,14 +788,14 @@ message prefix matches PREFIX"
    "Basic equality based dispatch should work"
    (multi-test (foo)
      (multi foo #'identity)
-     (expect :a       equal (foo :a) :after (multimethod foo (x) :when :a :a))
-     (expect :b       equal (foo :b) :after (multimethod foo (x) :when :b :b))
+     (expect :a       equal (foo :a) :after (multi-method foo (x) :when :a :a))
+     (expect :b       equal (foo :b) :after (multi-method foo (x) :when :b :b))
 
      ;; :default when method missing
-     (expect :default equal (foo :c) :after (multimethod foo (x) :when :default :default))
+     (expect :default equal (foo :c) :after (multi-method foo (x) :when :default :default))
 
      ;; no :default when installed
-     (expect :c       equal (too :c) :after (multimethod foo (x) :when :c :c))
+     (expect :c       equal (too :c) :after (multi-method foo (x) :when :c :c))
 
      ;; back to :default when removed
      (expect :default equal (foo :c) :after (multi-methods-remove 'foo :c))))
@@ -804,12 +804,12 @@ message prefix matches PREFIX"
  (ert-deftest multi-test-isa-dispatch ()
    "Full isa dispatch should work"
    (multi-test (foo)
-     ;; Example from the multimethod docs.
+     ;; Example from the multi-method docs.
      (multi-rel 'vector :isa :collection)
      (multi-rel 'hash-table :isa :collection)
      (multi foo #'type-of)
-     (multimethod foo (c) :when :collection :a-collection)
-     (multimethod foo (s) :when 'string :a-string)
+     (multi-method foo (c) :when :collection :a-collection)
+     (multi-method foo (s) :when 'string :a-string)
 
      (expect :a-collection equal (foo []))
      (expect :a-collection equal (foo (ht)))
@@ -827,14 +827,14 @@ message prefix matches PREFIX"
      (multi-rel :square isa :rect)
      (multi-rel :square isa :parallelogram)
      (multi foo #'identity)
-     (multimethod foo (a) :when :square :square)
-     (multimethod foo (a) :when :shape :shape)
+     (multi-method foo (a) :when :square :square)
+     (multi-method foo (a) :when :shape :shape)
 
      ;; signal ambiguous methods
      (expect "multiple methods" multi--error-match (foo :square))
 
      ;; preinstalled :default method should signal method missing
-     (expect "no multimethods match" multi--error-match (foo :triangle))
+     (expect "no multi-methods match" multi--error-match (foo :triangle))
 
      ;; catch cycle relationships
      (expect "cycle relationship" multi--error-match (multi-rel :shape isa :square))
@@ -842,7 +842,7 @@ message prefix matches PREFIX"
      ;; catch malformed arglist in `multi' call
      (expect "malformed arglist" multi--error-match (multi bar :val [a b]))
 
-     ;; catch malformed arglist in `multimethod' call
-     (expect "malformed arglist" multi--error-match (multimethod bar :val [a b]))))
+     ;; catch malformed arglist in `multi-method' call
+     (expect "malformed arglist" multi--error-match (multi-method bar :val [a b]))))
  ;; comment
  )
