@@ -36,12 +36,10 @@
 ;; patterns that use multicase dsl.
 
 ;; NOTE Although `multicase--init' and `multicase--inside' are superficially the
-;; same, we need that split to take care of pcase clause that may start with a
-;; standard (or, and, pred, etc) or custom (pcase-macropattern) pattern, which
-;; need not be unquoted, so to avoid generating an unquoted pcase pattern we start
-;; by matching with `multicase--init'. More generally `multicase--inside' is
-;; assumed to be inside a quoted pattern e.g. `(foo ,bar), while `multicase--init'
-;; isn't.
+;; same we need both because `multicase--inside' assumes to be inside backquoted
+;; pattern e.g. `(,foo ,bar) in pcase syntax or [foo bar] in our dsl , while
+;; `multicase--init' assumes to work either outside of a backquoted context or
+;; inside of an unquoted pattern.
 
 
 (defmacro multicase (e &rest clauses)
@@ -61,21 +59,21 @@
   "Generate a pcase pattern from a multicase pattern assuming an
 unquoted context."
   (pcase pat
-    ('otherwise pat)
-    ((pred symbolp) pat)
-    ((pred vectorp) (list '\` (multicase--inside pat)))
-    (`(or . ,pats) (cons 'or (mapcar #'multicase--init pats)))
-    (`(and . ,pats) (cons 'and (mapcar #'multicase--init pats)))
-    (`(app ,fun ,pat) (list 'app fun (multicase--init pat)))
-    (`(let ,pat ,exp) (list 'let (multicase--init pat) exp))
+    ('otherwise               pat)
+    ((pred symbolp)           pat)
+    ((pred vectorp)           (list '\` (multicase--inside pat)))
+    (`(or . ,pats)            (cons 'or (mapcar #'multicase--init pats)))
+    (`(and . ,pats)           (cons 'and (mapcar #'multicase--init pats)))
+    (`(app ,fun ,pat)         (list 'app fun (multicase--init pat)))
+    (`(let ,pat ,exp)         (list 'let (multicase--init pat) exp))
     (`(quote ,(pred symbolp)) pat)
     ;; vector pattern
-    (`(\` ,(pred vectorp)) (list '\` (multicase--inside pat)))
+    (`(\` ,(pred vectorp))    (list '\` (multicase--inside pat)))
     ;; TODO catch all for other (foo ...) standard and custom patterns. If I ever
     ;; implement `multicase-defmacro' its custom macros would need to match before
     ;; this clause
-    ((pred listp) pat)
-    ((pred atom) pat)
+    ((pred listp)             pat)
+    ((pred atom)              pat)
     (otherwise
      (multi-error "in multicase unrecognized pattern %S" pat))))
 
@@ -94,14 +92,14 @@ quoted context i.e. a list matching pattern."
                       (let* ((head (mapcar #'multicase--inside head))
                              (tail (and tail (multicase--inside (car tail)))))
                         (append head tail))))
-    (`(quote ,(and (pred symbolp) sym)) sym)
     ;; vector pattern
-    (`(\` ,(and vpat (pred vectorp))) (seq-into (mapcar #'multicase--inside vpat) 'vector))
-    ((pred keywordp) pat)
-    ((pred symbolp) (list '\, pat))
+    (`(\` ,(pred vectorp))    (seq-into (mapcar #'multicase--inside (cadr pat)) 'vector))
+    (`(quote ,(pred symbolp)) (cadr pat))
+    ((pred keywordp)          pat)
+    ((pred symbolp)           (list '\, pat))
     ;; TODO do I need to check for an empty list here?
-    ((pred listp) (list '\, (multicase--init pat)))
-    ((pred atom) pat)
+    ((pred listp)             (list '\, (multicase--init pat)))
+    ((pred atom)              pat)
     (otherwise
      (multi-error "in multicase unrecognized pattern %S" pat))))
 
