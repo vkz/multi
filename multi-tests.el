@@ -480,7 +480,7 @@ message prefix matches PREFIX"
    'lexical-scope))
 
 
-;;** - multicase -------------------------------------------------- *;;
+;;** - multi-case ------------------------------------------------- *;;
 
 
 (ert-deftest multi-test-simple-multi-case-patterns ()
@@ -606,6 +606,55 @@ message prefix matches PREFIX"
                               (list a b c d))))
 
   (should (multi--error-match "in multi-let malformed" (multi-let (([_])) 'foo))))
+
+
+;;** - multi-fun -------------------------------------------------- *;;
+
+
+(ert-deftest multi-test-defun ()
+  "Multi-fun should define a function"
+  (should
+   (equal '((:a :b 1 2)
+            (:a :b 1)
+            (:a :b)
+            (:a nil))
+
+          (progn
+            (multi-fun foo-fun (&optional a b &rest args)
+              :doc "string"
+              :sig (a b c d)
+              :interactive t
+              ([x y]     (list a b x y))
+              ([x]       (list a b x))
+              (otherwise (list a b)))
+
+            (list
+             (foo-fun :a :b 1 2)
+             (foo-fun :a :b 1)
+             (foo-fun :a :b 1 2 3)
+             (foo-fun :a))))))
+
+
+(ert-deftest multi-test-defun ()
+  "Multi-macro should define a macro"
+  (should
+   (equal '((:a :b 1 2)
+            (:a :b 1)
+            (:a :b))
+
+          (progn
+            (multi-macro foo-macro (a b &rest args)
+              :doc "string"
+              :sig (a b x :over y :in hierarchy)
+              :declare ((indent defun))
+              ([x y]     `(list ,a ,b ,x ,y))
+              ([x]       `(list ,a ,b ,x))
+              (otherwise `(list ,a ,b)))
+
+            (list
+             (foo-macro :a :b 1 2)
+             (foo-macro :a :b 1)
+             (foo-macro :a :b 1 2 3))))))
 
 
 ;;* Perf ---------------------------------------------------------- *;;

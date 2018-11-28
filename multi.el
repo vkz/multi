@@ -127,17 +127,58 @@ identifiers being bound."
     (multi-error `(multi-error ,(cadr err)))))
 
 
-(defmacro multi-fun (&rest args)
-  (declare (indent defun))
-  `',(car args))
+(defun multi--fun-meta (body &optional map)
+  "Parses multi-fun and multi-macro preamble for atribute
+declarations. Returns a hash-table."
+  (default map :to (ht))
+  (cond
+   ((keywordp (car body)) (ht-set map (pop body) (pop body)) (multi--fun-meta body map))
+   (:else                 (ht-set map :body body) map)))
 
-(defmacro multi-macro (&rest args)
-  (declare (indent defun))
-  nil)
 
-(defmacro multi-method (&rest args)
+;; TODO implement
+(defun multi--fun-sig (arglist body &optional doc sig)
+  "Creates a docstring from DOC adding signature SIG if supplied
+and extra signatures generated from the ARGLIST and multi-case
+patterns in the BODY."
+  (default doc :to "")
+  (concat doc
+          (if sig
+              (format "\n\\%S" (cons 'fn sig))
+            (format "\n\\%S" (cons 'fn arglist)))))
+
+
+;; TODO gv-setter
+(defun multi--fun (fun-type name arglist body)
   (declare (indent defun))
-  nil)
+  (let* ((meta           (multi--fun-meta body))
+         (split-args     (-split-on '&rest arglist))
+         (head-args      (car split-args))
+         (rest-arg       (car (cadr split-args)))
+         (body           (ht-get meta :body))
+         (doc            (ht-get meta :doc))
+         (sig            (ht-get meta :sig))
+         (dspec          (ht-get meta :declare))
+         (ispec          (ht-get meta :interactive)))
+    (if (or (not rest-arg) (not (symbolp rest-arg)))
+
+        `(multi-error "in multi-fun malformed arglist has no &rest argument in %S" ,arglist)
+
+      `(,fun-type
+        ,name ,arglist
+        ,(multi--fun-sig split-args body doc sig)
+        ,@(when dspec `((declare ,@dspec)))
+        ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
+        (multi-case ,rest-arg
+          ,@body)))))
+
+
+(defmacro multi-fun (name arglist &rest body)
+  (multi--fun 'defun name arglist body))
+
+
+(defmacro multi-macro (name arglist &rest body)
+  (multi--fun 'defmacro name arglist body))
 
 
 ;;* Errors -------------------------------------------------------- *;;
