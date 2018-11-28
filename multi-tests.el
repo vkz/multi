@@ -105,6 +105,9 @@ message prefix matches PREFIX"
 ;;* Tests --------------------------------------------------------- *;;
 
 
+;;** - multimethods ----------------------------------------------- *;;
+
+
 (ert-deftest multi-test-implementation-details ()
   "Low-level implementation details should work until implementation changes"
   (multi-test (foo)
@@ -475,6 +478,120 @@ message prefix matches PREFIX"
       (should (equal :parallelogram (bar :rect)))
       (should (equal :parallelogram (bar :square))))
    'lexical-scope))
+
+
+;;** - multicase -------------------------------------------------- *;;
+
+
+(ert-deftest multi-test-simple-multicase-patterns ()
+  "Multicase should match simple patterns"
+
+  (should (equal 'match (multicase '(a)
+                          (_ 'match))))
+
+  (should (equal '(a) (multicase '(a)
+                        (lst lst))))
+
+  (should (equal '(a) (multicase '(a)
+                        ([x y] (list x y))
+                        ([x] (list x)))))
+
+  (should (equal 'empty (multicase '()
+                          ([x] x)
+                          (otherwise 'empty))))
+
+  (should (equal 'match (multicase '(a b c)
+                          (['a _ 'c] 'match))))
+
+  (defmacro multicase--clause-test (expr pat &rest body)
+    (declare (indent 1))
+    `(pcase ,expr
+       ,(multicase--clause (cons pat body))
+       (otherwise
+        'no-match)))
+
+  (should (equal 'match (multicase--clause-test '()
+                          [] 'match)))
+
+  (should (equal 'symbol (multicase--clause-test '(a)
+                           ['a] 'symbol)))
+
+  (should (equal 'b (multicase--clause-test '(a b)
+                      [(or 'a 'b) (and x 'b)] x)))
+
+  (should (equal 'match (multicase--clause-test '(:key)
+                          [:key] 'match)))
+
+  (should (equal :key (multicase--clause-test '(:key)
+                        [x] x)))
+
+  (should (equal '(a :over b) (multicase--clause-test '(a (:over) b)
+                                [x (or [rel] :to) y] (list x rel y)))))
+
+
+(ert-deftest multi-test-standard-multicase-patterns ()
+  "Multicase should allow standard pcase patterns"
+
+  (should (equal '(a over b none) (multicase '(a over b)
+                                    ([x
+                                      (and (pred symbolp)
+                                           (or 'over 'to) rel)
+                                      y]
+                                     (list x rel y 'none)))))
+
+  (should (equal '(1 2 3) (multicase '(1 2)
+                            ([(and (pred numberp)
+                                   (app 1- 0)
+                                   x)
+                              (and num
+                                   (let y 3))]
+                             (list x num y))))))
+
+
+(ert-deftest multi-test-multicase-rest-patterns ()
+  "Multicase should allow matching the rest of a list"
+
+  (should (equal '(b c) (multicase '(a b c)
+                          (['a &rest tail] tail))))
+
+  (should (equal 'c (multicase '(a b c)
+                      (['a &rest ['b last]] last))))
+
+  (should (equal 'c (multicase '(a b c)
+                      (['a &rest (or [] ['b last])] last))))
+
+  (should (equal 'match (multicase '(a)
+                          (['a &rest (or [] ['b last])] 'match))))
+
+  (should (equal '(a b h) (multicase '(a :over b :in h)
+                            ([x (or :over :to) y &rest (or [:in z] [])]
+                             (list x y (or z 'none)))))))
+
+
+;; TODO
+(ert-deftest multi-test-multicase-nested-list-patterns ()
+  "Multicase should allow nested list patterns"
+
+  (should (equal '(a b) (multicase '(1 (a b))
+                          ([_ [foo bar]] (list foo bar))))))
+
+
+(ert-deftest multi-test-multicase-vector-patterns ()
+  "Multicase should simple vector patterns"
+
+  (should (equal '(1 2)
+                 (multicase [1 2]
+                   (`[b c] (list b c)))))
+
+  (should (equal '(b c)
+                 (multicase (list 'a [b c])
+                   ([a `[b c]] (list b c))))))
+
+(ert-deftest multi-test-multicase-errors ()
+  "Multicase should signal malformed patterns"
+  (should
+   (multi--error-match "in multicase malformed &rest" (multicase '(a b c)
+                                                        (['a &rest foo bar] 'oops)))))
 
 
 ;;* Perf ---------------------------------------------------------- *;;
