@@ -597,7 +597,15 @@ message prefix matches PREFIX"
   "Multi-Case should signal malformed patterns"
   (should
    (multi--error-match "in multi-case malformed &rest" (multi-case '(a b c)
-                                                        (['a &rest foo bar] 'oops)))))
+                                                         (['a &rest foo bar] 'oops)))))
+
+(ert-deftest multi-test-multi-let ()
+  "Multi-let should work"
+  (should (equal '(1 2 3 4) (multi-let (([a b c] '(1 2 3))
+                                        ([_ d] '(0 4)))
+                              (list a b c d))))
+
+  (should (multi--error-match "in multi-let malformed" (multi-let (([_])) 'foo))))
 
 
 ;;* Perf ---------------------------------------------------------- *;;

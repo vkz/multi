@@ -104,9 +104,28 @@ quoted context i.e. a list matching pattern."
      (multi-error "in multi-case unrecognized pattern %S" pat))))
 
 
-(defmacro multi-let (&rest args)
+(defun multi--let (bindings body)
+  (let* ((pair (car bindings))
+         (pat (car pair))
+         (val (cadr pair)))
+    (cond
+     (pair
+      (unless (and pat val)
+        (multi-error "in multi-let malformed binding list in %S" (list pat val)))
+      `(multi-case ,val
+         (,pat ,(multi--let (cdr bindings) body))))
+     (:else
+      `(progn ,@body)))))
+
+
+(defmacro multi-let (bindings &rest body)
+  "Like `let*' but allows multi-case patterns in place of
+identifiers being bound."
   (declare (indent 1))
-  nil)
+  (condition-case err
+      (multi--let bindings body)
+    (multi-error `(multi-error ,(cadr err)))))
+
 
 (defmacro multi-fun (&rest args)
   (declare (indent defun))
