@@ -24,8 +24,6 @@
 ;; TODO Also allow | instead of &rest, which gets much too heavy when matching
 ;; alists
 
-;; TODO Match hash-tables
-
 ;; TODO we can redeem sequential nature of pattern matching so it works for list
 ;; and vectors alike simply by replacing any seq pattern with an app-pattern like
 ;; so (app (fn (v) (seq-into v 'list))). Probably results in some overhead, so
@@ -69,9 +67,17 @@ unquoted context."
     (`(quote ,(pred symbolp)) pat)
     ;; vector pattern
     (`(\` ,(pred vectorp))    (list '\` (multi-case--inside pat)))
-    ;; TODO catch all for other (foo ...) standard and custom patterns. If I ever
-    ;; implement `multi-case-defmacro' its custom macros would need to match before
-    ;; this clause
+    ;; registered multi-case-pattern
+    (`(,(and id (pred symbolp))
+       .
+       ,pats)                  (if-let ((macro
+                                         (ht-get
+                                          (get 'multi-case :multi-patterns)
+                                          id)))
+                                   ;; known multi-case-pattern: expand, recurse
+       (multi-case--init (apply macro pats))
+       ;; unknown pattern: do nothing
+       pat))
     ((pred listp)             pat)
     ((pred atom)              pat)
     (otherwise
@@ -103,6 +109,51 @@ quoted context i.e. a list matching pattern."
     (otherwise
      (multi-error "in multi-case unrecognized pattern %S" pat))))
 
+
+(defmacro multi-case-pattern (name arglist &rest body)
+  "Define a new kind of multi-case PATTERN. Patterns of the
+form (NAME &rest PATTERNS) will be expanded by this macro with
+PATTERS bound according to the ARGLIST. Macro expansion must
+produce a valid multi-case pattern."
+  (declare (indent defun))
+  (let ((multi-case-patterns `(or (get 'multi-case :multi-patterns)
+                                  (put 'multi-case :multi-patterns (ht))))
+        (pattern-macro `(lambda ,arglist ,@body)))
+    `(setf (ht-get ,multi-case-patterns ',name) ,pattern-macro)))
+
+
+(defun multi-case--ht (patterns)
+  (multi-case patterns
+    ([] '())
+
+    ;; (ht :a :b)
+    ([(and kw (pred keywordp) (app sym id)) &rest pats]
+     `(((app (lambda (t) (or (ht-get t ,kw) (ht-get t ',id))) ,id)
+        (app (lambda (t) (or (alist-get ,kw t) (alist-get ',id t))) ,id))
+       ,@(multi-case--ht pats)))
+
+    ;; (ht a b)
+    ([(and id (pred symbolp) (app (lambda (id) (sym ":" id)) kw)) &rest pats]
+     `(((app (lambda (t) (or (ht-get t ,kw) (ht-get t ',id))) ,id)
+        (app (lambda (t) (or (alist-get ,kw t) (alist-get ',id t))) ,id))
+       ,@(multi-case--ht pats)))
+
+    ;; (ht (:a A) (:b B))
+    ([[key id] &rest pats]
+     `(((app (lambda (t) (ht-get t ,key)) ,id)
+        (app (lambda (t) (alist-get ,key t)) ,id))
+       ,@(multi-case--ht pats)))
+
+    (otherwise
+     (multi-error "malformed multi-case ht pattern"))))
+
+
+(multi-case-pattern ht (&rest patterns)
+  (let* ((patterns (multi-case--ht patterns))
+         (ht-pats (mapcar #'car patterns))
+         (alist-pats (mapcar #'cadr patterns)))
+    `(or (and (pred ht-p) ,@ht-pats)
+         (and (pred listp) ,@alist-pats))))
 
 (defun multi--let (bindings body)
   (let* ((pair (car bindings))
