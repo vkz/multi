@@ -1,9 +1,9 @@
 
 
 ;; Disable lexical-binding check for now
-(setq multi-lexical-binding nil)
+(setq mu-lexical-binding nil)
 
-;; TODO I leave lexical binding off, cause I suspect my multi-test may on occasion
+;; TODO I leave lexical binding off, cause I suspect my mu-test may on occasion
 ;; not work, cause it captures stuff lexically. I need to investigate cause I'd
 ;; rather have lexical scope here, too.
 
@@ -20,7 +20,7 @@
 ;;* Prelude ------------------------------------------------------- *;;
 
 
-(defun multi--symbol-function (s)
+(defun mu--symbol-function (s)
   "Like `symbol-function' but returns :unbound when S is
 unbound."
   (declare
@@ -31,271 +31,271 @@ unbound."
   (or (symbol-function s) :unbound))
 
 
-(defmacro multi-test (multis &rest body)
-  "Set `multi-global-hierarchy' and `multi-methods' to empty
+(defmacro mu-test (multis &rest body)
+  "Set `mu-global-hierarchy' and `mu-methods' to empty
 tables and unbind functions in the MULTIS list for the extent of
 BODY, allowing it to bind them as needed. Restore everything
 after BODY."
   (declare (indent defun))
-  (let ((multis (mapcar (fn (m) `((multi--symbol-function ',m) :unbind)) multis)))
-    `(cl-letf ((multi-global-hierarchy (make-multi-hierarchy))
+  (let ((multis (mapcar (fn (m) `((mu--symbol-function ',m) :unbind)) multis)))
+    `(cl-letf ((mu-global-hierarchy (make-mu-hierarchy))
                ,@multis)
        ,@body)))
 
 
 (example
  (list
-  (multi--symbol-function 'bar)
-  (multi-test (bar)
-    (multi bar [a] a)
-    (multi--symbol-function 'bar))
-  (multi--symbol-function 'bar))
+  (mu--symbol-function 'bar)
+  (mu-test (bar)
+    (mu-defmulti bar [a] a)
+    (mu--symbol-function 'bar))
+  (mu--symbol-function 'bar))
  ;; example
  )
 
 
-(cl-defmacro multi--error-match (prefix &rest body)
-  "Try catching `multi-error' thrown by BODY and test if its
+(cl-defmacro mu--error-match (prefix &rest body)
+  "Try catching `mu-error' thrown by BODY and test if its
 message prefix matches PREFIX"
   `(string-prefix-p
     ,prefix
     (condition-case err
         (progn ,@body)
-        (multi-error (cadr err)))
+        (mu-error (cadr err)))
     'ignore-case))
 
 
 (example
- (should (multi--error-match "foo" (multi-error "foo %s" 'bar)))
+ (should (mu--error-match "foo" (mu-error "foo %s" 'bar)))
  ;; example
  )
 
 
-(defun multi--set-equal? (s1 s2)
+(defun mu--set-equal? (s1 s2)
   "Plenty good set-equality for testing"
   (unless (and (listp s1) (listp s2))
-    (multi-error
-     "in multi--set-equal? expected list arguments, but got %s and %s"
+    (mu-error
+     "in mu--set-equal? expected list arguments, but got %s and %s"
      s1 s2))
   (and (null (cl-set-difference s1 s2 :test #'equal))
        (null (cl-set-difference s2 s1 :test #'equal))))
 
 (example
- (multi--set-equal? (list 1 2 3) (list 3 2 1))
- (multi--set-equal? (list 1 2 3) (list 3 2))
- (multi--set-equal? '() (list 1 2 3))
+ (mu--set-equal? (list 1 2 3) (list 3 2 1))
+ (mu--set-equal? (list 1 2 3) (list 3 2))
+ (mu--set-equal? '() (list 1 2 3))
  ;; example
  )
 
 
-(defmacro multi--install-shape-rels ()
+(defmacro mu--install-shape-rels ()
   ;; :dot  ->  :square  ->  :rect   *-> :shape
   ;;            |                   ^
   ;;            |                   |
   ;;            *->  :parallelogram *-> :multiangle
   `(progn
-     (multi-rel :dot isa :square)
-     (multi-rel :rect isa :shape)
-     (multi-rel :square isa :rect)
-     (multi-rel :square isa :parallelogram)
-     (multi-rel :parallelogram isa :multiangle)
-     (multi-rel :parallelogram isa :shape)))
+     (mu-rel :dot isa :square)
+     (mu-rel :rect isa :shape)
+     (mu-rel :square isa :rect)
+     (mu-rel :square isa :parallelogram)
+     (mu-rel :parallelogram isa :multiangle)
+     (mu-rel :parallelogram isa :shape)))
 
 
 ;;* Tests --------------------------------------------------------- *;;
 
 
-;;** - multi-methods ----------------------------------------------- *;;
+;;** - mu-methods ----------------------------------------------- *;;
 
 
-(ert-deftest multi-test-implementation-details ()
+(ert-deftest mu-test-implementation-details ()
   "Low-level implementation details should work until implementation changes"
-  (multi-test (foo)
+  (mu-test (foo)
 
-    ;; store multi-methods table on the symbol
-    (multi foo #'identity)
-    (should (ht? (multi-methods 'foo)))
+    ;; store mu-methods table on the symbol
+    (mu-defmulti foo #'identity)
+    (should (ht? (mu-methods 'foo)))
 
     ;; store dispatch and default functions on the symbol
-    (should (functionp (get 'foo :multi-dispatch)))
-    (should (functionp (get 'foo :multi-default)))
+    (should (functionp (get 'foo :mu-dispatch)))
+    (should (functionp (get 'foo :mu-default)))
 
-    ;; lookup a multi-method by key
-    (multi-method foo (x) :when :rect :rect)
-    (should (functionp (multi-methods 'foo :rect)))
-    (should (equal :rect (funcall (multi-methods 'foo :rect) :rect)))
+    ;; lookup a mu-defmethod by key
+    (mu-defmethod foo (x) :when :rect :rect)
+    (should (functionp (mu-methods 'foo :rect)))
+    (should (equal :rect (funcall (mu-methods 'foo :rect) :rect)))
 
-    ;; multi-methods should be setf-able when called with keys
-    (setf (multi-methods 'foo :rect) (fn (x) :shape))
-    (should (equal :shape (funcall (multi-methods 'foo :rect) :rect)))
+    ;; mu-methods should be setf-able when called with keys
+    (setf (mu-methods 'foo :rect) (fn (x) :shape))
+    (should (equal :shape (funcall (mu-methods 'foo :rect) :rect)))
 
-    ;; multi-methods should be setf-able when called without keys
-    (setf (multi-methods 'foo) (ht))
-    (should (ht-empty? (multi-methods 'foo)))
+    ;; mu-methods should be setf-able when called without keys
+    (setf (mu-methods 'foo) (ht))
+    (should (ht-empty? (mu-methods 'foo)))
 
     ;; hierarchy is a struct that stores relationships in a table
-    (let ((h (make-multi-hierarchy)))
-      (should (multi-hierarchy-p h))
-      (should (symbolp (multi-hierarchy-id h)))
+    (let ((h (make-mu-hierarchy)))
+      (should (mu-hierarchy-p h))
+      (should (symbolp (mu-hierarchy-id h)))
 
       ;; nested table values must be settable
-      (setf (multi-hierarchy h :rect :parents) '(:shape))
-      (should (multi--set-equal? '(:shape) (multi-hierarchy h :rect :parents)))
+      (setf (mu-hierarchy h :rect :parents) '(:shape))
+      (should (mu--set-equal? '(:shape) (mu-hierarchy h :rect :parents)))
 
       ;; table is a hash-table
-      (should (ht? (multi-hierarchy h))))
+      (should (ht? (mu-hierarchy h))))
 
-    ;; same should be true of the `multi-global-hierarchy'
-    (setf (multi-global-hierarchy :rect :parents) '(:shape))
-    (should (multi--set-equal? '(:shape) (multi-global-hierarchy :rect :parents)))
-    (should (ht? (multi-global-hierarchy)))
+    ;; same should be true of the `mu-global-hierarchy'
+    (setf (mu-global-hierarchy :rect :parents) '(:shape))
+    (should (mu--set-equal? '(:shape) (mu-global-hierarchy :rect :parents)))
+    (should (ht? (mu-global-hierarchy)))
 
     ;; TODO dispatch cache
-    ;; (should (ht? (get 'foo :multi-cache)))
+    ;; (should (ht? (get 'foo :mu-cache)))
     ))
 
 
-(ert-deftest multi-test-rel ()
-  "Creating `multi-isa?' hierachy should work"
-  (multi-test ()
-    (should (multi--set-equal? '(:rect :shape) (ht-keys (multi-hierarchy (multi-rel :rect isa :shape)))))
-    (should (multi--set-equal? '(:rect :shape :square) (ht-keys (multi-hierarchy (multi-rel :square isa :rect)))))
-    (should (member :shape (multi-global-hierarchy :rect :parents)))
-    (should (member :rect (multi-global-hierarchy :square :parents)))
-    (should (member :square (multi-global-hierarchy :rect :children)))))
+(ert-deftest mu-test-rel ()
+  "Creating `mu-isa?' hierachy should work"
+  (mu-test ()
+    (should (mu--set-equal? '(:rect :shape) (ht-keys (mu-hierarchy (mu-rel :rect isa :shape)))))
+    (should (mu--set-equal? '(:rect :shape :square) (ht-keys (mu-hierarchy (mu-rel :square isa :rect)))))
+    (should (member :shape (mu-global-hierarchy :rect :parents)))
+    (should (member :rect (mu-global-hierarchy :square :parents)))
+    (should (member :square (mu-global-hierarchy :rect :children)))))
 
 
-(ert-deftest multi-test-ancestors-descendants ()
+(ert-deftest mu-test-ancestors-descendants ()
   "Retrieving parents, ancestors, descendants should work"
-  (multi-test ()
-    (multi--install-shape-rels)
+  (mu-test ()
+    (mu--install-shape-rels)
 
-    ;; always computing multi-ancestors and multi-descendants should work
-    (should (multi--set-equal?
+    ;; always computing mu-ancestors and mu-descendants should work
+    (should (mu--set-equal?
              (list :parallelogram :rect :shape :multiangle)
-             (multi-ancestors :square multi-global-hierarchy 'compute)))
-    (should (multi--set-equal?
+             (mu-ancestors :square mu-global-hierarchy 'compute)))
+    (should (mu--set-equal?
              (list :parallelogram :rect :square :dot :square)
-             (multi-descendants :shape multi-global-hierarchy 'compute)))
+             (mu-descendants :shape mu-global-hierarchy 'compute)))
 
     ;; accumulated :ancestors and :descendants must match recomputed
-    (should (multi--set-equal?
-             (multi-ancestors :parallelogram)
-             (multi-ancestors :parallelogram multi-global-hierarchy 'compute)))
-    (should (multi--set-equal?
-             (multi-descendants :parallelogram)
-             (multi-descendants :parallelogram multi-global-hierarchy 'compute)))
+    (should (mu--set-equal?
+             (mu-ancestors :parallelogram)
+             (mu-ancestors :parallelogram mu-global-hierarchy 'compute)))
+    (should (mu--set-equal?
+             (mu-descendants :parallelogram)
+             (mu-descendants :parallelogram mu-global-hierarchy 'compute)))
 
-    (should (multi--set-equal?
-             (multi-ancestors :multiangle)
-             (multi-ancestors :multiangle multi-global-hierarchy 'compute)))
-    (should (multi--set-equal?
-             (multi-descendants :multiangle)
-             (multi-descendants :multiangle multi-global-hierarchy 'compute)))
+    (should (mu--set-equal?
+             (mu-ancestors :multiangle)
+             (mu-ancestors :multiangle mu-global-hierarchy 'compute)))
+    (should (mu--set-equal?
+             (mu-descendants :multiangle)
+             (mu-descendants :multiangle mu-global-hierarchy 'compute)))
 
-    (should (multi--set-equal?
-             (multi-ancestors :shape)
-             (multi-ancestors :shape multi-global-hierarchy 'compute)))
-    (should (multi--set-equal?
-             (multi-descendants :shape)
-             (multi-descendants :shape multi-global-hierarchy 'compute)))
+    (should (mu--set-equal?
+             (mu-ancestors :shape)
+             (mu-ancestors :shape mu-global-hierarchy 'compute)))
+    (should (mu--set-equal?
+             (mu-descendants :shape)
+             (mu-descendants :shape mu-global-hierarchy 'compute)))
 
-    (should (multi--set-equal?
-             (multi-ancestors :square)
-             (multi-ancestors :square multi-global-hierarchy 'compute)))
-    (should (multi--set-equal?
-             (multi-descendants :square)
-             (multi-descendants :square multi-global-hierarchy 'compute)))))
+    (should (mu--set-equal?
+             (mu-ancestors :square)
+             (mu-ancestors :square mu-global-hierarchy 'compute)))
+    (should (mu--set-equal?
+             (mu-descendants :square)
+             (mu-descendants :square mu-global-hierarchy 'compute)))))
 
 
-(ert-deftest multi-test-isa-hierarchy ()
+(ert-deftest mu-test-isa-hierarchy ()
   "Checking isa relationship should work"
-  (multi-test ()
-    (multi--install-shape-rels)
+  (mu-test ()
+    (mu--install-shape-rels)
 
     ;; atomic rels should work
-    (should (multi-isa? 42 42))
-    (should (multi-isa? :rect :shape))
-    (should (multi-isa? :square :shape))
+    (should (mu-isa? 42 42))
+    (should (mu-isa? :rect :shape))
+    (should (mu-isa? :square :shape))
     ;; sequential rels should work
-    (should (multi-isa? [:square :rect] [:rect :shape]))
-    (should (multi-isa? [:square :shape] [:rect :shape]))
-    (should (multi-isa? [[:dot :parallelogram] :square] [[:shape :multiangle] :rect]))
+    (should (mu-isa? [:square :rect] [:rect :shape]))
+    (should (mu-isa? [:square :shape] [:rect :shape]))
+    (should (mu-isa? [[:dot :parallelogram] :square] [[:shape :multiangle] :rect]))
     ;; unrelated entities should fail
-    (should (null (multi-isa? [:square :rect] [:shape :square])))
-    (should (null (multi-isa? [:square] :rect)))
-    (should (null (multi-isa? [:square] [])))
+    (should (null (mu-isa? [:square :rect] [:shape :square])))
+    (should (null (mu-isa? [:square] :rect)))
+    (should (null (mu-isa? [:square] [])))
 
     ;; atomic rels should report correct generation
-    (should (equal '(:generation . 0) (multi-isa/generations? 42 42)))
-    (should (equal '(:generation . 1) (multi-isa/generations? :rect :shape)))
-    (should (equal '(:generation . 2) (multi-isa/generations? :square :shape)))
+    (should (equal '(:generation . 0) (mu-isa/generations? 42 42)))
+    (should (equal '(:generation . 1) (mu-isa/generations? :rect :shape)))
+    (should (equal '(:generation . 2) (mu-isa/generations? :square :shape)))
     ;; sequential rels should report correct generatinos
-    (should (equal '((:generation . 1) (:generation . 1)) (multi-isa/generations? [:square :rect] [:rect :shape])))
-    (should (equal '((:generation . 1) (:generation . 0)) (multi-isa/generations? [:square :shape] [:rect :shape])))
+    (should (equal '((:generation . 1) (:generation . 1)) (mu-isa/generations? [:square :rect] [:rect :shape])))
+    (should (equal '((:generation . 1) (:generation . 0)) (mu-isa/generations? [:square :shape] [:rect :shape])))
     (should (equal '(((:generation . 3)
                       (:generation . 1))
                      (:generation . 1))
-                   (multi-isa/generations? [[:dot :parallelogram] :square] [[:shape :multiangle] :rect])))
+                   (mu-isa/generations? [[:dot :parallelogram] :square] [[:shape :multiangle] :rect])))
     ;; unrelated entities should fail returning no generations
-    (should (null (multi-isa/generations? [:square :rect] [:shape :square])))
-    (should (null (multi-isa/generations? [:square] :rect)))
-    (should (null (multi-isa/generations? [:square] [])))))
+    (should (null (mu-isa/generations? [:square :rect] [:shape :square])))
+    (should (null (mu-isa/generations? [:square] :rect)))
+    (should (null (mu-isa/generations? [:square] [])))))
 
 
-(ert-deftest multi-test-multi ()
+(ert-deftest mu-test-multi ()
   "Installing new `multi' dispatch function should work"
-  (multi-test (foo)
+  (mu-test (foo)
 
-    (multi foo #'identity)
+    (mu-defmulti foo #'identity)
 
     (should (functionp 'foo))
-    (should (multi-methods 'foo))
-    (should (null (ht-keys (multi-methods 'foo))))
-    (should (functionp (get 'foo :multi-default)))))
+    (should (mu-methods 'foo))
+    (should (null (ht-keys (mu-methods 'foo))))
+    (should (functionp (get 'foo :mu-default)))))
 
 
-(ert-deftest multi-test-multi-method ()
-  "Installing and removing `multi-method's should work"
-  (multi-test (foo)
+(ert-deftest mu-test-mu-defmethod ()
+  "Installing and removing `mu-method's should work"
+  (mu-test (foo)
 
-    (multi foo #'identity)
-    (should (ht? (multi-methods 'foo)))
+    (mu-defmulti foo #'identity)
+    (should (ht? (mu-methods 'foo)))
 
-    (multi-method foo (x) :when :a :a)
-    (should (multi--set-equal? '(:a) (ht-keys (multi-methods 'foo))))
+    (mu-defmethod foo (x) :when :a :a)
+    (should (mu--set-equal? '(:a) (ht-keys (mu-methods 'foo))))
 
-    (multi-method foo (x) :when :b :b)
-    (should (multi--set-equal? '(:a :b) (ht-keys (multi-methods 'foo))))
+    (mu-defmethod foo (x) :when :b :b)
+    (should (mu--set-equal? '(:a :b) (ht-keys (mu-methods 'foo))))
 
     ;; one method for every match
-    (should (multi--set-equal? '(:a) (ht-keys (multi-methods :for 'foo :matching :a))))
-    (should (multi--set-equal? '(:b) (ht-keys (multi-methods :for 'foo :matching :b))))
+    (should (mu--set-equal? '(:a) (ht-keys (mu-methods :for 'foo :matching :a))))
+    (should (mu--set-equal? '(:b) (ht-keys (mu-methods :for 'foo :matching :b))))
 
     ;; :default method when no match installed
-    (should (multi--set-equal? '(:default) (ht-keys (multi-methods :for 'foo :matching :c))))
+    (should (mu--set-equal? '(:default) (ht-keys (mu-methods :for 'foo :matching :c))))
 
     ;; but no longer :default when installed
-    (multi-method foo (x) :when :c :c)
-    (should (multi--set-equal? '(:c) (ht-keys (multi-methods :for 'foo :matching :c))))
+    (mu-defmethod foo (x) :when :c :c)
+    (should (mu--set-equal? '(:c) (ht-keys (mu-methods :for 'foo :matching :c))))
 
     ;; methods must be functions
-    (should (cl-every #'functionp (ht-values (multi-methods 'foo))))
+    (should (cl-every #'functionp (ht-values (mu-methods 'foo))))
 
     ;; removing a method should work
-    (multi-methods-remove foo :a)
-    (should (multi--set-equal? '(:default) (ht-keys (multi-methods :for 'foo :matching :a))))))
+    (mu-methods-remove foo :a)
+    (should (mu--set-equal? '(:default) (ht-keys (mu-methods :for 'foo :matching :a))))))
 
 
-(ert-deftest multi-test-equality-dispatch ()
+(ert-deftest mu-test-equality-dispatch ()
   "Basic equality based dispatch should work"
-  (multi-test (foo)
+  (mu-test (foo)
 
-    (multi foo (fn (&rest args) (apply #'vector args)))
-    (multi-method foo (&rest x) :when [:a] :a)
-    (multi-method foo (&rest x) :when [:b] :b)
-    (multi-method foo (&rest x) :when [:a :a] :a)
-    (multi-method foo (&rest x) :when [:b :b] :b)
+    (mu-defmulti foo (fn (&rest args) (apply #'vector args)))
+    (mu-defmethod foo (&rest x) :when [:a] :a)
+    (mu-defmethod foo (&rest x) :when [:b] :b)
+    (mu-defmethod foo (&rest x) :when [:a :a] :a)
+    (mu-defmethod foo (&rest x) :when [:b :b] :b)
 
     (should (equal :a (foo :a)))
     (should (equal :b (foo :b)))
@@ -303,153 +303,153 @@ message prefix matches PREFIX"
     (should (equal :b (foo :b :b)))))
 
 
-(ert-deftest multi-test-isa-dispatch ()
+(ert-deftest mu-test-isa-dispatch ()
   "Full isa dispatch should work"
-  (multi-test (foo)
+  (mu-test (foo)
 
-    ;; Example from the multi-method docs.
-    (multi-rel 'vector :isa :collection)
-    (multi-rel 'hash-table :isa :collection)
-    (multi foo #'type-of)
-    (multi-method foo (c) :when :collection :a-collection)
-    (multi-method foo (s) :when 'string :a-string)
+    ;; Example from the mu-defmethod docs.
+    (mu-rel 'vector :isa :collection)
+    (mu-rel 'hash-table :isa :collection)
+    (mu-defmulti foo #'type-of)
+    (mu-defmethod foo (c) :when :collection :a-collection)
+    (mu-defmethod foo (s) :when 'string :a-string)
 
     (should (equal :a-collection (foo [])))
     (should (equal :a-collection (foo (ht))))
     (should (equal :a-string (foo "bar")))))
 
 
-(ert-deftest multi-test-ambiguous-methods ()
+(ert-deftest mu-test-ambiguous-methods ()
   "Dispatch ambiguity should be caught or preferred away"
-  (multi-test (bar)
+  (mu-test (bar)
 
-    ;; Example from the multi-method docs.
-    (multi-rel :rect isa :shape)
-    (multi bar #'vector)
-    (multi-method bar (x y) :when [:rect :shape] :rect-shape)
-    (multi-method bar (x y) :when [:shape :rect] :shape-rect)
+    ;; Example from the mu-defmethod docs.
+    (mu-rel :rect isa :shape)
+    (mu-defmulti bar #'vector)
+    (mu-defmethod bar (x y) :when [:rect :shape] :rect-shape)
+    (mu-defmethod bar (x y) :when [:shape :rect] :shape-rect)
 
     ;; since no val is preferred, we start with an empty prefers table
-    (should (ht-empty? (multi-prefers bar multi-global-hierarchy)))
+    (should (ht-empty? (mu-prefers bar mu-global-hierarchy)))
 
     ;; and therefore report error when unable to choose a method
-    (should (multi--error-match "multiple methods" (bar :rect :rect)))
+    (should (mu--error-match "multiple methods" (bar :rect :rect)))
 
     ;; we should be able to register a prefer
-    (multi-prefer 'bar [:rect :shape] :over [:shape :rect])
-    (should (multi--set-equal?
+    (mu-prefer 'bar [:rect :shape] :over [:shape :rect])
+    (should (mu--set-equal?
              '([:shape :rect])
-             (multi-prefers bar multi-global-hierarchy [:rect :shape])))
+             (mu-prefers bar mu-global-hierarchy [:rect :shape])))
 
     ;; we should be able to register more than one prefer for the same value
-    (multi-prefer 'bar [:rect :shape] :over [:parallelogram :rect])
-    (should (multi--set-equal?
+    (mu-prefer 'bar [:rect :shape] :over [:parallelogram :rect])
+    (should (mu--set-equal?
              '([:shape :rect] [:parallelogram :rect])
-             (multi-prefers bar multi-global-hierarchy [:rect :shape])))
+             (mu-prefers bar mu-global-hierarchy [:rect :shape])))
 
     ;; and the registered prefers should resolve the ambiguity
     (should (equal :rect-shape (bar :rect :rect)))
 
     ;; we should be able to remove a prefer
-    (multi-prefers-remove bar [:rect :shape] :over [:shape :rect])
-    (should (multi--set-equal?
+    (mu-prefers-remove bar [:rect :shape] :over [:shape :rect])
+    (should (mu--set-equal?
              '([:parallelogram :rect])
-             (multi-prefers bar multi-global-hierarchy [:rect :shape])))
+             (mu-prefers bar mu-global-hierarchy [:rect :shape])))
 
     ;; and go back to ambiguity
-    (should (multi--error-match "multiple methods" (bar :rect :rect)))
+    (should (mu--error-match "multiple methods" (bar :rect :rect)))
 
     ;; we should be able to remove all prefers for a value
-    (multi-prefers-remove bar [:rect :shape])
-    (should-not (multi-prefers bar multi-global-hierarchy [:rect :shape]))
+    (mu-prefers-remove bar [:rect :shape])
+    (should-not (mu-prefers bar mu-global-hierarchy [:rect :shape]))
 
     ;; we should be able to remove all registered prefers
-    (multi-prefers-remove bar :in multi-global-hierarchy)
-    (should (ht-empty? (multi-prefers bar multi-global-hierarchy)))
+    (mu-prefers-remove bar :in mu-global-hierarchy)
+    (should (ht-empty? (mu-prefers bar mu-global-hierarchy)))
 
-    ;; inconsintent preferences shouldn't make it into multi-prefers
-    (multi-prefer 'bar [:rect :shape] :over [:shape :rect])
-    (multi-prefer 'bar [:shape :rect] :over [:parallelogram :rect])
-    (multi--error-match "in multi-prefer cyclic preference "
-                        (multi-prefer 'bar [:parallelogram :rect] :over [:rect :shape]))
+    ;; inconsintent preferences shouldn't make it into mu-prefers
+    (mu-prefer 'bar [:rect :shape] :over [:shape :rect])
+    (mu-prefer 'bar [:shape :rect] :over [:parallelogram :rect])
+    (mu--error-match "in mu-prefer cyclic preference "
+                        (mu-prefer 'bar [:parallelogram :rect] :over [:rect :shape]))
 
     ;; TODO Maybe test the above with a custom hierarchy
     ))
 
 
-(ert-deftest multi-test-default-method ()
+(ert-deftest mu-test-default-method ()
   "Default method should work"
-  (multi-test (foo)
+  (mu-test (foo)
 
-    (multi foo #'identity)
-    (multi-method foo (x) :when :a :a)
+    (mu-defmulti foo #'identity)
+    (mu-defmethod foo (x) :when :a :a)
 
     ;; pre-installed :default when method missing
-    (should (multi--error-match "no multi-methods match" (foo :c)))
+    (should (mu--error-match "no mu-methods match" (foo :c)))
 
     ;; :default when method missing and :default installed
-    (multi-method foo (x) :when :default :default)
+    (mu-defmethod foo (x) :when :default :default)
     (should (equal :default (foo :c)))
 
     ;; no longer :default when installed
-    (multi-method foo (x) :when :c :c)
+    (mu-defmethod foo (x) :when :c :c)
     (should (equal :c (foo :c)))
 
     ;; removing custom :default should restore pre-installed :default
-    (multi-methods-remove 'foo :default)
-    (should (multi--error-match "no multi-methods match" (foo :d)))))
+    (mu-methods-remove 'foo :default)
+    (should (mu--error-match "no mu-methods match" (foo :d)))))
 
 
-(ert-deftest multi-test-errors ()
+(ert-deftest mu-test-errors ()
   "Error conditions should be signaled and possible to catch"
-  (multi-test (foo bar)
+  (mu-test (foo bar)
 
-    (should (equal "multi-error" (get 'multi-error 'error-message)))
-    (should-error (multi-error "foo %s" 'bar) :type 'multi-error)
+    (should (equal "mu-error" (get 'mu-error 'error-message)))
+    (should-error (mu-error "foo %s" 'bar) :type 'mu-error)
 
-    (multi-rel :rect isa :shape)
-    (multi-rel :square isa :rect)
-    (multi-rel :square isa :parallelogram)
+    (mu-rel :rect isa :shape)
+    (mu-rel :square isa :rect)
+    (mu-rel :square isa :parallelogram)
 
     ;; should signal attempt to relate structured data
-    (should (multi--error-match "in multi-rel no meaningful semantics"
-                                (multi-rel [:a :b] isa [:c :d])))
-    (should (multi--error-match "in multi-rel no meaningful semantics"
-                                (multi-rel "foo" isa "bar")))
-    (should (multi--error-match "in multi-rel no meaningful semantics"
-                                (multi-rel (make-multi-hierarchy) :isa (make-multi-hierarchy))))
+    (should (mu--error-match "in mu-rel no meaningful semantics"
+                                (mu-rel [:a :b] isa [:c :d])))
+    (should (mu--error-match "in mu-rel no meaningful semantics"
+                                (mu-rel "foo" isa "bar")))
+    (should (mu--error-match "in mu-rel no meaningful semantics"
+                                (mu-rel (make-mu-hierarchy) :isa (make-mu-hierarchy))))
 
-    (multi foo #'identity)
-    (multi-method foo (a) :when :square :square)
-    (multi-method foo (a) :when :shape :shape)
+    (mu-defmulti foo #'identity)
+    (mu-defmethod foo (a) :when :square :square)
+    (mu-defmethod foo (a) :when :shape :shape)
 
-    ;; catch malformed arglist in `multi-rel' call
-    (should (multi--error-match "in multi-rel malformed arglist" (multi-rel :foo :bar)))
+    ;; catch malformed arglist in `mu-rel' call
+    (should (mu--error-match "in mu-rel malformed arglist" (mu-rel :foo :bar)))
 
     ;; signal ambiguous methods
-    (should (multi--error-match "multiple methods" (foo :square)))
+    (should (mu--error-match "multiple methods" (foo :square)))
 
     ;; preinstalled :default method should signal method missing
-    (should (multi--error-match "no multi-methods match" (foo :triangle)))
+    (should (mu--error-match "no mu-methods match" (foo :triangle)))
 
     ;; catch cycle relationships
-    (should (multi--error-match "in multi-rel cyclic relationship" (multi-rel :shape isa :square)))
+    (should (mu--error-match "in mu-rel cyclic relationship" (mu-rel :shape isa :square)))
     ;; full cycle path should be reported
-    (should (equal '(:square :rect :shape) (multi--cycle? :shape :square)))
+    (should (equal '(:square :rect :shape) (mu--cycle? :shape :square)))
 
     ;; catch malformed arglist in `multi' call
-    (should (multi--error-match "in multi malformed arglist" (multi bar :val [a b])))
+    (should (mu--error-match "in mu-defmulti malformed arglist" (mu-defmulti bar :val [a b])))
 
-    ;; catch malformed arglist in `multi-method' call
-    (should (multi--error-match "in multi-method malformed arglist" (multi-method bar :val [a b])))))
+    ;; catch malformed arglist in `mu-method' call
+    (should (mu--error-match "in mu-defmethod malformed arglist" (mu-defmethod bar :val [a b])))))
 
 
-(ert-deftest multi-test-custom-hierarchy ()
-  "Multi-Methods should work with custom hierarchies"
-  ;; TODO Current implementation bakes the hierarchy at (multi foo ...)
+(ert-deftest mu-test-custom-hierarchy ()
+  "Mu-Methods should work with custom hierarchies"
+  ;; TODO Current implementation bakes the hierarchy at (mu-defmulti foo ...)
   ;; definition, so every (foo ...) invocation will use the same hierarchy. In
   ;; this respect we follow Clojure. My hunch, however, is this introduces
-  ;; unnecessary coupling between multi-methods and hierarchies. IMO hierarchies
+  ;; unnecessary coupling between mu-methods and hierarchies. IMO hierarchies
   ;; are in fact independent, so why marry the two linked but orthogonal concepts?
   ;; Understandably, the case could be made that decoupling them doesn't add
   ;; expressive power that would actually be used. That's certainly a good reason
@@ -459,17 +459,17 @@ message prefix matches PREFIX"
 
   (eval
    ;; NOTICE that we must `quote' the form for this to work!!!
-   '(multi-test (bar)
-      (let ((hierarchy (make-multi-hierarchy)))
+   '(mu-test (bar)
+      (let ((hierarchy (make-mu-hierarchy)))
         ;; override :rect rel in custom hierarchy
-        (multi-rel :rect isa :parallelogram in hierarchy)
-        (multi-rel :square isa :rect in hierarchy)
-        ;; define multi-dispatch over the custom hierarchy
-        (multi bar #'identity :in hierarchy)
-        (multi-method bar (a) :when :parallelogram :parallelogram)
-        (let ((hierarchy (make-multi-hierarchy)))
-          (multi-rel :rect isa :shape in hierarchy)
-          (multi-rel :square isa :rect in hierarchy)
+        (mu-rel :rect isa :parallelogram in hierarchy)
+        (mu-rel :square isa :rect in hierarchy)
+        ;; define mu-dispatch over the custom hierarchy
+        (mu-defmulti bar #'identity :in hierarchy)
+        (mu-defmethod bar (a) :when :parallelogram :parallelogram)
+        (let ((hierarchy (make-mu-hierarchy)))
+          (mu-rel :rect isa :shape in hierarchy)
+          (mu-rel :square isa :rect in hierarchy)
           ;; Method calls should still use custom hierarchy, so that :rect and
           ;; :square are :parallelograms
           (should (equal :parallelogram (bar :rect)))
@@ -480,66 +480,66 @@ message prefix matches PREFIX"
    'lexical-scope))
 
 
-;;** - multi-case ------------------------------------------------- *;;
+;;** - mu-case ------------------------------------------------- *;;
 
 
-(ert-deftest multi-test-simple-multi-case-patterns ()
-  "Multi-Case should match simple patterns"
+(ert-deftest mu-test-simple-mu-case-patterns ()
+  "Mu-Case should match simple patterns"
 
-  (should (equal 'match (multi-case '(a)
+  (should (equal 'match (mu-case '(a)
                           (_ 'match))))
 
-  (should (equal '(a) (multi-case '(a)
+  (should (equal '(a) (mu-case '(a)
                         (lst lst))))
 
-  (should (equal '(a) (multi-case '(a)
+  (should (equal '(a) (mu-case '(a)
                         ([x y] (list x y))
                         ([x] (list x)))))
 
-  (should (equal 'empty (multi-case '()
+  (should (equal 'empty (mu-case '()
                           ([x] x)
                           (otherwise 'empty))))
 
-  (should (equal 'match (multi-case '(a b c)
+  (should (equal 'match (mu-case '(a b c)
                           (['a _ 'c] 'match))))
 
-  (defmacro multi-case--clause-test (expr pat &rest body)
+  (defmacro mu-case--clause-test (expr pat &rest body)
     (declare (indent 1))
     `(pcase ,expr
-       ,(multi-case--clause (cons pat body))
+       ,(mu-case--clause (cons pat body))
        (otherwise
         'no-match)))
 
-  (should (equal 'match (multi-case--clause-test '()
+  (should (equal 'match (mu-case--clause-test '()
                           [] 'match)))
 
-  (should (equal 'symbol (multi-case--clause-test '(a)
+  (should (equal 'symbol (mu-case--clause-test '(a)
                            ['a] 'symbol)))
 
-  (should (equal 'b (multi-case--clause-test '(a b)
+  (should (equal 'b (mu-case--clause-test '(a b)
                       [(or 'a 'b) (and x 'b)] x)))
 
-  (should (equal 'match (multi-case--clause-test '(:key)
+  (should (equal 'match (mu-case--clause-test '(:key)
                           [:key] 'match)))
 
-  (should (equal :key (multi-case--clause-test '(:key)
+  (should (equal :key (mu-case--clause-test '(:key)
                         [x] x)))
 
-  (should (equal '(a :over b) (multi-case--clause-test '(a (:over) b)
+  (should (equal '(a :over b) (mu-case--clause-test '(a (:over) b)
                                 [x (or [rel] :to) y] (list x rel y)))))
 
 
-(ert-deftest multi-test-standard-multi-case-patterns ()
-  "Multi-Case should allow standard pcase patterns"
+(ert-deftest mu-test-standard-mu-case-patterns ()
+  "Mu-Case should allow standard pcase patterns"
 
-  (should (equal '(a over b none) (multi-case '(a over b)
+  (should (equal '(a over b none) (mu-case '(a over b)
                                     ([x
                                       (and (pred symbolp)
                                            (or 'over 'to) rel)
                                       y]
                                      (list x rel y 'none)))))
 
-  (should (equal '(1 2 3) (multi-case '(1 2)
+  (should (equal '(1 2 3) (mu-case '(1 2)
                             ([(and (pred numberp)
                                    (app 1- 0)
                                    x)
@@ -548,33 +548,33 @@ message prefix matches PREFIX"
                              (list x num y))))))
 
 
-(ert-deftest multi-test-multi-case-rest-patterns ()
-  "Multi-Case should allow matching the rest of a list"
+(ert-deftest mu-test-mu-case-rest-patterns ()
+  "Mu-Case should allow matching the rest of a list"
 
-  (should (equal '(b c) (multi-case '(a b c)
+  (should (equal '(b c) (mu-case '(a b c)
                           (['a &rest tail] tail))))
 
-  (should (equal 'c (multi-case '(a b c)
+  (should (equal 'c (mu-case '(a b c)
                       (['a &rest ['b last]] last))))
 
-  (should (equal 'c (multi-case '(a b c)
+  (should (equal 'c (mu-case '(a b c)
                       (['a &rest (or [] ['b last])] last))))
 
-  (should (equal 'match (multi-case '(a)
+  (should (equal 'match (mu-case '(a)
                           (['a &rest (or [] ['b last])] 'match))))
 
-  (should (equal '(a b h) (multi-case '(a :over b :in h)
+  (should (equal '(a b h) (mu-case '(a :over b :in h)
                             ([x (or :over :to) y &rest (or [:in z] [])]
                              (list x y (or z 'none)))))))
 
 
-(ert-deftest multi-test-multi-case-nested-list-patterns ()
-  "Multi-Case should allow nested list patterns"
+(ert-deftest mu-test-mu-case-nested-list-patterns ()
+  "Mu-Case should allow nested list patterns"
 
-  (should (equal '(2 3) (multi-case '(1 (2 3))
+  (should (equal '(2 3) (mu-case '(1 (2 3))
                           ([_ [a b]] (list a b)))))
 
-  (should (equal '(1 2 3 4) (multi-case '((1 . 2) (3 . 4))
+  (should (equal '(1 2 3 4) (mu-case '((1 . 2) (3 . 4))
                               ([[a &rest b]
                                 [(and (pred numberp) c)
                                  &rest
@@ -582,69 +582,69 @@ message prefix matches PREFIX"
                                (list a b c d))))))
 
 
-(ert-deftest multi-test-multi-case-vector-patterns ()
-  "Multi-Case should simple vector patterns"
+(ert-deftest mu-test-mu-case-vector-patterns ()
+  "Mu-Case should simple vector patterns"
 
   (should (equal '(1 2)
-                 (multi-case [1 2]
+                 (mu-case [1 2]
                    (`[b c] (list b c)))))
 
   (should (equal '(b c)
-                 (multi-case (list 'a [b c])
+                 (mu-case (list 'a [b c])
                    ([a `[b c]] (list b c))))))
 
-(ert-deftest multi-test-multi-case-errors ()
-  "Multi-Case should signal malformed patterns"
+(ert-deftest mu-test-mu-case-errors ()
+  "Mu-Case should signal malformed patterns"
   (should
-   (multi--error-match "in multi-case malformed &rest" (multi-case '(a b c)
+   (mu--error-match "in mu-case malformed &rest" (mu-case '(a b c)
                                                          (['a &rest foo bar] 'oops)))))
 
-(ert-deftest multi-test-multi-let ()
-  "Multi-let should work"
-  (should (equal '(1 2 3 4) (multi-let (([a b c] '(1 2 3))
+(ert-deftest mu-test-mu-let ()
+  "Mu-let should work"
+  (should (equal '(1 2 3 4) (mu-let (([a b c] '(1 2 3))
                                         ([_ d] '(0 4)))
                               (list a b c d))))
 
-  (should (multi--error-match "in multi-let malformed" (multi-let (([_])) 'foo))))
+  (should (mu--error-match "in mu-let malformed" (mu-let (([_])) 'foo))))
 
 
-(ert-deftest multi-test-ht-pattern ()
-  "Multi-case should pattern match on hash-tables and alists"
+(ert-deftest mu-test-ht-pattern ()
+  "Mu-case should pattern match on hash-tables and alists"
 
   ;; match empty hash-table
-  (should (equal 'match (multi-case (ht)
+  (should (equal 'match (mu-case (ht)
                           ((ht) 'match))))
 
   ;; match hash-table
-  (should (equal 1 (multi-case (ht (:a 1))
+  (should (equal 1 (mu-case (ht (:a 1))
                      ((ht :a) a))))
 
   ;; match alist
-  (should (equal 1 (multi-case '((:a . 1))
+  (should (equal 1 (mu-case '((:a . 1))
                      ((ht :a) a))))
 
   ;; match whatever key-types hash-tables and alists allow
-  (should (equal 1 (multi-case (ht ("foo" 1))
+  (should (equal 1 (mu-case (ht ("foo" 1))
                      ((ht ("foo" a)) a))))
 
   ;; match tables inside a list
-  (should (equal '(1 2) (multi-case (list (ht (:a 1)) '((:b . 2)))
+  (should (equal '(1 2) (mu-case (list (ht (:a 1)) '((:b . 2)))
                           ([(ht :a) (ht b)] (list a b)))))
 
   ;; allow all ht key pattern styles: :key, key, (:key id) ('key id)
-  (should (equal '(1 2 3 4) (multi-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
+  (should (equal '(1 2 3 4) (mu-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
                               ((ht :a b 'c ('d D)) (list a b c D)))))
 
-  (should (multi--error-match "in multi-case malformed ht pattern"
-                              (multi-case (ht (:a 1))
+  (should (mu--error-match "in mu-case malformed ht pattern"
+                              (mu-case (ht (:a 1))
                                 ((ht "a"))))))
 
 
-;;** - multi-fun -------------------------------------------------- *;;
+;;** - mu-fun -------------------------------------------------- *;;
 
 
-(ert-deftest multi-test-defun ()
-  "Multi-fun should define a function"
+(ert-deftest mu-test-defun ()
+  "Mu-fun should define a function"
   (should
    (equal '((:a :b 1 2)
             (:a :b 1)
@@ -652,7 +652,7 @@ message prefix matches PREFIX"
             (:a nil))
 
           (progn
-            (multi-fun foo-fun (&optional a b &rest args)
+            (mu-fun foo-fun (&optional a b &rest args)
               :doc "string"
               :sig (a b c d)
               :interactive t
@@ -667,15 +667,15 @@ message prefix matches PREFIX"
              (foo-fun :a))))))
 
 
-(ert-deftest multi-test-defun ()
-  "Multi-macro should define a macro"
+(ert-deftest mu-test-defun ()
+  "Mu-defmacro should define a macro"
   (should
    (equal '((:a :b 1 2)
             (:a :b 1)
             (:a :b))
 
           (progn
-            (multi-macro foo-macro (a b &rest args)
+            (mu-defmacro foo-macro (a b &rest args)
               :doc "string"
               :sig (a b x :over y :in hierarchy)
               :declare ((indent defun))
@@ -692,40 +692,40 @@ message prefix matches PREFIX"
 ;;* Perf ---------------------------------------------------------- *;;
 
 
-(defmacro multi-test-time (&rest body)
+(defmacro mu-test-time (&rest body)
   (declare (indent defun))
   `(let ((start (float-time)))
      ,@body
      (- (float-time) start)))
 
-;; TODO Test multi-method isa vs struct inheritance?
+;; TODO Test mu-defmethod isa vs struct inheritance?
 
 ;; NOTE Rather ugly way to measure performance, but does the trick. We stack up
-;; multi-methods against built-in generic dispatch. Our generic dispatches on the
+;; mu-methods against built-in generic dispatch. Our generic dispatches on the
 ;; type of its first argument, so to compare apples to apples we use #'type-of as
-;; our multi-dispatch. For multi-methods we run 10'000 repeats, each repeat
+;; our mu-dispatch. For mu-methods we run 10'000 repeats, each repeat
 ;; performs 7 dispatches for a total of 70'000 dispatches. We do the same for
 ;; generic dispatch.
 ;;
-;; Without caching multi-methods are ~100x slower:
+;; Without caching mu-methods are ~100x slower:
 ;;
-;; (multi-test-perf)
+;; (mu-test-perf)
 ;; =>
-;; ((:multi-method (:total . 2.364870071411133)
+;; ((:mu-defmethod (:total . 2.364870071411133)
 ;;                (:average . 3.3783858163016185e-05))
 ;;  (:defmethod   (:total . 0.021378040313720703)
 ;;                (:average . 3.0540057591029576e-07)))
 
 
-(defun multi-test-perf ()
-  (multi foo-test #'type-of)
-  (multi-method foo-test (x) :when 'foo-struct-1 1)
-  (multi-method foo-test (x) :when 'foo-struct-2 2)
-  (multi-method foo-test (x) :when 'foo-struct-3 3)
-  (multi-method foo-test (x) :when 'foo-struct-4 4)
-  (multi-method foo-test (x) :when 'foo-struct-5 5)
-  (multi-method foo-test (x) :when 'foo-struct-6 6)
-  (multi-method foo-test (x) :when :default 0)
+(defun mu-test-perf ()
+  (mu-defmulti foo-test #'type-of)
+  (mu-defmethod foo-test (x) :when 'foo-struct-1 1)
+  (mu-defmethod foo-test (x) :when 'foo-struct-2 2)
+  (mu-defmethod foo-test (x) :when 'foo-struct-3 3)
+  (mu-defmethod foo-test (x) :when 'foo-struct-4 4)
+  (mu-defmethod foo-test (x) :when 'foo-struct-5 5)
+  (mu-defmethod foo-test (x) :when 'foo-struct-6 6)
+  (mu-defmethod foo-test (x) :when :default 0)
 
   (cl-defstruct foo-struct-0)
   (cl-defstruct foo-struct-1)
@@ -753,7 +753,7 @@ message prefix matches PREFIX"
     (ht->alist
      (ht
       (:defmethod
-       (let* ((total (multi-test-time
+       (let* ((total (mu-test-time
                        (cl-loop repeat 10000
                                 do (foo-struct-test s0)
                                 do (foo-struct-test s1)
@@ -766,8 +766,8 @@ message prefix matches PREFIX"
          (list (cons :total total)
                (cons :average average))))
 
-      (:multi-method
-       (let* ((total (multi-test-time
+      (:mu-method
+       (let* ((total (mu-test-time
                        (cl-loop repeat 10000
                                 do (foo-test s0)
                                 do (foo-test s1)
@@ -806,132 +806,132 @@ message prefix matches PREFIX"
 (comment
 
 
- (ert-deftest multi-test-rel ()
-   "Creating `multi-isa?' hierachy should work"
-   (multi-test ((set= multi--set-equal?))
-     (expect '(:rect :shape)         set= (ht-keys (multi-rel :rect isa :shape)))
-     (expect '(:rect :shape :square) set= (ht-keys (multi-rel :square isa :rect)))
+ (ert-deftest mu-test-rel ()
+   "Creating `mu-isa?' hierachy should work"
+   (mu-test ((set= mu--set-equal?))
+     (expect '(:rect :shape)         set= (ht-keys (mu-rel :rect isa :shape)))
+     (expect '(:rect :shape :square) set= (ht-keys (mu-rel :square isa :rect)))
 
-     (expect :shape  member (multi-global-hierarchy :rect :parents))
-     (expect :rect   member (multi-global-hierarchy :square :parents))
-     (expect :square member (multi-global-hierarchy :rect :children))))
+     (expect :shape  member (mu-global-hierarchy :rect :parents))
+     (expect :rect   member (mu-global-hierarchy :square :parents))
+     (expect :square member (mu-global-hierarchy :rect :children))))
 
 
- (ert-deftest multi-test-relationships ()
+ (ert-deftest mu-test-relationships ()
    "Retrieving parents, ancestors, descendants should work"
-   (multi-test ((set= multi--set-equal?))
-     (expect '(:shape)                      set= (multi-parents :rect) :after (multi-rel :rect isa :shape))
-     (expect '(:rect)                       set= (multi-parents :square) :after (multi-rel :square isa :rect))
-     (expect '(:parallelogram :rect :shape) set= (multi-ancestors :square) :after (multi-rel :square isa :parallelogram))
-     (expect '(:rect :square)               set= (multi-descendants :shape))))
+   (mu-test ((set= mu--set-equal?))
+     (expect '(:shape)                      set= (mu-parents :rect) :after (mu-rel :rect isa :shape))
+     (expect '(:rect)                       set= (mu-parents :square) :after (mu-rel :square isa :rect))
+     (expect '(:parallelogram :rect :shape) set= (mu-ancestors :square) :after (mu-rel :square isa :parallelogram))
+     (expect '(:rect :square)               set= (mu-descendants :shape))))
 
 
- (ert-deftest multi-test-isa-hierarchy ()
-   (multi-test ()
-     (multi-rel :rect isa :shape)
-     (multi-rel :square isa :rect)
-     (expect '(:generation . 0)                     equal (multi-isa? 42 42))
-     (expect '(:generation . 1)                     equal (multi-isa? :rect :shape))
-     (expect '(:generation . 2)                     equal (multi-isa? :square :shape))
-     (expect '((:generation . 1) (:generation . 1)) equal (multi-isa? [:square :rect] [:rect :shape]))
-     (expect '((:generation . 1) (:generation . 0)) equal (multi-isa? [:square :shape] [:rect :shape]))
-     (expect (null (multi-isa? [:square :rect] [:shape :square])))
-     (expect (null (multi-isa? [:square] :rect)))
-     (expect (null (multi-isa? [:square] [])))))
+ (ert-deftest mu-test-isa-hierarchy ()
+   (mu-test ()
+     (mu-rel :rect isa :shape)
+     (mu-rel :square isa :rect)
+     (expect '(:generation . 0)                     equal (mu-isa? 42 42))
+     (expect '(:generation . 1)                     equal (mu-isa? :rect :shape))
+     (expect '(:generation . 2)                     equal (mu-isa? :square :shape))
+     (expect '((:generation . 1) (:generation . 1)) equal (mu-isa? [:square :rect] [:rect :shape]))
+     (expect '((:generation . 1) (:generation . 0)) equal (mu-isa? [:square :shape] [:rect :shape]))
+     (expect (null (mu-isa? [:square :rect] [:shape :square])))
+     (expect (null (mu-isa? [:square] :rect)))
+     (expect (null (mu-isa? [:square] [])))))
 
 
- (ert-deftest multi-test-multi ()
+ (ert-deftest mu-test-multi ()
    "Defining new multi dispatcher should work"
-   (multi-test ((set= multi--set-equal?) foo)
-     (expect (null (multi-methods 'foo)) :after (multi foo #'identity))
-     (expect '(:default)                set=         (ht-keys (multi-methods 'foo)))
+   (mu-test ((set= mu--set-equal?) foo)
+     (expect (null (mu-methods 'foo)) :after (mu-defmulti foo #'identity))
+     (expect '(:default)                set=         (ht-keys (mu-methods 'foo)))
      (expect (functionp 'foo))
-     (expect (functionp (multi-methods 'foo :default)))))
+     (expect (functionp (mu-methods 'foo :default)))))
 
 
- (ert-deftest multi-test-multi-method ()
-   "Installing and removing `multi-method's should work"
-   (multi-test ((set= multi--set-equal?) foo)
-     (multi foo #'identity)
-     (expect '(:a :default)    set= (ht-keys (multi-methods 'foo)) :after (multi-method foo (x) :when :a :a))
-     (expect '(:a :b :default) set= (ht-keys (multi-methods 'foo)) :after (multi-method foo (x) :when :b :b))
+ (ert-deftest mu-test-mu-defmethod ()
+   "Installing and removing `mu-method's should work"
+   (mu-test ((set= mu--set-equal?) foo)
+     (mu-defmulti foo #'identity)
+     (expect '(:a :default)    set= (ht-keys (mu-methods 'foo)) :after (mu-defmethod foo (x) :when :a :a))
+     (expect '(:a :b :default) set= (ht-keys (mu-methods 'foo)) :after (mu-defmethod foo (x) :when :b :b))
 
      ;; one method for every match
-     (expect '(:a) set= (mapcar #'car (multi-methods :for 'foo :matching :a)))
-     (expect '(:b) set= (mapcar #'car (multi-methods :for 'foo :matching :b)))
+     (expect '(:a) set= (mapcar #'car (mu-methods :for 'foo :matching :a)))
+     (expect '(:b) set= (mapcar #'car (mu-methods :for 'foo :matching :b)))
 
      ;; :default method when no method installed
-     (expect '(:default) set= (mapcar #'car (multi-methods :for 'foo :matching :c)))
+     (expect '(:default) set= (mapcar #'car (mu-methods :for 'foo :matching :c)))
      ;; but no longer :default when installed
-     (expect '(:c)       set= (mapcar #'car (multi-methods :for 'foo :matching :c)) :after (multi-method foo (x) :when :c :c))
+     (expect '(:c)       set= (mapcar #'car (mu-methods :for 'foo :matching :c)) :after (mu-defmethod foo (x) :when :c :c))
 
      ;; methods must be functions
-     (expect #'functionp cl-every (ht-values (multi-methods 'foo)))
+     (expect #'functionp cl-every (ht-values (mu-methods 'foo)))
 
-     ;; removing a multi-method should work
-     (multi-methods-remove 'foo :a)
-     (should (multi--set-equal? '(:default) (mapcar #'car (multi-methods :for 'foo :matching :a))))))
+     ;; removing a mu-defmethod should work
+     (mu-methods-remove 'foo :a)
+     (should (mu--set-equal? '(:default) (mapcar #'car (mu-methods :for 'foo :matching :a))))))
 
 
- (ert-deftest multi-test-equality-dispatch ()
+ (ert-deftest mu-test-equality-dispatch ()
    "Basic equality based dispatch should work"
-   (multi-test (foo)
-     (multi foo #'identity)
-     (expect :a       equal (foo :a) :after (multi-method foo (x) :when :a :a))
-     (expect :b       equal (foo :b) :after (multi-method foo (x) :when :b :b))
+   (mu-test (foo)
+     (mu-defmulti foo #'identity)
+     (expect :a       equal (foo :a) :after (mu-defmethod foo (x) :when :a :a))
+     (expect :b       equal (foo :b) :after (mu-defmethod foo (x) :when :b :b))
 
      ;; :default when method missing
-     (expect :default equal (foo :c) :after (multi-method foo (x) :when :default :default))
+     (expect :default equal (foo :c) :after (mu-defmethod foo (x) :when :default :default))
 
      ;; no :default when installed
-     (expect :c       equal (too :c) :after (multi-method foo (x) :when :c :c))
+     (expect :c       equal (too :c) :after (mu-defmethod foo (x) :when :c :c))
 
      ;; back to :default when removed
-     (expect :default equal (foo :c) :after (multi-methods-remove 'foo :c))))
+     (expect :default equal (foo :c) :after (mu-methods-remove 'foo :c))))
 
 
- (ert-deftest multi-test-isa-dispatch ()
+ (ert-deftest mu-test-isa-dispatch ()
    "Full isa dispatch should work"
-   (multi-test (foo)
-     ;; Example from the multi-method docs.
-     (multi-rel 'vector :isa :collection)
-     (multi-rel 'hash-table :isa :collection)
-     (multi foo #'type-of)
-     (multi-method foo (c) :when :collection :a-collection)
-     (multi-method foo (s) :when 'string :a-string)
+   (mu-test (foo)
+     ;; Example from the mu-defmethod docs.
+     (mu-rel 'vector :isa :collection)
+     (mu-rel 'hash-table :isa :collection)
+     (mu-defmulti foo #'type-of)
+     (mu-defmethod foo (c) :when :collection :a-collection)
+     (mu-defmethod foo (s) :when 'string :a-string)
 
      (expect :a-collection equal (foo []))
      (expect :a-collection equal (foo (ht)))
      (expect :a-string     equal (foo "bar"))))
 
 
- (ert-deftest multi-test-errors ()
+ (ert-deftest mu-test-errors ()
    "Error conditions should be signaled and possible to catch"
-   (multi-test (foo bar)
+   (mu-test (foo bar)
 
-     (expect "multi-error" equal (get 'multi-error 'error-message))
-     (expect-error 'multi-error :after (multi-error "foo %s" 'bar))
+     (expect "mu-error" equal (get 'mu-error 'error-message))
+     (expect-error 'mu-error :after (mu-error "foo %s" 'bar))
 
-     (multi-rel :rect isa :shape)
-     (multi-rel :square isa :rect)
-     (multi-rel :square isa :parallelogram)
-     (multi foo #'identity)
-     (multi-method foo (a) :when :square :square)
-     (multi-method foo (a) :when :shape :shape)
+     (mu-rel :rect isa :shape)
+     (mu-rel :square isa :rect)
+     (mu-rel :square isa :parallelogram)
+     (mu-defmulti foo #'identity)
+     (mu-defmethod foo (a) :when :square :square)
+     (mu-defmethod foo (a) :when :shape :shape)
 
      ;; signal ambiguous methods
-     (expect "multiple methods" multi--error-match (foo :square))
+     (expect "multiple methods" mu--error-match (foo :square))
 
      ;; preinstalled :default method should signal method missing
-     (expect "no multi-methods match" multi--error-match (foo :triangle))
+     (expect "no mu-methods match" mu--error-match (foo :triangle))
 
      ;; catch cycle relationships
-     (expect "cycle relationship" multi--error-match (multi-rel :shape isa :square))
+     (expect "cycle relationship" mu--error-match (mu-rel :shape isa :square))
 
      ;; catch malformed arglist in `multi' call
-     (expect "malformed arglist" multi--error-match (multi bar :val [a b]))
+     (expect "malformed arglist" mu--error-match (mu-defmulti bar :val [a b]))
 
-     ;; catch malformed arglist in `multi-method' call
-     (expect "malformed arglist" multi--error-match (multi-method bar :val [a b]))))
+     ;; catch malformed arglist in `mu-method' call
+     (expect "malformed arglist" mu--error-match (mu-defmethod bar :val [a b]))))
  ;; comment
  )

@@ -10,7 +10,7 @@
   (pcase patterns
     (`(,id :if ,predicate) `(and ,id (pred ,predicate)))
     (otherwise
-     `(multi-error "malformed pcase multi pattern"))))
+     `(mu-error "malformed pcase multi pattern"))))
 
 
 (example
@@ -30,62 +30,62 @@
 ;; make it optional? Looks like pcase has a (seq pat ...) but it has funky
 ;; semantics in the way it handles seq tails. We could allow it or build on it.
 
-;; TODO define `multi-case-defmacro' similar to `pcase-defmacro' to define custom
-;; patterns that use multi-case dsl.
+;; TODO define `mu-case-defmacro' similar to `pcase-defmacro' to define custom
+;; patterns that use mu-case dsl.
 
-;; NOTE Although `multi-case--init' and `multi-case--inside' are superficially the
-;; same we need both because `multi-case--inside' assumes to be inside backquoted
+;; NOTE Although `mu-case--init' and `mu-case--inside' are superficially the
+;; same we need both because `mu-case--inside' assumes to be inside backquoted
 ;; pattern e.g. `(,foo ,bar) in pcase syntax or [foo bar] in our dsl , while
-;; `multi-case--init' assumes to work either outside of a backquoted context or
+;; `mu-case--init' assumes to work either outside of a backquoted context or
 ;; inside of an unquoted pattern.
 
 
-(defmacro multi-case (e &rest clauses)
+(defmacro mu-case (e &rest clauses)
   "`pcase' like matching and destructuring with less noise."
   (declare (indent 1))
   (condition-case err
       `(pcase ,e
-         ,@(mapcar #'multi-case--clause clauses))
-    (multi-error `(multi-error ,(cadr err)))))
+         ,@(mapcar #'mu-case--clause clauses))
+    (mu-error `(mu-error ,(cadr err)))))
 
 
-(cl-defun multi-case--clause ((pat . body))
-  `(,(multi-case--init pat) ,@body))
+(cl-defun mu-case--clause ((pat . body))
+  `(,(mu-case--init pat) ,@body))
 
 
-(defun multi-case--init (pat)
-  "Generate a pcase pattern from a multi-case pattern assuming an
+(defun mu-case--init (pat)
+  "Generate a pcase pattern from a mu-case pattern assuming an
 unquoted context."
   (pcase pat
     ('otherwise               pat)
     ((pred symbolp)           pat)
-    ((pred vectorp)           (list '\` (multi-case--inside pat)))
-    (`(or . ,pats)            (cons 'or (mapcar #'multi-case--init pats)))
-    (`(and . ,pats)           (cons 'and (mapcar #'multi-case--init pats)))
-    (`(app ,fun ,pat)         (list 'app fun (multi-case--init pat)))
-    (`(let ,pat ,exp)         (list 'let (multi-case--init pat) exp))
+    ((pred vectorp)           (list '\` (mu-case--inside pat)))
+    (`(or . ,pats)            (cons 'or (mapcar #'mu-case--init pats)))
+    (`(and . ,pats)           (cons 'and (mapcar #'mu-case--init pats)))
+    (`(app ,fun ,pat)         (list 'app fun (mu-case--init pat)))
+    (`(let ,pat ,exp)         (list 'let (mu-case--init pat) exp))
     (`(quote ,(pred symbolp)) pat)
     ;; vector pattern
-    (`(\` ,(pred vectorp))    (list '\` (multi-case--inside pat)))
-    ;; registered multi-case-pattern
+    (`(\` ,(pred vectorp))    (list '\` (mu-case--inside pat)))
+    ;; registered mu-case-pattern
     (`(,(and id (pred symbolp))
        .
        ,pats)                  (if-let ((macro
                                          (ht-get
-                                          (get 'multi-case :multi-patterns)
+                                          (get 'mu-case :mu-patterns)
                                           id)))
-                                   ;; known multi-case-pattern: expand, recurse
-       (multi-case--init (apply macro pats))
+                                   ;; known mu-case-pattern: expand, recurse
+       (mu-case--init (apply macro pats))
        ;; unknown pattern: do nothing
        pat))
     ((pred listp)             pat)
     ((pred atom)              pat)
     (otherwise
-     (multi-error "in multi-case unrecognized pattern %S" pat))))
+     (mu-error "in mu-case unrecognized pattern %S" pat))))
 
 
-(defun multi-case--inside (pat)
-  "Generate a pcase pattern from a multi-case pattern assuming an
+(defun mu-case--inside (pat)
+  "Generate a pcase pattern from a mu-case pattern assuming an
 quoted context i.e. a list matching pattern."
   (pcase pat
     (`[] '())
@@ -94,37 +94,37 @@ quoted context i.e. a list matching pattern."
                            (head (car split))
                            (tail (cadr split)))
                       (when (> (length tail) 1)
-                        (multi-error "in multi-case malformed &rest pattern %S" tail))
-                      (let* ((head (mapcar #'multi-case--inside head))
-                             (tail (and tail (multi-case--inside (car tail)))))
+                        (mu-error "in mu-case malformed &rest pattern %S" tail))
+                      (let* ((head (mapcar #'mu-case--inside head))
+                             (tail (and tail (mu-case--inside (car tail)))))
                         (append head tail))))
     ;; vector pattern
-    (`(\` ,(pred vectorp))    (seq-into (mapcar #'multi-case--inside (cadr pat)) 'vector))
+    (`(\` ,(pred vectorp))    (seq-into (mapcar #'mu-case--inside (cadr pat)) 'vector))
     (`(quote ,(pred symbolp)) (cadr pat))
     ((pred keywordp)          pat)
     ((pred symbolp)           (list '\, pat))
     ;; TODO do I need to check for an empty list here?
-    ((pred listp)             (list '\, (multi-case--init pat)))
+    ((pred listp)             (list '\, (mu-case--init pat)))
     ((pred atom)              pat)
     (otherwise
-     (multi-error "in multi-case unrecognized pattern %S" pat))))
+     (mu-error "in mu-case unrecognized pattern %S" pat))))
 
 
 ;; NOTE All we do here is wrap user macro into a (lambda (ARGLIST) BODY) and store
-;; it in the hash-table in multi-case's plist under :multi-patterns slot. Whenever
-;; `multi-case' encounters a (NAME PATTERNS) pattern it looks up the NAME in its
-;; :multi-patterns property and calls (apply (lambda (ARGLIST) BODY) PATTERNS)
-;; which must produce a valid multi-case pattern. So, techincally the user doesn't
+;; it in the hash-table in mu-case's plist under :mu-patterns slot. Whenever
+;; `mu-case' encounters a (NAME PATTERNS) pattern it looks up the NAME in its
+;; :mu-patterns property and calls (apply (lambda (ARGLIST) BODY) PATTERNS)
+;; which must produce a valid mu-case pattern. So, techincally the user doesn't
 ;; really define a macro so much as a function that takes patterns and must
-;; generate a multi-case pattern, that is `multi-case' effectively plays the role
+;; generate a mu-case pattern, that is `mu-case' effectively plays the role
 ;; of a "macro expander" by simply invoking the function the user provided at
 ;; compile time.
-(defmacro multi-case-pattern (name arglist &optional docstring &rest body)
-  "Define a new kind of multi-case PATTERN. Patterns of the
+(defmacro mu-defpattern (name arglist &optional docstring &rest body)
+  "Define a new kind of mu-case PATTERN. Patterns of the
 form (NAME &rest PATTERNS) will be expanded by this macro with
 PATTERS bound according to the ARGLIST. Macro expansion must
-produce a valid `multi-case' pattern. The macro is allowed to
-throw `multi-error' to signal improper use of the pattern. This
+produce a valid `mu-case' pattern. The macro is allowed to
+throw `mu-error' to signal improper use of the pattern. This
 will be handled correctly to inform the user. Optional DOCSTRING
 maybe supplied for the convenience of other programmers reading
 your macro code.
@@ -134,46 +134,46 @@ your macro code.
   (when docstring
     (unless (stringp docstring)
       (setq body (cons docstring body))))
-  (let ((multi-case-patterns `(or (get 'multi-case :multi-patterns)
-                                  (put 'multi-case :multi-patterns (ht))))
+  (let ((mu-patterns `(or (get 'mu-case :mu-patterns)
+                                  (put 'mu-case :mu-patterns (ht))))
         (pattern-macro `(lambda ,arglist ,@body)))
-    `(setf (ht-get ,multi-case-patterns ',name) ,pattern-macro)))
+    `(setf (ht-get ,mu-patterns ',name) ,pattern-macro)))
 
 
-(defun multi-case--ht (patterns)
-  (multi-case patterns
+(defun mu--ht-pattern (patterns)
+  (mu-case patterns
     ([] '())
 
     ;; (ht :a :b)
     ([(and kw (pred keywordp) (app sym id)) &rest pats]
      `(((app (lambda (ht) (or (ht-get ht ,kw) (ht-get ht ',id))) ,id)
         (app (lambda (ht) (or (alist-get ,kw ht) (alist-get ',id ht))) ,id))
-       ,@(multi-case--ht pats)))
+       ,@(mu--ht-pattern pats)))
 
     ;; (ht 'a 'b)
     ([['quote (and id (pred symbolp) (app (lambda (id) (sym ":" id)) kw))] &rest pats]
      `(((app (lambda (ht) (or (ht-get ht ',id) (ht-get ht ,kw))) ,id)
         (app (lambda (ht) (or (alist-get ',id ht) (alist-get ,kw ht))) ,id))
-       ,@(multi-case--ht pats)))
+       ,@(mu--ht-pattern pats)))
 
     ;; (ht a b)
     ([(and id (pred symbolp) (app (lambda (id) (sym ":" id)) kw)) &rest pats]
      `(((app (lambda (ht) (or (ht-get ht ,kw) (ht-get ht ',id))) ,id)
         (app (lambda (ht) (or (alist-get ,kw ht) (alist-get ',id ht))) ,id))
-       ,@(multi-case--ht pats)))
+       ,@(mu--ht-pattern pats)))
 
     ;; (ht (:a A) (:b B))
     ([[key id] &rest pats]
      `(((app (lambda (ht) (ht-get ht ,key)) ,id)
         (app (lambda (ht) (alist-get ,key ht)) ,id))
-       ,@(multi-case--ht pats)))
+       ,@(mu--ht-pattern pats)))
 
     (otherwise
-     (multi-error "in multi-case malformed ht pattern in %S" patterns))))
+     (mu-error "in mu-case malformed ht pattern in %S" patterns))))
 
 
-(multi-case-pattern ht (&rest patterns)
-  "`multi-case' pattern to match hash-tables and alists. ht
+(mu-defpattern ht (&rest patterns)
+  "`mu-case' pattern to match hash-tables and alists. ht
 expects to receive key-patterns that would be used to lookup and
 bind corresponding values in the hash-table or alist being
 matched. Possible key-patterns are:
@@ -184,52 +184,52 @@ matched. Possible key-patterns are:
 
 Example:
 
-  (multi-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
+  (mu-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
     ((ht :a b 'c ('d D)) (list a b c D)))"
 
-  (let* ((patterns (multi-case--ht patterns))
+  (let* ((patterns (mu--ht-pattern patterns))
          (ht-pats (mapcar #'car patterns))
          (alist-pats (mapcar #'cadr patterns)))
     `(or (and (pred ht-p) ,@ht-pats)
          (and (pred listp) ,@alist-pats))))
 
 
-(defun multi--let (bindings body)
+(defun mu--let (bindings body)
   (let* ((pair (car bindings))
          (pat (car pair))
          (val (cadr pair)))
     (cond
      (pair
       (unless (and pat val)
-        (multi-error "in multi-let malformed binding list in %S" (list pat val)))
-      `(multi-case ,val
-         (,pat ,(multi--let (cdr bindings) body))))
+        (mu-error "in mu-let malformed binding list in %S" (list pat val)))
+      `(mu-case ,val
+         (,pat ,(mu--let (cdr bindings) body))))
      (:else
       `(progn ,@body)))))
 
 
-(defmacro multi-let (bindings &rest body)
-  "Like `let*' but allows multi-case patterns in place of
+(defmacro mu-let (bindings &rest body)
+  "Like `let*' but allows mu-case patterns in place of
 identifiers being bound."
   (declare (indent 1))
   (condition-case err
-      (multi--let bindings body)
-    (multi-error `(multi-error ,(cadr err)))))
+      (mu--let bindings body)
+    (mu-error `(mu-error ,(cadr err)))))
 
 
-(defun multi--fun-meta (body &optional map)
-  "Parses multi-fun and multi-macro preamble for atribute
+(defun mu--defun-meta (body &optional map)
+  "Parses mu-defun and mu-defmacro preamble for atribute
 declarations. Returns a hash-table."
   (default map :to (ht))
   (cond
-   ((keywordp (car body)) (ht-set map (pop body) (pop body)) (multi--fun-meta body map))
+   ((keywordp (car body)) (ht-set map (pop body) (pop body)) (mu--defun-meta body map))
    (:else                 (ht-set map :body body) map)))
 
 
 ;; TODO implement
-(defun multi--fun-sig (arglist body &optional doc sig)
+(defun mu--defun-sig (arglist body &optional doc sig)
   "Creates a docstring from DOC adding signature SIG if supplied
-and extra signatures generated from the ARGLIST and multi-case
+and extra signatures generated from the ARGLIST and mu-case
 patterns in the BODY."
   (default doc :to "")
   (concat doc
@@ -239,9 +239,9 @@ patterns in the BODY."
 
 
 ;; TODO gv-setter
-(defun multi--fun (fun-type name arglist body)
+(defun mu--defun (fun-type name arglist body)
   (declare (indent defun))
-  (let* ((meta           (multi--fun-meta body))
+  (let* ((meta           (mu--defun-meta body))
          (split-args     (-split-on '&rest arglist))
          (head-args      (car split-args))
          (rest-arg       (car (cadr split-args)))
@@ -252,134 +252,137 @@ patterns in the BODY."
          (ispec          (ht-get meta :interactive)))
     (if (or (not rest-arg) (not (symbolp rest-arg)))
 
-        `(multi-error "in multi-fun malformed arglist has no &rest argument in %S" ,arglist)
+        `(mu-error "in mu-defun/macro malformed arglist has no &rest argument in %S"
+                   ',arglist)
 
       `(,fun-type
         ,name ,arglist
-        ,(multi--fun-sig split-args body doc sig)
+        ,(mu--defun-sig split-args body doc sig)
         ,@(when dspec `((declare ,@dspec)))
         ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
-        (multi-case ,rest-arg
+        (mu-case ,rest-arg
           ,@body)))))
 
 
-(defmacro multi-fun (name arglist &rest body)
-  (multi--fun 'defun name arglist body))
+(defmacro mu-defun (name arglist &rest body)
+  (declare (indent 2))
+  (mu--defun 'defun name arglist body))
 
 
-(defmacro multi-macro (name arglist &rest body)
-  (multi--fun 'defmacro name arglist body))
+(defmacro mu-defmacro (name arglist &rest body)
+  (declare (indent 2))
+  (mu--defun 'defmacro name arglist body))
 
 
 ;;* Errors -------------------------------------------------------- *;;
 
 
-(define-error 'multi-error "multi-error")
+(define-error 'mu-error "mu-error")
 
 
-(defun multi-error (&rest args)
+(defun mu-error (&rest args)
   "Signals errors specific to `multi' library. Can be caught with
-'multi-error ERROR-SYMBOL in `condition-case', otherwise behaves
+'mu-error ERROR-SYMBOL in `condition-case', otherwise behaves
 exactly like `error'
 
 \(fn string &rest args)"
-  (signal 'multi-error (list (apply #'format-message args))))
+  (signal 'mu-error (list (apply #'format-message args))))
 
 
 ;;* Settings  ----------------------------------------------------- *;;
 
 
-(defcustom multi-lexical-binding 'error
-  "Control if multi-methods can be defined when `lexical-binding'
+(defcustom mu-lexical-binding 'error
+  "Control if mu-methods can be defined when `lexical-binding'
  is disabled. Default to signaling an error if an attempt is made
  to define a new multi dispatch or method while in a dynamically
  scoped environment.")
 
 
-(defun multi-lexical-binding ()
+(defun mu-lexical-binding ()
   "Signal an error depending on the setting of
-`multi-lexical-binding' and `lexical-binding'."
-  (when multi-lexical-binding
+`mu-lexical-binding' and `lexical-binding'."
+  (when mu-lexical-binding
     (unless lexical-binding
-      (multi-error
+      (mu-error
        (string-join
         (list
-         "multi-methods require `lexical-binding' to work properly."
+         "mu-methods require `lexical-binding' to work properly."
          "If you know what you are doing you may disable this check"
-         "by unsetting `multi-lexical-binding'.")
+         "by unsetting `mu-lexical-binding'.")
         " ")))))
 
 
 ;;* Hierarchies --------------------------------------------------- *;;
 
 
-(defstruct multi-hierarchy
+(defstruct mu-hierarchy
   ;; TODO should this be an UUID or gensym is enough to avoid collisions?
-  (id (gensym "multi-hierarchy"))
+  (id (gensym "mu-hierarchy"))
   (table (ht))
   (cache (ht)))
 
 
-(defun multi-hierarchy (hierarchy &rest keys)
+(defun mu-hierarchy (hierarchy &rest keys)
   "Returns the value in the HIERARCHY's nested table, where KEYS
 is a sequence of keys. Returns nil if the key is not present.
 Without KEYS returns the entire table. Calls are `setf'-able."
   (declare
    (gv-setter (lambda (val)
-                `(setf (ht-get* (multi-hierarchy-table ,hierarchy) ,@keys) ,val))))
+                `(setf (ht-get* (mu-hierarchy-table ,hierarchy) ,@keys) ,val))))
   (if keys
-      (apply #'ht-get* (multi-hierarchy-table hierarchy) keys)
-    (multi-hierarchy-table hierarchy)))
+      (apply #'ht-get* (mu-hierarchy-table hierarchy) keys)
+    (mu-hierarchy-table hierarchy)))
 
 
-(defconst multi-global-hierarchy (make-multi-hierarchy)
+(defconst mu-global-hierarchy (make-mu-hierarchy)
   "Global table that holds global hierachy. Has the following
 structure:
 
   (ht (VAL (ht (:parents (p ...)) (:children (c ...)))) ...)")
 
 
-(defun multi-global-hierarchy (&rest keys)
+(defun mu-global-hierarchy (&rest keys)
   "Returns the value in the global hierarchy nested table, where
 KEYS is a sequence of keys. Returns nil if the key is not
 present. Without KEYS returns the entire table. Calls are
 `setf'-able."
   (declare
    (gv-setter (lambda (val)
-                `(setf (multi-hierarchy multi-global-hierarchy ,@keys) ,val))))
-  (apply #'multi-hierarchy multi-global-hierarchy keys))
+                `(setf (mu-hierarchy mu-global-hierarchy ,@keys) ,val))))
+  (apply #'mu-hierarchy mu-global-hierarchy keys))
 
 
 ;; TODO is this code correct?
-(defun multi--cycle (child parent hierarchy)
+(defun mu--cycle (child parent hierarchy)
   "Reports the cycle that the CHILD - PARENT relation would've
 created in HIERARCHY if installed, nil if no cycle."
   (if (equal child parent)
       (list parent)
     (when-let ((cycle (some
-                       (lambda (ancestor) (multi--cycle child ancestor hierarchy))
-                       (multi-hierarchy hierarchy parent :parents))))
+                       (lambda (ancestor) (mu--cycle child ancestor hierarchy))
+                       (mu-hierarchy hierarchy parent :parents))))
       (cons parent cycle))))
 
 
-(defun multi--cycle? (child parent &optional hierarchy compute?)
+(defun mu--cycle? (child parent &optional hierarchy compute?)
   "Checks if CHILD and would be PARENT would form a cycle were
 the relationship added to the HIERARCHY. If HIERARCHY not
 supplied defaults to the global hierarchy. If COMPUTE? is t
 actually computes PARENT's ancestors for the check instead of
 using already stored in the HIERARCHY."
-  (default hierarchy :to multi-global-hierarchy)
+  (default hierarchy :to mu-global-hierarchy)
   (default compute? :to nil)
   (when (or (equal child parent)
             (member child
                     (if compute?
-                        (multi-ancestors parent hierarchy 'compute)
-                      (multi-ancestors parent hierarchy))))
+                        (mu-ancestors parent hierarchy 'compute)
+                      (mu-ancestors parent hierarchy))))
     ;; compute and report full cycle for debugging
-    (multi--cycle child parent hierarchy)))
+    (mu--cycle child parent hierarchy)))
 
 
-(defun multi--rel (child parent hierarchy)
+(defun mu--rel (child parent hierarchy)
   "Installs CHILD - PARENT relation in HIERARCHY, propagates any
 necessary :descendant - :ancestor relations up and down the
 HIERARCHY tree. Returns updated HIERARCHY."
@@ -391,60 +394,60 @@ HIERARCHY tree. Returns updated HIERARCHY."
             (and (seqp parent) (not (null parent)))
             (cl-struct-p child)
             (cl-struct-p parent))
-    (multi-error "in multi-rel no meaningful semantics relate structured data\n  %s\n  %s"
+    (mu-error "in mu-rel no meaningful semantics relate structured data\n  %s\n  %s"
                  child parent))
 
   ;; don't allow cyclic relations
-  (when-let ((cycle (multi--cycle? child parent hierarchy)))
-    (multi-error "in multi-rel cyclic relationship between %s and %s: %s"
+  (when-let ((cycle (mu--cycle? child parent hierarchy)))
+    (mu-error "in mu-rel cyclic relationship between %s and %s: %s"
                  child parent cycle))
 
   ;; TODO fixing :ancestors and :descendants is too easy to get wrong, as should
   ;; be obvious from the code below. Another thing we could do is to recompute
   ;; :ancestors and :descendants for every item in hierarchy by invoking e.g.
-  ;; (multi-ancestors item hierarchy 'compute). That'd result in a ton of
-  ;; redundant computation, but we could simply memoize `multi-ancestors' and
-  ;; `multi-descendants'. Their cache would have to be wiped every new relation
-  ;; installed with multi-rel, naturally. IMO it'd be performant enough and much
+  ;; (mu-ancestors item hierarchy 'compute). That'd result in a ton of
+  ;; redundant computation, but we could simply memoize `mu-ancestors' and
+  ;; `mu-descendants'. Their cache would have to be wiped every new relation
+  ;; installed with mu-rel, naturally. IMO it'd be performant enough and much
   ;; more readable than the code below.
 
   ;; Update child and its descendants
   (progn
     ;; add parent to child's :parents
-    (pushnew parent (multi-hierarchy hierarchy child :parents))
+    (pushnew parent (mu-hierarchy hierarchy child :parents))
     ;; add parent to child's :ancestors
-    (pushnew parent (multi-hierarchy hierarchy child :ancestors))
+    (pushnew parent (mu-hierarchy hierarchy child :ancestors))
     ;; extend child's :ancestors with parent's :ancestors
-    (callf cl-union (multi-hierarchy hierarchy child :ancestors)
-      (multi-hierarchy hierarchy parent :ancestors))
+    (callf cl-union (mu-hierarchy hierarchy child :ancestors)
+      (mu-hierarchy hierarchy parent :ancestors))
     ;; propagate now extended child's :ancestors down the family tree by
     ;; extending every child descendant's :ancestors with child's
     ;; :ancestors
-    (dolist (descendant (multi-hierarchy hierarchy child :descendants))
-      (callf cl-union (multi-hierarchy hierarchy descendant :ancestors)
-        (multi-hierarchy hierarchy child :ancestors))))
+    (dolist (descendant (mu-hierarchy hierarchy child :descendants))
+      (callf cl-union (mu-hierarchy hierarchy descendant :ancestors)
+        (mu-hierarchy hierarchy child :ancestors))))
 
   ;; Update parent and its ancestors
   (progn
     ;; add child to parent's :children
-    (pushnew child (multi-hierarchy hierarchy parent :children))
+    (pushnew child (mu-hierarchy hierarchy parent :children))
     ;; add child to parent's :descendants
-    (pushnew child (multi-hierarchy hierarchy parent :descendants))
+    (pushnew child (mu-hierarchy hierarchy parent :descendants))
     ;; extend parent's :descendants with child's :descendants
-    (callf cl-union (multi-hierarchy hierarchy parent :descendants)
-      (multi-hierarchy hierarchy child :descendants))
+    (callf cl-union (mu-hierarchy hierarchy parent :descendants)
+      (mu-hierarchy hierarchy child :descendants))
     ;; propagate now extended parent's :descendants up the family tree by
     ;; extending every parent ancestor's :descendants with parent's
     ;; :descendants
-    (dolist (ancestor (multi-hierarchy hierarchy parent :ancestors))
-      (callf cl-union (multi-hierarchy hierarchy ancestor :descendants)
-        (multi-hierarchy hierarchy parent :descendants))))
+    (dolist (ancestor (mu-hierarchy hierarchy parent :ancestors))
+      (callf cl-union (mu-hierarchy hierarchy ancestor :descendants)
+        (mu-hierarchy hierarchy parent :descendants))))
 
   ;; return hierarchy
   hierarchy)
 
 
-(defmacro multi-rel (&rest args)
+(defmacro mu-rel (&rest args)
   "Establishes an isa? (parent/child) relationship between PARENT
 and CHILD. If HIERARCHY not supplied defaults to, and modifies,
 the global hierarchy.
@@ -457,47 +460,47 @@ the global hierarchy.
         (`(,child ,(or 'isa :isa) ,parent) (list nil child parent nil))
         (`(,child ,(or 'isa :isa) ,parent ,(or 'in :in) ,hierarchy) (list nil child parent hierarchy))
         (otherwise
-         (list `(multi-error "in multi-rel malformed arglist at %s" ',args) nil nil nil)))
+         (list `(mu-error "in mu-rel malformed arglist at %s" ',args) nil nil nil)))
     (or
      err
-     (let ((hierarchy (or hierarchy 'multi-global-hierarchy)))
-       `(multi--rel ,child ,parent ,hierarchy)))))
+     (let ((hierarchy (or hierarchy 'mu-global-hierarchy)))
+       `(mu--rel ,child ,parent ,hierarchy)))))
 
 
-(defun multi-isa? (x y &optional hierarchy)
+(defun mu-isa? (x y &optional hierarchy)
   "Checks if CHILD is isa? related to PARENT in HIERARCHY. If
 HIERARCHY not supplied defaults to the global hierarchy
 
 \(fn child parent &optional hierarchy)"
-  (default hierarchy :to multi-global-hierarchy)
+  (default hierarchy :to mu-global-hierarchy)
   (or (equal x y)
       (and (sequencep x)
            (sequencep y)
            (equal (length x) (length y))
-           (every (lambda (x y) (multi-isa? x y hierarchy)) x y))
+           (every (lambda (x y) (mu-isa? x y hierarchy)) x y))
       (and (not (sequencep y))
-           (member y (multi-ancestors x hierarchy)))))
+           (member y (mu-ancestors x hierarchy)))))
 
 
-(cl-defun multi--generations (seqx seqy hierarchy)
-  (let ((rels (seq-mapn (lambda (x y) (multi-isa/generations? x y hierarchy)) seqx seqy)))
+(cl-defun mu--generations (seqx seqy hierarchy)
+  (let ((rels (seq-mapn (lambda (x y) (mu-isa/generations? x y hierarchy)) seqx seqy)))
     (and (cl-notany #'null rels)
          rels)))
 
 
-(cl-defun multi-isa/generations? (x y &optional (hierarchy) (generation 0))
+(cl-defun mu-isa/generations? (x y &optional (hierarchy) (generation 0))
   "Returns (generation 0) if (equal CHILD PARENT), or (generation
 N) if CHILD is directly or indirectly derived from PARENT, where
 N signifies how far down generations PARENT is from CHILD. If
 HIERARCHY not supplied defaults to the global hierarchy
 
 \(fn child parent &optional hierarchy)"
-  (default hierarchy :to multi-global-hierarchy)
+  (default hierarchy :to mu-global-hierarchy)
   (cond
    ((sequencep x)
     (and (sequencep y)
          (equal (length x) (length y))
-         (multi--generations x y hierarchy)))
+         (mu--generations x y hierarchy)))
 
    ((sequencep y)
     ;; then x wasn't a seq or failed x isa? y test
@@ -506,87 +509,87 @@ HIERARCHY not supplied defaults to the global hierarchy
    ((equal x y)
     (cons :generation generation))
 
-   ((member y (multi-hierarchy hierarchy x :parents))
+   ((member y (mu-hierarchy hierarchy x :parents))
     (cons :generation (1+ generation)))
 
    (:else
     (some
-     (lambda (parent) (multi-isa/generations? parent y hierarchy (1+ generation)))
-     (multi-hierarchy hierarchy x :parents)))))
+     (lambda (parent) (mu-isa/generations? parent y hierarchy (1+ generation)))
+     (mu-hierarchy hierarchy x :parents)))))
 
 
-(defun multi--ancestors (x hierarchy)
+(defun mu--ancestors (x hierarchy)
   "Returns ancestors of X by walking the HIERARCHY tree. List may
 have duplicates."
-  (let ((parents (multi-hierarchy hierarchy x :parents)))
+  (let ((parents (mu-hierarchy hierarchy x :parents)))
     ;; TODO instead of append I could cl-union to avoid cl-delete-duplicates use
     ;; later, but this is fine too?
     (append parents
             (seq-mapcat
              (lambda (parent)
-               (multi--ancestors parent hierarchy))
+               (mu--ancestors parent hierarchy))
              parents))))
 
 
-(defun multi-ancestors (x &optional hierarchy compute?)
-  "Returns all ancestors of X such that (multi-isa? X ancestor).
+(defun mu-ancestors (x &optional hierarchy compute?)
+  "Returns all ancestors of X such that (mu-isa? X ancestor).
 If HIERARCHY not supplied defaults to the global hierarchy. If
 COMPUTE? is t actually computes ancestors by walking the tree."
-  (default hierarchy :to multi-global-hierarchy)
+  (default hierarchy :to mu-global-hierarchy)
   (default compute? :to nil)
   (if compute?
-      (cl-delete-duplicates (multi--ancestors x hierarchy) :test #'equal)
-    (multi-hierarchy hierarchy x :ancestors)))
+      (cl-delete-duplicates (mu--ancestors x hierarchy) :test #'equal)
+    (mu-hierarchy hierarchy x :ancestors)))
 
 
-(defun multi--descendants (x hierarchy)
+(defun mu--descendants (x hierarchy)
   "Returns descendants of X by walking the HIERARCHY tree. List
 may have duplicates."
-  (let ((children (multi-hierarchy hierarchy x :children)))
+  (let ((children (mu-hierarchy hierarchy x :children)))
     (append children
             (seq-mapcat
              (lambda (child)
-               (multi--descendants child hierarchy))
+               (mu--descendants child hierarchy))
              children))))
 
 
-(defun multi-descendants (x &optional hierarchy compute?)
-  "Returns all descendants of X such that (multi-isa? descendant
+(defun mu-descendants (x &optional hierarchy compute?)
+  "Returns all descendants of X such that (mu-isa? descendant
 X). If HIERARCHY not supplied defaults to the global hierarchy.
 If COMPUTE? is t actually computes descendants by walking the
 tree."
-  (default hierarchy :to multi-global-hierarchy)
+  (default hierarchy :to mu-global-hierarchy)
   (default compute? :to nil)
   (if compute?
-      (cl-delete-duplicates (multi--descendants x hierarchy) :test #'equal)
-    (multi-hierarchy hierarchy x :descendants)))
+      (cl-delete-duplicates (mu--descendants x hierarchy) :test #'equal)
+    (mu-hierarchy hierarchy x :descendants)))
 
 
 ;;* Methods ------------------------------------------------------- *;;
 
 
-(defun multi--methods (fun-symbol &rest keys)
-  "Returns the multi-methods hash-table of FUN-SYMBOL or the
+(defun mu--methods (fun-symbol &rest keys)
+  "Returns the mu-methods hash-table of FUN-SYMBOL or the
 value nested in that table if the sequence of KEYS is supplied.
 This form is `setf'-able."
   (declare
    (gv-setter (lambda (val)
                 (if keys
-                    ;; with keys set corresponding value in :multi-methods table
-                    `(setf (ht-get* (get ,fun-symbol :multi-methods) ,@keys) ,val)
-                  ;; without keys set :multi-methods prop itself to a new table
-                  `(setf (get ,fun-symbol :multi-methods) ,val)))))
+                    ;; with keys set corresponding value in :mu-methods table
+                    `(setf (ht-get* (get ,fun-symbol :mu-methods) ,@keys) ,val)
+                  ;; without keys set :mu-methods prop itself to a new table
+                  `(setf (get ,fun-symbol :mu-methods) ,val)))))
   (if keys
-      (apply #'ht-get* (get fun-symbol :multi-methods) keys)
-    (get fun-symbol :multi-methods)))
+      (apply #'ht-get* (get fun-symbol :mu-methods) keys)
+    (get fun-symbol :mu-methods)))
 
 
-(defun multi-methods (&rest args)
-  "Returns a hash-table of FUN-SYM multi-methods, where each entry
+(defun mu-methods (&rest args)
+  "Returns a hash-table of FUN-SYM mu-methods, where each entry
 is a (value . method) pair.
 
 When called with :for and :matching keywords limits the table to
-pairs where (multi-isa? VAL value) relationship holds or
+pairs where (mu-isa? VAL value) relationship holds or
 the (:default . method) if none match. If HIERARCHY not supplied
 defaults to the global hierarchy.
 
@@ -596,38 +599,38 @@ supplied. This form is `setf'-able.
 
 May be called according to one of the following signatures:
 
-  (multi-methods :for fun-sym :matching val &optional :in hierarchy)
-  (multi-methods fun-sym &rest keys)
-  (setf (multi-methods fun-sym &rest keys) val)
+  (mu-methods :for fun-sym :matching val &optional :in hierarchy)
+  (mu-methods fun-sym &rest keys)
+  (setf (mu-methods fun-sym &rest keys) val)
 
 \(fn :for fun-sym :matching val &optional :in hierarchy)"
   (declare
    (gv-setter (lambda (val)
                 (pcase args
 
-                  ;; (setf (multi-methods 'foo &rest keys) val)
+                  ;; (setf (mu-methods 'foo &rest keys) val)
                   (`((quote ,(multi fun-symbol :if symbolp)) . ,keys)
-                   `(setf (multi--methods ',fun-symbol ,@keys) ,val))
+                   `(setf (mu--methods ',fun-symbol ,@keys) ,val))
 
-                  ;; (setf (multi-methods foo &rest keys) val)
+                  ;; (setf (mu-methods foo &rest keys) val)
                   (`(,(multi fun-symbol :if symbolp) . ,keys)
-                   `(setf (multi--methods ,fun-symbol ,@keys) ,val))
+                   `(setf (mu--methods ,fun-symbol ,@keys) ,val))
 
                   (otherwise
-                   `(multi-error "in multi-methods malformed arglist at %s" ',args))))))
+                   `(mu-error "in mu-methods malformed arglist at %s" ',args))))))
   ;; parse args
   (pcase args
-    ;; (multi-methods :for 'fun :matching val)
+    ;; (mu-methods :for 'fun :matching val)
     (`(:for ,fun :matching ,val)
-     (multi-methods :for fun :matching val :in multi-global-hierarchy))
+     (mu-methods :for fun :matching val :in mu-global-hierarchy))
 
-    ;; (multi-methods :for 'fun :matching val :in hierarchy)
+    ;; (mu-methods :for 'fun :matching val :in hierarchy)
     (`(:for ,fun :matching ,val :in ,hierarchy)
-     (let* ((multi-methods
-             (get fun :multi-methods))
+     (let* ((mu-methods
+             (get fun :mu-methods))
 
             (methods
-             (ht-select (fn (VAL _) (multi-isa? val VAL hierarchy)) multi-methods))
+             (ht-select (fn (VAL _) (mu-isa? val VAL hierarchy)) mu-methods))
 
             (methods
              (unless (ht-empty? methods) methods))
@@ -637,161 +640,166 @@ May be called according to one of the following signatures:
                 (ht
                  ;; Use custom :default if installed, fallback to the
                  ;; pre-installed default method otherwise
-                 (:default (or (ht-get* multi-methods :default)
-                               (get fun :multi-default)))))))
+                 (:default (or (ht-get* mu-methods :default)
+                               (get fun :mu-default)))))))
        (or methods default-method)))
 
-    ;; (multi-methods 'fun :rect)
+    ;; (mu-methods 'fun :rect)
     (`(,(multi fun-symbol :if symbolp) . ,keys)
-     (apply #'multi--methods fun-symbol keys))
+     (apply #'mu--methods fun-symbol keys))
 
     (otherwise
-     (multi-error "in multi-methods malformed arglist at %s" args))))
+     (mu-error "in mu-methods malformed arglist at %s" args))))
 
 
-;; NOTE this naming `multi-methods-remove' becomes more consistent if or when we
+
+;; NOTE this naming `mu-methods-remove' becomes more consistent if or when we
 ;; allow :before :after :around methods
-(defun multi-methods-remove (fun dispatch-value)
-  "Removes the multi-method FUN associated with DISPATCH-VALUE."
-  (ht-remove! (multi-methods fun) dispatch-value))
+(defun mu-methods-remove (fun dispatch-value)
+  "Removes the mu-method FUN associated with DISPATCH-VALUE."
+  (ht-remove! (mu-methods fun) dispatch-value))
 
 
 ;;* Prefers ------------------------------------------------------- *;;
 
 
 ;; TODO make hierarchy optional defaulting to the global hierarchy
-(defun multi-prefers (fun hierarchy &rest keys)
+(defun mu-prefers (fun hierarchy &rest keys)
   "Returns a table of (preferred value :over set of other values)
 in the hierarchy. If VAL supplied returns just tha set of other
 values over which VAL is preferred. This form is `setf'-able.
 
-\(multi-prefers fun hierarchy &optional val)"
+\(mu-prefers fun hierarchy &optional val)"
   (declare
    (gv-setter (lambda (val)
                 (if (cdr keys)
-                    `(multi-error "in multi-prefers malformed arglist expected no more than one key, given %s" ',keys)
-                  `(setf (ht-get* (get ,fun :multi-prefers) (multi-hierarchy-id ,hierarchy) ,@keys) ,val)))))
+                    `(mu-error "in mu-prefers malformed arglist expected no more than one key, given %s" ',keys)
+                  `(setf (ht-get* (get ,fun :mu-prefers) (mu-hierarchy-id ,hierarchy) ,@keys) ,val)))))
   (if (cdr keys)
       ;; expect no more than one argument (VAL to prefer over others)
-      (multi-error "in multi-prefers malformed arglist expected no more than one key, given %s" keys)
+      (mu-error "in mu-prefers malformed arglist expected no more than one key, given %s" keys)
     ;; return list of values over which (car keys) is preferred in hierarchy, or
     ;; the entire prefers table for hierarchy if no keys supplied
-    (apply #'ht-get* (get fun :multi-prefers) (multi-hierarchy-id hierarchy) keys)))
+    (apply #'ht-get* (get fun :mu-prefers) (mu-hierarchy-id hierarchy) keys)))
 
 
-(defun multi--preference-cycle? (item parent fun &optional hierarchy)
+
+(defun mu--preference-cycle? (item parent fun &optional hierarchy)
   "Checks if ITEM prefer over PARENT would form a cycle were the
-relationship added the multi-prefers of FUN assuming HIERARCHY
+relationship added the mu-prefers of FUN assuming HIERARCHY
 and return that cycle. If HIERARCHY not supplied defaults to the
 global hierarchy"
-  (default hierarchy :to multi-global-hierarchy)
+  (default hierarchy :to mu-global-hierarchy)
   (if (equal item parent)
       (list parent)
     (when-let ((cycle (some
-                       (lambda (ancestor) (multi--preference-cycle? item ancestor fun hierarchy))
-                       (multi-prefers fun hierarchy parent))))
+                       (lambda (ancestor) (mu--preference-cycle? item ancestor fun hierarchy))
+                       (mu-prefers fun hierarchy parent))))
       (cons parent cycle))))
 
 
 (comment
- (multi-test (baz)
+ (mu-test (baz)
    (multi baz #'identity)
-   (multi-prefer 'baz [:rect :shape] :over [:shape :rect])
-   (multi-prefer 'baz [:shape :rect] :over [:parallelogram :rect])
-   ;; (multi-prefer 'baz [:parallelogram :rect] :over [:rect :shape])
-   (multi--preference-cycle? [:parallelogram :rect] [:rect :shape] 'baz multi-global-hierarchy))
+   (mu-prefer 'baz [:rect :shape] :over [:shape :rect])
+   (mu-prefer 'baz [:shape :rect] :over [:parallelogram :rect])
+   ;; (mu-prefer 'baz [:parallelogram :rect] :over [:rect :shape])
+   (mu--preference-cycle? [:parallelogram :rect] [:rect :shape] 'baz mu-global-hierarchy))
  ;; comment
  )
 
 
-(defun multi-prefer (fun &rest args)
-  "Causes the multi-method FUN to prefer matches of dispatch VAL-X
+(defun mu-prefer (fun &rest args)
+  "Causes the mu-method FUN to prefer matches of dispatch VAL-X
 over dispatch VAL-Y when there is a conflict.
 
 May be called according to one of the following signatures:
 
-  (multi-prefer foo val-x :to val-y &optional :in hierarchy)
-  (multi-prefer foo val-x val-y &optional :in hierarchy)
+  (mu-prefer foo val-x :to val-y &optional :in hierarchy)
+  (mu-prefer foo val-x val-y &optional :in hierarchy)
 
-\(multi-prefer foo val-x :over val-y &optional :in hierarchy)"
+\(mu-prefer foo val-x :over val-y &optional :in hierarchy)"
   (destructuring-bind
       (x y hierarchy)
       (pcase args
 
-        ;; (multi-prefer foo x :over y :in hierarchy)
+        ;; (mu-prefer foo x :over y :in hierarchy)
         (`(,x ,(or :over :to) ,y . ,(or `(:in ,hierarchy) '()))
-         (list x y (or hierarchy multi-global-hierarchy)))
+         (list x y (or hierarchy mu-global-hierarchy)))
 
-        ;; (multi-prefer foo x y :in hierarchy)
+        ;; (mu-prefer foo x y :in hierarchy)
         (`(,x ,y . ,(or `(:in ,hierarchy) '()))
-         (list x y (or hierarchy multi-global-hierarchy)))
+         (list x y (or hierarchy mu-global-hierarchy)))
 
         (otherwise
-         (multi-error "in multi-prefer malformed arglist at %s" args)))
+         (mu-error "in mu-prefer malformed arglist at %s" args)))
 
-    ;; installing the preference mustn't create a cycle in multi-prefers
-    (when-let ((cycle (multi--preference-cycle? x y fun hierarchy)))
-      (multi-error "in multi-prefer cyclic preference %s over %s would form a cycle %s"
+    ;; installing the preference mustn't create a cycle in mu-prefers
+    (when-let ((cycle (mu--preference-cycle? x y fun hierarchy)))
+      (mu-error "in mu-prefer cyclic preference %s over %s would form a cycle %s"
                    x y cycle))
 
     ;; install the preference x :over y
-    (pushnew y (multi-prefers fun hierarchy x))))
+    (pushnew y (mu-prefers fun hierarchy x))))
 
 
-;; TODO We don't really need to implement `multi-prefers-remove' because we've
-;; already made `multi-prefers' `setf'-able, so the following should work:
+
+;; TODO We don't really need to implement `mu-prefers-remove' because we've
+;; already made `mu-prefers' `setf'-able, so the following should work:
 ;;
-;; (setf (multi-prefers foo hierachy [:rect :shape]) '(some-values)
-;; (ht-remove! (multi-prefers foo hierachy) [:rect :shape])
+;; (setf (mu-prefers foo hierachy [:rect :shape]) '(some-values)
+;; (ht-remove! (mu-prefers foo hierachy) [:rect :shape])
 ;;
-;; Does providing `multi-prefers-remove' make things more consistent? I should
+;; Does providing `mu-prefers-remove' make things more consistent? I should
 ;; make a note about removing prefers in documentation regardless.
 
 
-(defun multi-prefers-remove (fun &rest args)
-  "Causes the multi-method FUN to not prefer matches of dispatch
+(defun mu-prefers-remove (fun &rest args)
+  "Causes the mu-method FUN to not prefer matches of dispatch
 VAL-X over dispatch VAL-Y when there is a conflict. If VAL-Y not
 supplied removes all prefers for VAL-X. If HIERARCHY not supplied
 defaults to the global hierarchy.
 
 May be called according to one of the following signatures:
 
-  (multi-prefers-remove foo val-x :to val-y &optional :in hierarchy)
-  (multi-prefers-remove foo val-x val-y &optional :in hierarchy)
-  (multi-prefers-remove foo val-x &optional :in hierarchy)
-  (multi-prefers-remove foo &optional :in hierarchy)
+  (mu-prefers-remove foo val-x :to val-y &optional :in hierarchy)
+  (mu-prefers-remove foo val-x val-y &optional :in hierarchy)
+  (mu-prefers-remove foo val-x &optional :in hierarchy)
+  (mu-prefers-remove foo &optional :in hierarchy)
 
-\(multi-prefers-remove foo val-x :over val-y &optional :in hierarchy)"
+\(mu-prefers-remove foo val-x :over val-y &optional :in hierarchy)"
   (pcase args
 
     ;; TODO fml matching order here matters! If we reorder earlier cases may fire.
     ;; This adds complexity that I don't like. Do I really want to offer this
     ;; calling freedom?
 
-    ;; (multi-prefers-remove foo &optional :in hierarchy)
+    ;; (mu-prefers-remove foo &optional :in hierarchy)
     ((or `(:in ,hierarchy) `())
-     (setf (multi-prefers fun (or hierarchy multi-global-hierarchy)) (ht)))
+     (setf (mu-prefers fun (or hierarchy mu-global-hierarchy)) (ht)))
 
-    ;; (multi-prefers-remove foo x :over y &optional :in hierarchy)
+    ;; (mu-prefers-remove foo x :over y &optional :in hierarchy)
     (`(,x ,(or :over :to) ,y . ,(or `(:in ,hierarchy) '()))
      ;; remove just the Y value from X's prefers
-     (cl-callf2 remove y (multi-prefers fun (or hierarchy multi-global-hierarchy) x)))
+     (cl-callf2 remove y (mu-prefers fun (or hierarchy mu-global-hierarchy) x)))
 
-    ;; (multi-prefers-remove foo x &optional :in hierarchy)
+    ;; (mu-prefers-remove foo x &optional :in hierarchy)
     (`(,x . ,(or `(:in ,hierarchy) '()))
      ;; remove all prefers for X
-     (ht-remove! (multi-prefers fun (or hierarchy multi-global-hierarchy)) x))
+     (ht-remove! (mu-prefers fun (or hierarchy mu-global-hierarchy)) x))
 
-    ;; (multi-prefers-remove foo x y &optional :in hierarchy)
+    ;; (mu-prefers-remove foo x y &optional :in hierarchy)
     (`(,x ,y . ,(or `(:in ,hierarchy) '()))
      ;; remove just the Y value from X's prefers
-     (cl-callf2 remove y (multi-prefers fun (or hierarchy multi-global-hierarchy) x)))
+     (cl-callf2 remove y (mu-prefers fun (or hierarchy mu-global-hierarchy) x)))
 
     (otherwise
-     (multi-error "in multi-prefers-remove malformed arglist at %s" args))))
+     (mu-error "in mu-prefers-remove malformed arglist at %s" args))))
 
 
-(defun multi--select-preferred (fun methods hierarchy dispatch-val)
+
+
+(defun mu--select-preferred (fun methods hierarchy dispatch-val)
   "Narrows METHODS matching DISPATCH-VAL down to a single method
 based on preferences registered for multidispatch FUN and
 HIERARCHY. Returns that method or signals an error."
@@ -801,7 +809,7 @@ HIERARCHY. Returns that method or signals an error."
       (car (ht-values methods))
 
     ;; multiple methods matching dispatch-val, use preferences to resolve
-    (let* ((prefers (multi-prefers fun hierarchy))
+    (let* ((prefers (mu-prefers fun hierarchy))
 
            ;; for all keys in methods collect all values they prefer away
            (filter-set (seq-mapcat (lambda (val) (ht-get prefers val)) (ht-keys methods)))
@@ -818,7 +826,7 @@ HIERARCHY. Returns that method or signals an error."
 
        ;; more than one method remains
        ((> size 1)
-        (multi-error
+        (mu-error
          "multiple methods match dispatch value %s for dispatch %s:\n%s\n%s"
          dispatch-val fun
          (string-join
@@ -828,11 +836,11 @@ HIERARCHY. Returns that method or signals an error."
 
        ;; no methods at all can only ever happen if the user managed to register
        ;; preferences that are mutually inconsitent i.e. create a cycle. If this
-       ;; ever happens, our `multi--preference-cycle?' must be buggy.
+       ;; ever happens, our `mu--preference-cycle?' must be buggy.
        ((= size 0)
-        (multi-error
+        (mu-error
          (string-join
-          (list "inconsintency in registered multi-prefers unable to prefer any of" "  %s"
+          (list "inconsintency in registered mu-prefers unable to prefer any of" "  %s"
                 "with registered preferences" "  %s") "\n")
          (ht-keys methods)
          prefers))))))
@@ -841,15 +849,15 @@ HIERARCHY. Returns that method or signals an error."
 ;;* Multi --------------------------------------------------------- *;;
 
 
-(defmacro multi (fun &rest args)
-  "Creates a new multi-method dispatch function. The DOCSTRING and
+(defmacro mu-defmulti (fun &rest args)
+  "Creates a new mu-method dispatch function. The DOCSTRING and
 HIERARCHY are optional. HIERARCHY if not supplied defaults to the
 global hierarchy.
 
 May be called according to one of the following signatures:
 
-  (multi name argvector &optional docstring :in hierarchy body...)
-  (multi name function &optional docstring :in hierarchy)
+  (mu-defmulti name argvector &optional docstring :in hierarchy body...)
+  (mu-defmulti name function &optional docstring :in hierarchy)
 
 where ARGVECTOR is a vector of arguments that follows full Common
 Lisp arglist convention, FUNCTION is any expression that returns
@@ -860,57 +868,57 @@ a function.
   (destructuring-bind
       (err dispatch doc hierarchy)
       (pcase args
-        ;; (multi foo [a b &rest args] "doc" :in hierarchy e1 e2)
+        ;; (mu-defmulti foo [a b &rest args] "doc" :in hierarchy e1 e2)
         (`(,(multi arglist :if vectorp) ,(multi doc :if stringp) :in ,hierarchy . ,body)
          (list nil `(fn ,(seq-into arglist 'list) ,@body) doc hierarchy))
 
-        ;; (multi foo [a b &rest args] :in hierarchy e1 e2)
+        ;; (mu-defmulti foo [a b &rest args] :in hierarchy e1 e2)
         (`(,(multi arglist :if vectorp) :in ,hierarchy . ,body)
          (list nil `(fn ,(seq-into arglist 'list) ,@body) "" hierarchy))
 
-        ;; (multi foo [a b &rest args] "doc" e1 e2)
+        ;; (mu-defmulti foo [a b &rest args] "doc" e1 e2)
         (`(,(multi arglist :if vectorp) ,(multi doc :if stringp) . ,body)
-         (list nil `(fn ,(seq-into arglist 'list) ,@body) doc 'multi-global-hierarchy))
+         (list nil `(fn ,(seq-into arglist 'list) ,@body) doc 'mu-global-hierarchy))
 
-        ;; (multi foo [a b &rest args] e1 e2)
+        ;; (mu-defmulti foo [a b &rest args] e1 e2)
         (`(,(multi arglist :if vectorp) . ,body)
-         (list nil `(fn ,(seq-into arglist 'list) ,@body) "" 'multi-global-hierarchy))
+         (list nil `(fn ,(seq-into arglist 'list) ,@body) "" 'mu-global-hierarchy))
 
-        ;; (multi foo fn-returning-expr "doc" :in hierarchy)
+        ;; (mu-defmulti foo fn-returning-expr "doc" :in hierarchy)
         (`(,f ,(multi doc :if stringp) :in ,hierarchy)
          (list nil f doc hierarchy))
 
-        ;; (multi foo fn-returning-expr :in hierarchy)
+        ;; (mu-defmulti foo fn-returning-expr :in hierarchy)
         (`(,f :in ,hierarchy)
          (list nil f "" hierarchy))
 
-        ;; (multi foo fn-returning-expr "doc")
+        ;; (mu-defmulti foo fn-returning-expr "doc")
         (`(,f ,(multi doc :if stringp))
-         (list nil f doc 'multi-global-hierarchy))
+         (list nil f doc 'mu-global-hierarchy))
 
-        ;; (multi foo fn-returning-expr)
+        ;; (mu-defmulti foo fn-returning-expr)
         (`(,f)
-         (list nil f "" 'multi-global-hierarchy))
+         (list nil f "" 'mu-global-hierarchy))
 
         (otherwise
          ;; TODO If we signal an an error immediately no relevant `condition-case'
          ;; would catch it, because IIUC it only traps runtime but we throw at
          ;; macro expansion, so instead I need to generate code that throws.
          ;; Wonder if there is a way to trap compile time errors?
-         (list `(multi-error "in multi malformed arglist at %s" ',args) nil nil nil)))
+         (list `(mu-error "in mu-defmulti malformed arglist at %s" ',args) nil nil nil)))
     (or
      err
      `(progn
 
         ;; check if lexical binding is enabled
-        (multi-lexical-binding)
+        (mu-lexical-binding)
 
         ;; create a dispatch function
         (defun ,fun (&rest args)
           ,doc
-          (let* ((val     (apply (get ',fun :multi-dispatch) args))
-                 (methods (multi-methods :for ',fun :matching val :in ,hierarchy))
-                 (method  (multi--select-preferred ',fun methods ,hierarchy val)))
+          (let* ((val     (apply (get ',fun :mu-dispatch) args))
+                 (methods (mu-methods :for ',fun :matching val :in ,hierarchy))
+                 (method  (mu--select-preferred ',fun methods ,hierarchy val)))
             (apply method args)))
 
         ;; set fun value slot to return its quoted form, this lets us pass fun
@@ -918,31 +926,69 @@ a function.
         (setf ,fun ',fun)
 
         ;; reset dispatch prop to the dispatch function
-        (setf (get ',fun :multi-dispatch) ,dispatch)
+        (setf (get ',fun :mu-dispatch) ,dispatch)
 
-        ;; reset multi-methods prop to a fresh table with :default pre-installed
-        (setf (get ',fun :multi-methods) (ht))
+        ;; reset mu-methods prop to a fresh table with :default pre-installed
+        (setf (get ',fun :mu-methods) (ht))
 
-        ;; reset multi-prefers prop to a fresh table
-        (setf (get ',fun :multi-prefers) (ht))
-        (setf (multi-prefers ',fun ,hierarchy) (ht))
+        ;; reset mu-prefers prop to a fresh table
+        (setf (get ',fun :mu-prefers) (ht))
+        (setf (mu-prefers ',fun ,hierarchy) (ht))
 
         ;; pre-install default method
-        (setf (get ',fun :multi-default)
+        (setf (get ',fun :mu-default)
               (fn (&rest args)
-                (multi-error
-                 "no multi-methods match dispatch value %s for dispatch %s "
-                 (apply (get ',fun :multi-dispatch) args)
+                (mu-error
+                 "no mu-methods match dispatch value %s for dispatch %s "
+                 (apply (get ',fun :mu-dispatch) args)
                  ',fun)))
 
-        ;; TODO Invalidate multi-methods cache here. Need to do this to catch
+        ;; TODO Invalidate mu-methods cache here. Need to do this to catch
         ;; cases where fun simply gets redefined and may hold cache for previous
         ;; dispatch function
         ))))
 
 
-(cl-defmacro multimethod (fun arglist &rest args)
-  "Creates a new multimethod associated with the dispatch
+(defun mu--dispatch-defun (fun dispatch doc hierarchy)
+  `(progn
+
+     ;; check if lexical binding is enabled
+     (mu-lexical-binding)
+
+     ;; create a dispatch function
+     (defun ,fun (&rest args)
+       ,doc
+       (let* ((val (apply (get ',fun :mu-dispatch) args))
+              (methods (mu-methods :for ',fun :matching val :in ,hierarchy))
+              (method (mu--select-preferred ',fun methods ,hierarchy val)))
+         (apply method args)))
+
+     ;; set fun value slot to return its quoted form, this lets us pass fun
+     ;; around as value and still not break functions that expect a symbol
+     (setf ,fun ',fun)
+
+     ;; reset dispatch prop to the dispatch function
+     (setf (get ',fun :mu-dispatch) ,dispatch)
+
+     ;; reset mu-methods prop to a fresh table with :default pre-installed
+     (setf (get ',fun :mu-methods) (ht))
+
+     ;; reset mu-prefers prop to a fresh table
+     (setf (get ',fun :mu-prefers) (ht))
+     (setf (mu-prefers ',fun ,hierarchy) (ht))
+
+     ;; pre-install default method
+     (setf (get ',fun :mu-default)
+           (fn (&rest args)
+             (mu-error
+              "no mu-methods match dispatch value %s for dispatch %s "
+              (apply (get ',fun :mu-dispatch) args)
+              ',fun)))))
+
+
+
+(cl-defmacro mu-defmethod (fun arglist &rest args)
+  "Creates a new mu-defmethod associated with the dispatch
 function FUN and dispatch value VAL. ARGLIST follows full Common
 Lisp conventions.
 
@@ -953,15 +999,15 @@ Lisp conventions.
        `(progn
 
           ;; check if lexical binding is enabled
-          (multi-lexical-binding)
+          (mu-lexical-binding)
 
-          ;; add new method to the multi-methods table
-          (setf (ht-get* (get ',fun :multi-methods) ,val) ,method)
+          ;; add new method to the mu-methods table
+          (setf (ht-get* (get ',fun :mu-methods) ,val) ,method)
 
-          ;; TODO invalidate multi-methods cache
+          ;; TODO invalidate mu-methods cache
           )))
     (otherwise
-     `(multi-error "in multi-method malformed arglist at %s" ',args))))
+     `(mu-error "in mu-defmethod malformed arglist at %s" ',args))))
 
 
 ;;* Playground ---------------------------------------------------- *;;
@@ -969,25 +1015,25 @@ Lisp conventions.
 
 (comment
  ;; Syntax examples
- (multi foo (lambda (a b &rest args) e1 e2) "doc" :in hierarchy)
- (multi foo (lambda (a b &rest args) e1 e2) :in hierarchy)
- (multi foo (lambda (a b &rest args) e1 e2) "doc")
- (multi foo (lambda (a b &rest args) e1 e2))
+ (mu-defmulti foo (lambda (a b &rest args) e1 e2) "doc" :in hierarchy)
+ (mu-defmulti foo (lambda (a b &rest args) e1 e2) :in hierarchy)
+ (mu-defmulti foo (lambda (a b &rest args) e1 e2) "doc")
+ (mu-defmulti foo (lambda (a b &rest args) e1 e2))
 
- (multi foo 'foo-fun "doc" :in hierarchy)
- (multi foo 'foo-fun :in hierarchy)
- (multi foo 'foo-fun "doc")
- (multi foo 'foo-fun)
+ (mu-defmulti foo 'foo-fun "doc" :in hierarchy)
+ (mu-defmulti foo 'foo-fun :in hierarchy)
+ (mu-defmulti foo 'foo-fun "doc")
+ (mu-defmulti foo 'foo-fun)
 
- (multi foo [a b &rest args] "doc" :in hierarchy e1 e2)
- (multi foo [a b &rest args] :in hierarchy e1 e2)
- (multi foo [a b &rest args] "doc" e1 e2)
- (multi foo [a b &rest args] e1 e2)
+ (mu-defmulti foo [a b &rest args] "doc" :in hierarchy e1 e2)
+ (mu-defmulti foo [a b &rest args] :in hierarchy e1 e2)
+ (mu-defmulti foo [a b &rest args] "doc" e1 e2)
+ (mu-defmulti foo [a b &rest args] e1 e2)
 
  ;; Same but pseudo-coded with &optional and &rest
- (multi foo (lambda (a &rest args) body) &optional "doc" :in hierarchy)
- (multi foo #'dispatch &optional "doc" :in hierarchy)
- (multi foo [a &rest args] &optional "doc" :in hierarchy &rest body)
+ (mu-defmulti foo (lambda (a &rest args) body) &optional "doc" :in hierarchy)
+ (mu-defmulti foo #'dispatch &optional "doc" :in hierarchy)
+ (mu-defmulti foo [a &rest args] &optional "doc" :in hierarchy &rest body)
  ;; example
  )
 
@@ -1002,8 +1048,8 @@ Lisp conventions.
 
 ;; TODO maybe `curry' and `rcurry'?
 
-;; TODO Elisp specific idea is to allow supplying setters in multi-methods, so that
-;; multi-method invocation can be used with gv setters like `setf', `push', `callf'
+;; TODO Elisp specific idea is to allow supplying setters in mu-methods, so that
+;; mu-defmethod invocation can be used with gv setters like `setf', `push', `callf'
 ;; etc. That makes perfect sence if your dispatch is for looking up some location
 ;; based on arguments. It may on occasion be quite natural to use the same syntax
 ;; to set new value to that location.
@@ -1026,9 +1072,9 @@ Lisp conventions.
 ;;     default
 ;;     dispatch)
 ;;
-;; I'll have to overload multi-methods accessor function so it can do what current
-;; `multi-methods' can do. One interesting aspect is that the value of foo then
-;; becomes a struct and predicate (multi-p foo) works as expected, this however
+;; I'll have to overload mu-methods accessor function so it can do what current
+;; `mu-methods' can do. One interesting aspect is that the value of foo then
+;; becomes a struct and predicate (mu-p foo) works as expected, this however
 ;; necessitates passing quoted foo where expected, but we could work around this
 ;; by adding an extra :name or :id or :symbol slot, what would carry 'foo.
 
@@ -1036,7 +1082,7 @@ Lisp conventions.
 
 ;; TODO hierarchy cache
 
-;; TODO Make `multi-test' available here to be used in comments and examples
+;; TODO Make `mu-test' available here to be used in comments and examples
 
 ;; TODO Create Makefile (stick to ANSI make): ert batch test, measure perf
 
@@ -1050,9 +1096,9 @@ Lisp conventions.
 ;; our cache can quite easily be stale, since it is obviously impossible to
 ;; determine when to invalidate it. Luckily, it should be fairly easy to make any
 ;; dispatch function pure simply by moving whatever stateful value you're looking
-;; up to its arguments, that is look it up before you make a multi-call and call
+;; up to its arguments, that is look it up before you make a mu-call and call
 ;; with that extra argument. This may, potentially, lead to another gotcha with
-;; respect to concurrency: you want the state lookup and multi-call performed in
+;; respect to concurrency: you want the state lookup and mu-call performed in
 ;; transaction else you may end up with a race where relevant state gets updated
 ;; while the dispatch is in flight. This is a very generic comment and may not be
 ;; relevant to Emacs Lisp - I know nothing at all about its concurrency model -
@@ -1069,7 +1115,7 @@ Lisp conventions.
 ;;
 ;; The other is caching isa? hierarchy lookup. This implies that each hierarchy
 ;; needs to keep track of its cache and invalidate it every time a relationship is
-;; added or removed. We'll want to change the signature of the `multi-isa?' or
+;; added or removed. We'll want to change the signature of the `mu-isa?' or
 ;; introduce another function. New signature should be: (-> value hierarchy
 ;; result) that is it doesn't take a VALUE to check if (isa? val VALUE) but
 ;; instead tries every item in the hierarchy. This way we can easily memoize
@@ -1079,15 +1125,15 @@ Lisp conventions.
 ;; structs or given a symbolic name so that they can keep such meta information in
 ;; the plist. IMO struct would be cleaner.
 
-;; TODO Lexical vs dynamic scope. Something I ran into by chance. `multi-tests.el'
+;; TODO Lexical vs dynamic scope. Something I ran into by chance. `mu-tests.el'
 ;; doesn't have lexical scope on and this has interesting implications for
-;; multi-methods. Say, this example won't work as expected in dynamic scope:
+;; mu-methods. Say, this example won't work as expected in dynamic scope:
 ;;
 ;;   (let ((hierarchy (ht))
 ;;         (b 42))
-;;     (multi-rel :rect isa :shape in hierarchy)
-;;     (multi baz (lambda (x) (princ b) x) :in hierarchy)
-;;     (multi-method baz (x) :when :shape :shape)
+;;     (mu-rel :rect isa :shape in hierarchy)
+;;     (mu-defmulti baz (lambda (x) (princ b) x) :in hierarchy)
+;;     (mu-defmethod baz (x) :when :shape :shape)
 ;;     (baz :rect)
 ;;     ;; prints  42 and returns :shape as expected
 ;;     )
@@ -1119,9 +1165,9 @@ Lisp conventions.
 ;; Extras
 ;; --------
 
-;; TODO the (multi-methods 'fun &rest keys) interface suggests an interesting
+;; TODO the (mu-methods 'fun &rest keys) interface suggests an interesting
 ;; feature. We could go a bit further than Clojure and allow :before, :after,
-;; :arround methods, so the multi-methods table doesn't just maps an isa? pattern
+;; :arround methods, so the mu-methods table doesn't just maps an isa? pattern
 ;; to a method but potentionally to a map of methods:
 ;;
 ;; (ht (:before #'before-fun)
@@ -1135,26 +1181,26 @@ Lisp conventions.
 ;; although I have no experienc with those.
 
 ;; TODO Allow isa? with "_" patterns
-;; (multi-method foo (&rest args) :when [a b _] body)
+;; (mu-defmethod foo (&rest args) :when [a b _] body)
 
 ;; TODO Allow predicates in patterns
 ;; degenerate case where computed multi val maybe a seq, pred-p should still be
 ;; applied even though this here val isn't a seq
-;; (multi-method foo (&rest args) :when (?  pred-p) body)
+;; (mu-defmethod foo (&rest args) :when (?  pred-p) body)
 
 
 ;; TODO Hierarchy is orthogonal to `multi' dispatch function. However in Clojure
 ;; you may change it (only?) in `defmulti', but IMO it makes more sence to be able
-;; to pass it to multi-method invocations (not even definitions). Need to think if
+;; to pass it to mu-defmethod invocations (not even definitions). Need to think if
 ;; that'd be consistent and whether it has any practical value.
 
 ;; TODO Could we allow arbitrary relations? E.g. `parent-of'. Would that have any
 ;; practical benefit? When? How?
-;; (multi-method foo (a b) :isa :b body)
-;; (multi-method foo (a b) :parent-of :b body)
+;; (mu-defmethod foo (a b) :isa :b body)
+;; (mu-defmethod foo (a b) :parent-of :b body)
 
-;; TODO Should I overload (multi-rel x relates-to? x) to be used as predicate:
-;; (if (multi-rel y parent-of? x) do stuff) or define (multi-rel? ...)?
+;; TODO Should I overload (mu-rel x relates-to? x) to be used as predicate:
+;; (if (mu-rel y parent-of? x) do stuff) or define (mu-rel? ...)?
 
 ;; TODO How hard would it be to add body from (example foo body) forms to the
 ;; docstring of 'foo? Might be worth implementing something like:
