@@ -608,6 +608,38 @@ message prefix matches PREFIX"
   (should (multi--error-match "in multi-let malformed" (multi-let (([_])) 'foo))))
 
 
+(ert-deftest multi-test-ht-pattern ()
+  "Multi-case should pattern match on hash-tables and alists"
+
+  ;; match empty hash-table
+  (should (equal 'match (multi-case (ht)
+                          ((ht) 'match))))
+
+  ;; match hash-table
+  (should (equal 1 (multi-case (ht (:a 1))
+                     ((ht :a) a))))
+
+  ;; match alist
+  (should (equal 1 (multi-case '((:a . 1))
+                     ((ht :a) a))))
+
+  ;; match whatever key-types hash-tables and alists allow
+  (should (equal 1 (multi-case (ht ("foo" 1))
+                     ((ht ("foo" a)) a))))
+
+  ;; match tables inside a list
+  (should (equal '(1 2) (multi-case (list (ht (:a 1)) '((:b . 2)))
+                          ([(ht :a) (ht b)] (list a b)))))
+
+  ;; allow all ht key pattern styles: :key, key, (:key id) ('key id)
+  (should (equal '(1 2 3 4) (multi-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
+                              ((ht :a b 'c ('d D)) (list a b c D)))))
+
+  (should (multi--error-match "in multi-case malformed ht pattern"
+                              (multi-case (ht (:a 1))
+                                ((ht "a"))))))
+
+
 ;;** - multi-fun -------------------------------------------------- *;;
 
 

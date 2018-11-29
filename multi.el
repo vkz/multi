@@ -110,12 +110,30 @@ quoted context i.e. a list matching pattern."
      (multi-error "in multi-case unrecognized pattern %S" pat))))
 
 
-(defmacro multi-case-pattern (name arglist &rest body)
+;; NOTE All we do here is wrap user macro into a (lambda (ARGLIST) BODY) and store
+;; it in the hash-table in multi-case's plist under :multi-patterns slot. Whenever
+;; `multi-case' encounters a (NAME PATTERNS) pattern it looks up the NAME in its
+;; :multi-patterns property and calls (apply (lambda (ARGLIST) BODY) PATTERNS)
+;; which must produce a valid multi-case pattern. So, techincally the user doesn't
+;; really define a macro so much as a function that takes patterns and must
+;; generate a multi-case pattern, that is `multi-case' effectively plays the role
+;; of a "macro expander" by simply invoking the function the user provided at
+;; compile time.
+(defmacro multi-case-pattern (name arglist &optional docstring &rest body)
   "Define a new kind of multi-case PATTERN. Patterns of the
 form (NAME &rest PATTERNS) will be expanded by this macro with
 PATTERS bound according to the ARGLIST. Macro expansion must
-produce a valid multi-case pattern."
-  (declare (indent defun))
+produce a valid `multi-case' pattern. The macro is allowed to
+throw `multi-error' to signal improper use of the pattern. This
+will be handled correctly to inform the user. Optional DOCSTRING
+maybe supplied for the convenience of other programmers reading
+your macro code.
+
+\(fn NAME ARGLIST &optional DOCSTRING &rest BODY)"
+  (declare (doc-string 3) (indent 2))
+  (when docstring
+    (unless (stringp docstring)
+      (setq body (cons docstring body))))
   (let ((multi-case-patterns `(or (get 'multi-case :multi-patterns)
                                   (put 'multi-case :multi-patterns (ht))))
         (pattern-macro `(lambda ,arglist ,@body)))
@@ -128,32 +146,53 @@ produce a valid multi-case pattern."
 
     ;; (ht :a :b)
     ([(and kw (pred keywordp) (app sym id)) &rest pats]
-     `(((app (lambda (t) (or (ht-get t ,kw) (ht-get t ',id))) ,id)
-        (app (lambda (t) (or (alist-get ,kw t) (alist-get ',id t))) ,id))
+     `(((app (lambda (ht) (or (ht-get ht ,kw) (ht-get ht ',id))) ,id)
+        (app (lambda (ht) (or (alist-get ,kw ht) (alist-get ',id ht))) ,id))
+       ,@(multi-case--ht pats)))
+
+    ;; (ht 'a 'b)
+    ([['quote (and id (pred symbolp) (app (lambda (id) (sym ":" id)) kw))] &rest pats]
+     `(((app (lambda (ht) (or (ht-get ht ',id) (ht-get ht ,kw))) ,id)
+        (app (lambda (ht) (or (alist-get ',id ht) (alist-get ,kw ht))) ,id))
        ,@(multi-case--ht pats)))
 
     ;; (ht a b)
     ([(and id (pred symbolp) (app (lambda (id) (sym ":" id)) kw)) &rest pats]
-     `(((app (lambda (t) (or (ht-get t ,kw) (ht-get t ',id))) ,id)
-        (app (lambda (t) (or (alist-get ,kw t) (alist-get ',id t))) ,id))
+     `(((app (lambda (ht) (or (ht-get ht ,kw) (ht-get ht ',id))) ,id)
+        (app (lambda (ht) (or (alist-get ,kw ht) (alist-get ',id ht))) ,id))
        ,@(multi-case--ht pats)))
 
     ;; (ht (:a A) (:b B))
     ([[key id] &rest pats]
-     `(((app (lambda (t) (ht-get t ,key)) ,id)
-        (app (lambda (t) (alist-get ,key t)) ,id))
+     `(((app (lambda (ht) (ht-get ht ,key)) ,id)
+        (app (lambda (ht) (alist-get ,key ht)) ,id))
        ,@(multi-case--ht pats)))
 
     (otherwise
-     (multi-error "malformed multi-case ht pattern"))))
+     (multi-error "in multi-case malformed ht pattern in %S" patterns))))
 
 
 (multi-case-pattern ht (&rest patterns)
+  "`multi-case' pattern to match hash-tables and alists. ht
+expects to receive key-patterns that would be used to lookup and
+bind corresponding values in the hash-table or alist being
+matched. Possible key-patterns are:
+
+  :a or a  - try keys in order :a, 'a and bind to a,
+  'a       - try keys in order 'a, :a and bind to a,
+  (key id) - try key and bind to id
+
+Example:
+
+  (multi-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
+    ((ht :a b 'c ('d D)) (list a b c D)))"
+
   (let* ((patterns (multi-case--ht patterns))
          (ht-pats (mapcar #'car patterns))
          (alist-pats (mapcar #'cadr patterns)))
     `(or (and (pred ht-p) ,@ht-pats)
          (and (pred listp) ,@alist-pats))))
+
 
 (defun multi--let (bindings body)
   (let* ((pair (car bindings))
