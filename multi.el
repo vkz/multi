@@ -21,6 +21,10 @@
  ;; example
  )
 
+
+;; TODO Should I alias mu-case as (mu ...)? Would make it occupy less space and
+;; hopefully foster more frequent use?
+
 ;; TODO Also allow | instead of &rest, which gets much too heavy when matching
 ;; alists
 
@@ -30,8 +34,6 @@
 ;; make it optional? Looks like pcase has a (seq pat ...) but it has funky
 ;; semantics in the way it handles seq tails. We could allow it or build on it.
 
-;; TODO define `mu-case-defmacro' similar to `pcase-defmacro' to define custom
-;; patterns that use mu-case dsl.
 
 ;; NOTE Although `mu-case--init' and `mu-case--inside' are superficially the
 ;; same we need both because `mu-case--inside' assumes to be inside backquoted
@@ -43,6 +45,10 @@
 (defmacro mu-case (e &rest clauses)
   "`pcase' like matching and destructuring with less noise."
   (declare (indent 1))
+  ;; NOTE without this prop being set I get "eager macro expansion failure", I
+  ;; don't really understand why the code here runs on load file but whatever.
+  (unless (get 'mu-case :mu-patterns)
+    (define-symbol-prop 'mu-case :mu-patterns (ht)))
   (condition-case err
       `(pcase ,e
          ,@(mapcar #'mu-case--clause clauses))

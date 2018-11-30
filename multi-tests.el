@@ -602,7 +602,7 @@ message prefix matches PREFIX"
 (ert-deftest mu-test-mu-let ()
   "Mu-let should work"
   (should (equal '(1 2 3 4) (mu-let (([a b c] '(1 2 3))
-                                        ([_ d] '(0 4)))
+                                     ([_ d] '(0 4)))
                               (list a b c d))))
 
   (should (mu--error-match "in mu-let malformed" (mu-let (([_])) 'foo))))
