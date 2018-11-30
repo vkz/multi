@@ -3,6 +3,21 @@
 (require 'cl)
 
 
+;;* Errors -------------------------------------------------------- *;;
+
+
+(define-error 'mu-error "mu-error")
+
+
+(defun mu-error (&rest args)
+  "Signals errors specific to `multi' library. Can be caught with
+'mu-error ERROR-SYMBOL in `condition-case', otherwise behaves
+exactly like `error'
+
+\(fn string &rest args)"
+  (signal 'mu-error (list (apply #'format-message args))))
+
+
 ;;* Prelude ------------------------------------------------------- *;;
 
 
@@ -20,6 +35,53 @@
     (error "no match")))
  ;; example
  )
+
+
+;;* Settings  ----------------------------------------------------- *;;
+
+
+(defcustom mu-lexical-binding 'error
+  "Control if mu-methods can be defined when `lexical-binding'
+ is disabled. Default to signaling an error if an attempt is made
+ to define a new multi dispatch or method while in a dynamically
+ scoped environment.")
+
+
+(defun mu-lexical-binding ()
+  "Signal an error depending on the setting of
+`mu-lexical-binding' and `lexical-binding'."
+  (when mu-lexical-binding
+    (unless lexical-binding
+      (mu-error
+       (string-join
+        (list
+         "mu-methods require `lexical-binding' to work properly."
+         "If you know what you are doing you may disable this check"
+         "by unsetting `mu-lexical-binding'.")
+        " ")))))
+
+
+;;* Pattern-matching  --------------------------------------------- *;;
+
+
+;; TODO list patterns in mu-case and pcase try to match the entire list or fail.
+;; Clojure's seq patterns match only as far as they can:
+;;
+;;   (1) if seq pattern is longer than the sequence being matched, remaining
+;; patter-variables are bound to nil,
+;;
+;;   (2) if seq pattern is shorter, simply match that many items.
+;;
+;; We can already solve (2) simply by using [pat &rest _]. Technically I could
+;; solve (1) with the following translation:
+;;
+;;   seq-pattern e.g. [p1 p2]
+;;      =>
+;;   (app (lambda (seq) (take (length seq-pattern) seq)) seq-pattern)
+;;
+;; where `take' always returns a seq of requested length, filling missing values
+;; with nil if needed. Seq patterns with &rest would have to be treated specially.
+;; I don't know if that's the right default, but it seems to work well in Clojure.
 
 
 ;; TODO Should I alias mu-case as (mu ...)? Would make it occupy less space and
@@ -40,6 +102,9 @@
 ;; pattern e.g. `(,foo ,bar) in pcase syntax or [foo bar] in our dsl , while
 ;; `mu-case--init' assumes to work either outside of a backquoted context or
 ;; inside of an unquoted pattern.
+
+
+;;** - mu-case ---------------------------------------------------- *;;
 
 
 (defmacro mu-case (e &rest clauses)
@@ -200,18 +265,63 @@ Example:
          (and (pred listp) ,@alist-pats))))
 
 
+;;** - mu-let ----------------------------------------------------- *;;
+
+
+(defcustom mu-let-parens 'yes
+  "Controls if `mu-let' shoud have a set of parens around each
+binding clause like normal `let': t (default) - yes, nil - no,
+square - no extra parens, but the entire set of bindings must be
+in [] instead of ()."
+  :options '(yes no square))
+
+
 (defun mu--let (bindings body)
   (let* ((pair (car bindings))
          (pat (car pair))
          (val (cadr pair)))
     (cond
-     (pair
-      (unless (and pat val)
-        (mu-error "in mu-let malformed binding list in %S" (list pat val)))
-      `(mu-case ,val
-         (,pat ,(mu--let (cdr bindings) body))))
+     (pair (unless (= 2 (length pair))
+             (mu-error "in mu-let malformed binding list in %S" pair))
+           `(mu-case ,val
+              (,pat ,(mu--let (cdr bindings) body))
+              (otherwise ,(mu--let (cdr bindings) body))))
      (:else
       `(progn ,@body)))))
+
+
+(defun mu--when-let (bindings body)
+  (let* ((pair (car bindings))
+         (pat (car pair))
+         (val (cadr pair)))
+    (cond
+     (pair (unless (= 2 (length pair))
+             (mu-error "in mu-when-let malformed binding list in %S" pair))
+           `(mu-case ,val
+              (,pat ,(mu--when-let (cdr bindings) body))))
+     (:else
+      `(progn ,@body)))))
+
+
+(defun mu--if-let (bindings then-body else-body)
+  (let* ((pair (car bindings))
+         (pat (car pair))
+         (val (cadr pair)))
+    (cond
+     (pair (unless (= 2 (length pair))
+             (mu-error "in mu-if-let malformed binding list in %S" pair))
+           `(mu-case ,val
+              (,pat ,(mu--if-let (cdr bindings) then-body else-body))
+              (otherwise (progn ,@else-body))))
+     (:else
+      `(progn ,then-body)))))
+
+
+(defun mu--let-bindings (bindings)
+  (case mu-let-parens
+    ('yes    bindings)
+    ('no     (seq-partition bindings 2))
+    ('square (seq-partition (seq-into bindings 'list) 2))))
 
 
 (defmacro mu-let (bindings &rest body)
@@ -219,8 +329,29 @@ Example:
 identifiers being bound."
   (declare (indent 1))
   (condition-case err
-      (mu--let bindings body)
+      (mu--let (mu--let-bindings bindings) body)
     (mu-error `(mu-error ,(cadr err)))))
+
+
+(defmacro mu-when-let (bindings &rest body)
+  "Like `when-let*' but allows mu-case patterns in place of
+identifiers being bound."
+  (declare (indent 1))
+  (condition-case err
+      (mu--when-let (mu--let-bindings bindings) body)
+    (mu-error `(mu-error ,(cadr err)))))
+
+
+(defmacro mu-if-let (bindings then-body &rest else-body)
+  "Like `if-let*' but allows mu-case patterns in place of
+identifiers being bound."
+  (declare (indent 2))
+  (condition-case err
+      (mu--if-let (mu--let-bindings bindings) then-body else-body)
+    (mu-error `(mu-error ,(cadr err)))))
+
+
+;;** - mu-defun --------------------------------------------------- *;;
 
 
 (defun mu--defun-meta (body &optional map)
@@ -355,61 +486,26 @@ METADATA is optional and may include the following attributes:
   (declare (indent 2))
   (mu--defun 'defun name arglist body))
 
+
 (defmacro mu-defmacro (name arglist &rest body)
   (declare (indent 2))
   (mu--defun 'defmacro name arglist body))
 
+
 (defmacro mu-defun-setter (name arglist &rest body)
   `(gv-define-setter ,name ,arglist ,@body))
+
 
 (defmacro mu-defmacro-setter (name arglist &rest body)
   `(gv-define-setter ,name ,arglist ,@body))
 
+
 ;; add docstring to `mu-defun'
 (mu--set-defun-docstring 'defun)
 
+
 ;; add docstring to `mu-defmacro'
 (mu--set-defun-docstring 'defmacro)
-
-
-
-;;* Errors -------------------------------------------------------- *;;
-
-
-(define-error 'mu-error "mu-error")
-
-
-(defun mu-error (&rest args)
-  "Signals errors specific to `multi' library. Can be caught with
-'mu-error ERROR-SYMBOL in `condition-case', otherwise behaves
-exactly like `error'
-
-\(fn string &rest args)"
-  (signal 'mu-error (list (apply #'format-message args))))
-
-
-;;* Settings  ----------------------------------------------------- *;;
-
-
-(defcustom mu-lexical-binding 'error
-  "Control if mu-methods can be defined when `lexical-binding'
- is disabled. Default to signaling an error if an attempt is made
- to define a new multi dispatch or method while in a dynamically
- scoped environment.")
-
-
-(defun mu-lexical-binding ()
-  "Signal an error depending on the setting of
-`mu-lexical-binding' and `lexical-binding'."
-  (when mu-lexical-binding
-    (unless lexical-binding
-      (mu-error
-       (string-join
-        (list
-         "mu-methods require `lexical-binding' to work properly."
-         "If you know what you are doing you may disable this check"
-         "by unsetting `mu-lexical-binding'.")
-        " ")))))
 
 
 ;;* Hierarchies --------------------------------------------------- *;;

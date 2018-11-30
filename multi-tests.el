@@ -603,11 +603,70 @@ message prefix matches PREFIX"
 
 (ert-deftest mu-test-mu-let ()
   "Mu-let should work"
-  (should (equal '(1 2 3 4) (mu-let (([a b c] '(1 2 3))
-                                     ([_ d] '(0 4)))
-                              (list a b c d))))
 
-  (should (mu--error-match "in mu-let malformed" (mu-let (([_])) 'foo))))
+  ;; Compare 3 different behaviors of mu-let, mu-if-let, mu-when-let when
+  ;; list-pattern is much too short for a match:
+
+  ;; - mu-let
+  (should (equal '(1) (mu-let ((a 1)
+                               ;; no match, b unbound
+                               ([b] '(0 4)))
+                        ;; b isn't used, so no error
+                        (list a))))
+
+  (should (equal '(void-variable b) (should-error
+                                     (mu-let ((a 1)
+                                              ;; no match, b unbound
+                                              ([b] '(0 4)))
+                                       ;; b is used but unbound, so error. b
+                                       ;; would've matched 0 in Clojure
+                                       (list a b))
+                                     :type 'error)))
+
+  (should (equal '(1 0) (mu-let ((a 1)
+                                 ;; we can fake Clojure behavior for patterns that
+                                 ;; are shorter than the value
+                                 ([b &rest _] '(0 4)))
+                          (list a b))))
+
+  (should (equal '(void-variable b) (should-error
+                                     (mu-let ((a 1)
+                                              ;; but not for patterns that are
+                                              ;; longer than the value
+                                              ([b c d] '(0 4)))
+                                       ;; b, c, d are unbound and error
+                                       (list a b c d))
+                                     :type 'error)))
+
+  ;; - mu-when-let
+  (should-not (mu-when-let ((a 1)
+                            ;; no match, b unbound
+                            ([b] '(0 4)))
+                ;; body never runs, entire block returns nil
+                (list a b)))
+
+  ;; - mu-if-let
+  (should (equal '(1) (mu-if-let ((a 1)
+                                  ;; no match, b unbound
+                                  ([b] '(0 4)))
+                          (list a b)
+                        ;; picks else branch, so no error
+                        (list a))))
+
+  (should (mu--error-match "in mu-let malformed" (mu-let (([_])) 'foo)))
+
+  ;; should allow uncluttered let-bindings
+  (eval
+   '(let ((mu-let-parens 'no))
+      (should (equal '(1 2) (mu-let (a 1 b 2)
+                              (list a b)))))
+   'lexical-scope)
+
+  (eval
+   '(let ((mu-let-parens 'square))
+      (should (equal '(1 2) (mu-let [a 1 b 2]
+                              (list a b)))))
+   'lexical-scope))
 
 
 (ert-deftest mu-test-ht-pattern ()
