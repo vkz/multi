@@ -270,14 +270,77 @@ patterns in the BODY."
           ,@body)))))
 
 
+(defun mu--set-defun-docstring (fun-type)
+  "Sets docstring for `mu-defun' or `mu-defmacro'"
+  (put (sym "mu-" fun-type) 'function-documentation
+       (format
+        "Like `%s' but with multiple clauses. Each clause
+specifies a `mu-case' pattern to match against the &rest part of
+the ARGLIST followed by the body to run if the match succeeds.
+Clauses are tried in order as if one had multiple definitions of
+the same function NAME. METADATA can be supplied as :attribute -
+expression pairs before the BODY:
+
+  (mu-%s foo (arg &rest args)
+    :doc         \"docstring\"
+    :sig         signature
+    :declare     dspec
+    :interactive ispec
+    :gv-setter   gv-setter-body
+    ([mu-case-args-pat1] body1)
+    ([mu-case-args-pat2] body2)
+      ... ...)
+
+In addition to any variable bound by the corresponding pattern
+every clause has the entire ARGLIST in scope.
+
+METADATA may include the following attributes, some of which may
+only make sense in a `defmacro' definition:
+
+  :doc dostring - a docstring to attach to the NAME function,
+
+  :sig signature - an implicitly quoted arglist that showcases
+                   the most likely use of the function, will be
+                   stringified and added to the docstring,
+
+  :declare dspec - a list of `declare' SPECS,
+
+  :interactive ispec - t or `interactive' ARG-DESCRIPTOR,
+
+  :gv-setter - Like gv-setter proprety, see Info
+               node `(elisp)Declare Form'. A symbol will will be
+               passed to `mu-defun-simple-gv-setter', while a
+               form `(lambda (ARG) BODY)' will have access to the
+               macro or function's arglist and will be passed to
+               `mu-defun-gv-setter'. Just like in `mu-defun' BODY
+               must consist of a set of `([pattern] body)'
+               clauses.
+
+\(fn NAME ARGLIST METADATA &rest BODY)"
+        fun-type fun-type))
+  nil)
+
+
 (defmacro mu-defun (name arglist &rest body)
   (declare (indent 2))
   (mu--defun 'defun name arglist body))
 
-
 (defmacro mu-defmacro (name arglist &rest body)
   (declare (indent 2))
   (mu--defun 'defmacro name arglist body))
+
+(defmacro mu-defun-setter (name arglist &rest body)
+  `(gv-define-setter ,name ,arglist ,@body))
+
+(defmacro mu-defmacro-setter (name arglist &rest body)
+  `(gv-define-setter ,name ,arglist ,@body))
+
+;; add docstring to `mu-defun'
+(mu--set-defun-docstring 'defun)
+
+;; add docstring to `mu-defmacro'
+(mu--set-defun-docstring 'defmacro)
+
 
 
 ;;* Errors -------------------------------------------------------- *;;

@@ -593,11 +593,13 @@ message prefix matches PREFIX"
                  (mu-case (list 'a [b c])
                    ([a `[b c]] (list b c))))))
 
+
 (ert-deftest mu-test-mu-case-errors ()
   "Mu-Case should signal malformed patterns"
   (should
    (mu--error-match "in mu-case malformed &rest" (mu-case '(a b c)
-                                                         (['a &rest foo bar] 'oops)))))
+                                                   (['a &rest foo bar] 'oops)))))
+
 
 (ert-deftest mu-test-mu-let ()
   "Mu-let should work"
