@@ -647,48 +647,47 @@ message prefix matches PREFIX"
 
 (ert-deftest mu-test-defun ()
   "Mu-fun should define a function"
-  (should
-   (equal '((:a :b 1 2)
-            (:a :b 1)
-            (:a :b)
-            (:a nil))
+  (mu-test (foo-fun foo-macro)
+    (should
+     (equal '((:a :b 1 2)
+              (:a :b 1)
+              (:a :b)
+              (:a nil))
 
-          (progn
-            (mu-fun foo-fun (&optional a b &rest args)
-              :doc "string"
-              :sig (a b c d)
-              :interactive t
-              ([x y]     (list a b x y))
-              ([x]       (list a b x))
-              (otherwise (list a b)))
+            (progn
+              (mu-defun foo-fun (&optional a b &rest args)
+                :doc "string"
+                :sig (a b c d)
+                :interactive t
+                ([x y]     (list a b x y))
+                ([x]       (list a b x))
+                (otherwise (list a b)))
 
-            (list
-             (foo-fun :a :b 1 2)
-             (foo-fun :a :b 1)
-             (foo-fun :a :b 1 2 3)
-             (foo-fun :a))))))
+              (list
+               (foo-fun :a :b 1 2)
+               (foo-fun :a :b 1)
+               (foo-fun :a :b 1 2 3)
+               (foo-fun :a)))))
 
+    (should
+     (equal '((:a :b 1 2)
+              (:a :b 1)
+              (:a :b))
 
-(ert-deftest mu-test-defun ()
-  "Mu-defmacro should define a macro"
-  (should
-   (equal '((:a :b 1 2)
-            (:a :b 1)
-            (:a :b))
+            (progn
+              (mu-defmacro foo-macro (a b &rest args)
+                :doc "string"
+                :sig (a x :in other)
+                :sigs t
+                :declare ((indent defun))
+                ([x y]     `(list ,a ,b ,x ,y))
+                ([x]       `(list ,a ,b ,x))
+                (otherwise `(list ,a ,b)))
 
-          (progn
-            (mu-defmacro foo-macro (a b &rest args)
-              :doc "string"
-              :sig (a b x :over y :in hierarchy)
-              :declare ((indent defun))
-              ([x y]     `(list ,a ,b ,x ,y))
-              ([x]       `(list ,a ,b ,x))
-              (otherwise `(list ,a ,b)))
-
-            (list
-             (foo-macro :a :b 1 2)
-             (foo-macro :a :b 1)
-             (foo-macro :a :b 1 2 3))))))
+              (list
+               (foo-macro :a :b 1 2)
+               (foo-macro :a :b 1)
+               (foo-macro :a :b 1 2 3)))))))
 
 
 ;;* Perf ---------------------------------------------------------- *;;

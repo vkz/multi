@@ -232,16 +232,35 @@ declarations. Returns a hash-table."
    (:else                 (ht-set map :body body) map)))
 
 
-;; TODO implement
-(defun mu--defun-sig (arglist body &optional doc sig)
+(defun mu--defun-sig (split-args body &optional doc sig sigs)
   "Creates a docstring from DOC adding signature SIG if supplied
-and extra signatures generated from the ARGLIST and mu-case
-patterns in the BODY."
+and extra signatures either supplied or generated from the
+arglist and mu-case patterns in the BODY."
   (default doc :to "")
-  (concat doc
-          (if sig
-              (format "\n\\%S" (cons 'fn sig))
-            (format "\n\\%S" (cons 'fn arglist)))))
+  (let* ((head (car split-args))
+         (tail (cadr split-args))
+         (sig (if sig (concat "\n\n\(fn " (substring (format "%S" sig) 1)) ""))
+         (gen-sig (lambda (s)
+                    (unless (equal 'otherwise (car s))
+                      (format "`%S'"
+                              (append
+                               head '(&rest)
+                               (list (car s)))))))
+         (sigs (cond
+                ;; generate extra signatures
+                ((equal sigs t) (mapcar gen-sig body))
+                ;; use the ones supplied
+                (sigs (mapcar (lambda (s) (format "`%S'" s)) sigs))))
+         (doc (string-join
+               ;; prepend supplied docstring
+               `(,doc
+                 ;; maybe add extra signatures
+                 ,@(when sigs '("\nMay also be called according to signatures:\n"))
+                 ,@sigs)
+               "\n  ")))
+    (string-trim
+     ;; add special last line signature if supplied
+     (concat doc sig))))
 
 
 ;; TODO gv-setter
@@ -254,6 +273,7 @@ patterns in the BODY."
          (body           (ht-get meta :body))
          (doc            (ht-get meta :doc))
          (sig            (ht-get meta :sig))
+         (sigs           (ht-get meta :sigs))
          (dspec          (ht-get meta :declare))
          (ispec          (ht-get meta :interactive)))
     (if (or (not rest-arg) (not (symbolp rest-arg)))
@@ -263,9 +283,12 @@ patterns in the BODY."
 
       `(,fun-type
         ,name ,arglist
-        ,(mu--defun-sig split-args body doc sig)
+        ,(mu--defun-sig split-args body doc sig sigs)
         ,@(when dspec `((declare ,@dspec)))
         ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
+        ;; TODO what if I wrap the body in condition-case so that any mu-error
+        ;; maybe reported in terms of current function e.g. mu-defun or
+        ;; mu-defmacro in this case? Wonder how big of an overhead it'd be.
         (mu-case ,rest-arg
           ,@body)))))
 
@@ -284,6 +307,7 @@ expression pairs before the BODY:
   (mu-%s foo (arg &rest args)
     :doc         \"docstring\"
     :sig         signature
+    :sigs        extra-signatures
     :declare     dspec
     :interactive ispec
     :gv-setter   gv-setter-body
@@ -294,14 +318,20 @@ expression pairs before the BODY:
 In addition to any variable bound by the corresponding pattern
 every clause has the entire ARGLIST in scope.
 
-METADATA may include the following attributes, some of which may
-only make sense in a `defmacro' definition:
+METADATA is optional and may include the following attributes:
 
   :doc dostring - a docstring to attach to the NAME function,
 
   :sig signature - an implicitly quoted arglist that showcases
                    the most likely use of the function, will be
                    stringified and added to the docstring,
+
+  :sigs signatures - extra calling conventions to add to the
+                     docstring: absent or `nil' - no extra
+                     signatures; `t' - combine head of the
+                     arglist and patterns in the clauses to
+                     generate signatures; explicit list of
+                     signatures.
 
   :declare dspec - a list of `declare' SPECS,
 
