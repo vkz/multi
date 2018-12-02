@@ -565,7 +565,10 @@ message prefix matches PREFIX"
 
   (should (equal '(a b h) (mu-case '(a :over b :in h)
                             ([x (or :over :to) y &rest (or [:in z] [])]
-                             (list x y (or z 'none)))))))
+                             (list x y (or z 'none))))))
+
+  ;; TODO contrived pattern, but probably shouldn't fail
+  (should (equal '(1 2) (mu-case '(1 2) ([&rest tail] tail)))))
 
 
 (ert-deftest mu-test-mu-case-nested-list-patterns ()
@@ -583,15 +586,19 @@ message prefix matches PREFIX"
 
 
 (ert-deftest mu-test-mu-case-vector-patterns ()
-  "Mu-Case should simple vector patterns"
+  "Mu-Case should allow simple vector patterns"
 
   (should (equal '(1 2)
                  (mu-case [1 2]
-                   (`[b c] (list b c)))))
+                   ('[b c] (list b c)))))
 
   (should (equal '(b c)
                  (mu-case (list 'a [b c])
-                   ([a `[b c]] (list b c))))))
+                   ([a '[b c]] (list b c)))))
+
+  ;; TODO vector pattern should support &rest
+  (should (equal '(1 (2)) (mu-case [1 2]
+                            ('[x &rest y] (list x y))))))
 
 
 (ert-deftest mu-test-mu-case-errors ()
@@ -699,6 +706,35 @@ message prefix matches PREFIX"
   (should (mu--error-match "in mu-case malformed ht pattern"
                               (mu-case (ht (:a 1))
                                 ((ht "a"))))))
+
+
+(ert-deftest mu-test-seq-pattern ()
+  "Mu-case should pattern match sequences (vectors and lists)"
+
+  ;; NOTE seq-pattern behaves exactly like Clojure's [pat ...] in destructuring
+  ;; contexts
+
+  ;; matching a list with fewer elements than patterns, should set excessive patter
+  ;; variables to nil
+  (should (equal '(1 2 nil) (mu-case `(1 2)
+                              ((seq x y z) (list x y z)))))
+
+  ;; ditto when matching a vector
+  (should (equal '(1 2 nil) (mu-case [1 2]
+                              ((seq x y z) (list x y z)))))
+
+  ;; &rest pattern should work for sequences
+  (should (equal '(1 (2)) (mu-case `(1 2)
+                            ((seq x &rest tail) (list x tail)))))
+
+  ;; even if there're more patterns than seq elements
+  (should (equal '(1 2 nil nil) (mu-case `(1 2)
+                                  ((seq x y z &rest tail) (list x y z tail)))))
+
+  ;; without &rest pattern we should match as many seq elements as patterns and
+  ;; ignore the remaining elements (effectivel matching seq head)
+  (should (equal '(1) (mu-case `(1 2)
+                        ((seq x) (list x))))))
 
 
 ;;** - mu-fun -------------------------------------------------- *;;

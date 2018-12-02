@@ -64,25 +64,19 @@ exactly like `error'
 ;;* Pattern-matching  --------------------------------------------- *;;
 
 
-;; TODO list patterns in mu-case and pcase try to match the entire list or fail.
-;; Clojure's seq patterns match only as far as they can:
+;; TODO We match lists with [], vectors with '[], sequences with (seq ...). Since
+;; seq-pattern works for both, a reasonable question to ask is why not match
+;; sequences with []? So, something like that:
 ;;
-;;   (1) if seq pattern is longer than the sequence being matched, remaining
-;; patter-variables are bound to nil,
+;; - sequence with [],
+;; - list     with (list ...), or (l ...)
+;; - vector   with (vec ...),  or (v ...).
 ;;
-;;   (2) if seq pattern is shorter, simply match that many items.
-;;
-;; We can already solve (2) simply by using [pat &rest _]. Technically I could
-;; solve (1) with the following translation:
-;;
-;;   seq-pattern e.g. [p1 p2]
-;;      =>
-;;   (app (lambda (seq) (take (length seq-pattern) seq)) seq-pattern)
-;;
-;; where `take' always returns a seq of requested length, filling missing values
-;; with nil if needed. Seq patterns with &rest would have to be treated specially.
-;; I don't know if that's the right default, but it seems to work well in Clojure.
+;; Is this more concise? More natural?
 
+;; TODO (mu-defpattern vec (&rest patterns)) and probably remove '[] from mu--case
+
+;; TODO &rest pattern for vectors
 
 ;; TODO Should I alias mu-case as (mu ...)? Would make it occupy less space and
 ;; hopefully foster more frequent use?
@@ -95,7 +89,6 @@ exactly like `error'
 ;; so (app (fn (v) (seq-into v 'list))). Probably results in some overhead, so
 ;; make it optional? Looks like pcase has a (seq pat ...) but it has funky
 ;; semantics in the way it handles seq tails. We could allow it or build on it.
-
 
 ;; NOTE Although `mu-case--init' and `mu-case--inside' are superficially the
 ;; same we need both because `mu-case--inside' assumes to be inside backquoted
@@ -136,8 +129,9 @@ unquoted context."
     (`(app ,fun ,pat)         (list 'app fun (mu-case--init pat)))
     (`(let ,pat ,exp)         (list 'let (mu-case--init pat) exp))
     (`(quote ,(pred symbolp)) pat)
-    ;; vector pattern
-    (`(\` ,(pred vectorp))    (list '\` (mu-case--inside pat)))
+    ;; TODO vector pattern, but is it a terrible idea? What if I ever want to
+    ;; match a quoted list? Shouldn't I define (vec pat) instead?
+    (`(quote ,(pred vectorp))    (list '\` (mu-case--inside pat)))
     ;; registered mu-case-pattern
     (`(,(and id (pred symbolp))
        .
@@ -170,7 +164,7 @@ quoted context i.e. a list matching pattern."
                              (tail (and tail (mu-case--inside (car tail)))))
                         (append head tail))))
     ;; vector pattern
-    (`(\` ,(pred vectorp))    (seq-into (mapcar #'mu-case--inside (cadr pat)) 'vector))
+    (`(quote ,(pred vectorp))    (seq-into (mapcar #'mu-case--inside (cadr pat)) 'vector))
     (`(quote ,(pred symbolp)) (cadr pat))
     ((pred keywordp)          pat)
     ((pred symbolp)           (list '\, pat))
@@ -179,6 +173,9 @@ quoted context i.e. a list matching pattern."
     ((pred atom)              pat)
     (otherwise
      (mu-error "in mu-case unrecognized pattern %S" pat))))
+
+
+;;** - mu-defpattern ---------------------------------------------- *;;
 
 
 ;; NOTE All we do here is wrap user macro into a (lambda (ARGLIST) BODY) and store
@@ -206,7 +203,7 @@ your macro code.
     (unless (stringp docstring)
       (setq body (cons docstring body))))
   (let ((mu-patterns `(or (get 'mu-case :mu-patterns)
-                                  (put 'mu-case :mu-patterns (ht))))
+                          (put 'mu-case :mu-patterns (ht))))
         (pattern-macro `(lambda ,arglist ,@body)))
     `(setf (ht-get ,mu-patterns ',name) ,pattern-macro)))
 
@@ -243,6 +240,7 @@ your macro code.
      (mu-error "in mu-case malformed ht pattern in %S" patterns))))
 
 
+;; TODO this should probably be called t-pattern, not ht-pattern
 (mu-defpattern ht (&rest patterns)
   "`mu-case' pattern to match hash-tables and alists. ht
 expects to receive key-patterns that would be used to lookup and
@@ -263,6 +261,52 @@ Example:
          (alist-pats (mapcar #'cadr patterns)))
     `(or (and (pred ht-p) ,@ht-pats)
          (and (pred listp) ,@alist-pats))))
+
+
+(mu-defpattern seq (&rest patterns)
+  "`mu-case' pattern to match lists and vectors alike. Match as
+many patterns against the sequence as possible: fewer patterns
+than the sequence will simply match the head of the sequence;
+more patterns than the sequence will match available elements,
+then match any excessive patterns against that many nils. Also
+supports the &rest pattern to match the remaining elements."
+  ;; Basic idea: instead of trying to match the sequence, build a new sequence by
+  ;; taking as many elements from the original as there're patterns. If the
+  ;; sequence has fewer elements than the patterns, simply fill with nils. Now
+  ;; match patterns against that newly built
+  (let* ((split (-split-on '&rest patterns))
+         (head (car split))
+         (rest (cadr split))
+         (rest? (when rest t))
+         (pat-len (length (if rest? head patterns)))
+         (take `(lambda (seq)
+                  (let* ((type (case (type-of seq)
+                                 (cons 'list)
+                                 (vector 'vector)
+                                 (otherwise (mu-error
+                                             "in mu-case seq pattern applied to unrecognized type %s"
+                                             (type-of seq)))))
+                         ;; TODO replace with loop that also counts elements?
+                         (subseq (seq-take seq ,pat-len))
+                         (took (length subseq))
+                         (less-by (- ,pat-len took)))
+                    (cond
+                     ;; sequence being matched is shorter than patterns
+                     ((< took ,pat-len) (seq-concatenate type subseq (make-list less-by nil)))
+                     ;; seq has at least as many elements as patterns and our's is
+                     ;; a &rest pattern, then reattach the rest of the seq, so
+                     ;; that the &rest pattern can try to match
+                     (,rest? (seq-concatenate type subseq (seq-subseq seq took)))
+                     ;; seq has at least as many elements as patterns
+                     (:else subseq))))))
+    `(and (or (pred vectorp)
+              (pred listp))
+          (app ,take (or
+                      ;; reconstruct list pattern
+                      [,@head ,@(if rest? (cons '&rest rest) rest)]
+                      ;; reconstruct vector pattern
+                      ;; TODO &rest pattern for vectors not done yet
+                      '[,@head ,@(if rest? (cons '&rest rest) rest)])))))
 
 
 ;;** - mu-let ----------------------------------------------------- *;;
