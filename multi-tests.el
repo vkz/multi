@@ -719,24 +719,24 @@ message prefix matches PREFIX"
   ;; matching a list with fewer elements than patterns, should set excessive patter
   ;; variables to nil
   (should (equal '(1 2 nil) (mu-case `(1 2)
-                              ((seq x y z) (list x y z)))))
+                              ([x y z] (list x y z)))))
 
   ;; ditto when matching a vector
   (should (equal '(1 2 nil) (mu-case [1 2]
-                              ((seq x y z) (list x y z)))))
+                              ([x y z] (list x y z)))))
 
   ;; &rest pattern should work for sequences
   (should (equal '(1 (2)) (mu-case `(1 2)
-                            ((seq x &rest tail) (list x tail)))))
+                            ([x &rest tail] (list x tail)))))
 
   ;; even if there're more patterns than seq elements
   (should (equal '(1 2 nil nil) (mu-case `(1 2)
-                                  ((seq x y z &rest tail) (list x y z tail)))))
+                                  ([x y z &rest tail] (list x y z tail)))))
 
   ;; without &rest pattern we should match as many seq elements as patterns and
   ;; ignore the remaining elements (effectivel matching seq head)
   (should (equal '(1) (mu-case `(1 2)
-                        ((seq x) (list x))))))
+                        ([x] (list x))))))
 
 
 ;;** - mu-fun -------------------------------------------------- *;;
@@ -756,8 +756,8 @@ message prefix matches PREFIX"
                 :doc "string"
                 :sig (a b c d)
                 :interactive t
-                ([x y]     (list a b x y))
-                ([x]       (list a b x))
+                ((l x y)     (list a b x y))
+                ((l x)       (list a b x))
                 (otherwise (list a b)))
 
               (list
@@ -777,8 +777,8 @@ message prefix matches PREFIX"
                 :sig (a x :in other)
                 :sigs t
                 :declare ((indent defun))
-                ([x y]     `(list ,a ,b ,x ,y))
-                ([x]       `(list ,a ,b ,x))
+                ((l x y)     `(list ,a ,b ,x ,y))
+                ((l x)       `(list ,a ,b ,x))
                 (otherwise `(list ,a ,b)))
 
               (list

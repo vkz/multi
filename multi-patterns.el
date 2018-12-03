@@ -81,15 +81,13 @@ unquoted context."
     ;; list pattern
     (`(l . ,_)                (list '\` (mu-case--inside pat)))
     (`(v . ,_)                (list '\` (mu-case--inside pat)))
-    ((pred vectorp)           (list '\` (mu-case--inside pat)))
+    ;; seq pattern
+    ((pred vectorp)           (mu-case--init `(seq ,@(seq-into pat 'list))))
     (`(or . ,pats)            (cons 'or (mapcar #'mu-case--init pats)))
     (`(and . ,pats)           (cons 'and (mapcar #'mu-case--init pats)))
     (`(app ,fun ,pat)         (list 'app fun (mu-case--init pat)))
     (`(let ,pat ,exp)         (list 'let (mu-case--init pat) exp))
     (`(quote ,(pred symbolp)) pat)
-    ;; TODO vector pattern, but is it a terrible idea? What if I ever want to
-    ;; match a quoted list? Shouldn't I define (vec pat) instead?
-    (`(quote ,(pred vectorp))    (list '\` (mu-case--inside pat)))
     ;; registered mu-case-pattern
     (`(,(and id (pred symbolp))
        .
@@ -130,16 +128,6 @@ quoted context i.e. a list matching pattern."
     ;; TODO would that solve &rest for vectors?
     ;; (seq-into (mu-case--inside `(l ,@ pats)) 'vector)
     (`(v . ,pats) (seq-into (mapcar #'mu-case--inside pats) 'vector))
-    ((pred vectorp) (let* ((split (-split-on '&rest (seq-into pat 'list)))
-                           (head (car split))
-                           (tail (cadr split)))
-                      (when (> (length tail) 1)
-                        (mu-error "in mu-case malformed &rest pattern %S" tail))
-                      (let* ((head (mapcar #'mu-case--inside head))
-                             (tail (and tail (mu-case--inside (car tail)))))
-                        (append head tail))))
-    ;; vector pattern
-    (`(quote ,(pred vectorp))    (seq-into (mapcar #'mu-case--inside (cadr pat)) 'vector))
     (`(quote ,(pred symbolp)) (cadr pat))
     ((pred keywordp)          pat)
     ((pred symbolp)           (list '\, pat))
