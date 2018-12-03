@@ -10,7 +10,8 @@
 
 (require 'ert)
 (require 'cl-lib)
-(require 'multi)
+(require 'multi-patterns)
+(require 'multi-methods)
 
 ;; TODO Cache
 
