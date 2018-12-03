@@ -78,6 +78,9 @@ unquoted context."
   (pcase pat
     ('otherwise               pat)
     ((pred symbolp)           pat)
+    ;; list pattern
+    (`(l . ,_)                (list '\` (mu-case--inside pat)))
+    (`(v . ,_)                (list '\` (mu-case--inside pat)))
     ((pred vectorp)           (list '\` (mu-case--inside pat)))
     (`(or . ,pats)            (cons 'or (mapcar #'mu-case--init pats)))
     (`(and . ,pats)           (cons 'and (mapcar #'mu-case--init pats)))
@@ -108,8 +111,25 @@ unquoted context."
   "Generate a pcase pattern from a mu-case pattern assuming an
 quoted context i.e. a list matching pattern."
   (pcase pat
+    ('() '())
+    ;; match empty list
+    (`(l) '())
+    ;; match empty vector
+    (`(v) [])
+    ;; TODO will be empty sequence?
     (`[] '())
     ;; TODO replace `-split-on' with some cl- combo
+    (`(l . ,pats) (let* ((split (-split-on '&rest pats))
+                         (head (car split))
+                         (tail (cadr split)))
+                    (when (> (length tail) 1)
+                      (mu-error "in mu-case malformed &rest pattern %S" tail))
+                    (let* ((head (mapcar #'mu-case--inside head))
+                           (tail (and tail (mu-case--inside (car tail)))))
+                      (append head tail))))
+    ;; TODO would that solve &rest for vectors?
+    ;; (seq-into (mu-case--inside `(l ,@ pats)) 'vector)
+    (`(v . ,pats) (seq-into (mapcar #'mu-case--inside pats) 'vector))
     ((pred vectorp) (let* ((split (-split-on '&rest (seq-into pat 'list)))
                            (head (car split))
                            (tail (cadr split)))
@@ -165,28 +185,28 @@ your macro code.
 
 (defun mu--ht-pattern (patterns)
   (mu-case patterns
-    ([] '())
+    ((l) '())
 
     ;; (ht :a :b)
-    ([(and kw (pred keywordp) (app sym id)) &rest pats]
+    ((l (and kw (pred keywordp) (app sym id)) &rest pats)
      `(((app (lambda (ht) (or (ht-get ht ,kw) (ht-get ht ',id))) ,id)
         (app (lambda (ht) (or (alist-get ,kw ht) (alist-get ',id ht))) ,id))
        ,@(mu--ht-pattern pats)))
 
     ;; (ht 'a 'b)
-    ([['quote (and id (pred symbolp) (app (lambda (id) (sym ":" id)) kw))] &rest pats]
+    ((l (l 'quote (and id (pred symbolp) (app (lambda (id) (sym ":" id)) kw))) &rest pats)
      `(((app (lambda (ht) (or (ht-get ht ',id) (ht-get ht ,kw))) ,id)
         (app (lambda (ht) (or (alist-get ',id ht) (alist-get ,kw ht))) ,id))
        ,@(mu--ht-pattern pats)))
 
     ;; (ht a b)
-    ([(and id (pred symbolp) (app (lambda (id) (sym ":" id)) kw)) &rest pats]
+    ((l (and id (pred symbolp) (app (lambda (id) (sym ":" id)) kw)) &rest pats)
      `(((app (lambda (ht) (or (ht-get ht ,kw) (ht-get ht ',id))) ,id)
         (app (lambda (ht) (or (alist-get ,kw ht) (alist-get ',id ht))) ,id))
        ,@(mu--ht-pattern pats)))
 
     ;; (ht (:a A) (:b B))
-    ([[key id] &rest pats]
+    ((l (l key id) &rest pats)
      `(((app (lambda (ht) (ht-get ht ,key)) ,id)
         (app (lambda (ht) (alist-get ,key ht)) ,id))
        ,@(mu--ht-pattern pats)))
@@ -258,10 +278,10 @@ supports the &rest pattern to match the remaining elements."
               (pred listp))
           (app ,take (or
                       ;; reconstruct list pattern
-                      [,@head ,@(if rest? (cons '&rest rest) rest)]
+                      (l ,@head ,@(if rest? (cons '&rest rest) rest))
                       ;; reconstruct vector pattern
                       ;; TODO &rest pattern for vectors not done yet
-                      '[,@head ,@(if rest? (cons '&rest rest) rest)])))))
+                      (v ,@head ,@(if rest? (cons '&rest rest) rest)))))))
 
 
 ;;* mu-let -------------------------------------------------------- *;;

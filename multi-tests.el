@@ -494,15 +494,15 @@ message prefix matches PREFIX"
                         (lst lst))))
 
   (should (equal '(a) (mu-case '(a)
-                        ([x y] (list x y))
-                        ([x] (list x)))))
+                        ((l x y) (list x y))
+                        ((l x) (list x)))))
 
   (should (equal 'empty (mu-case '()
-                          ([x] x)
+                          ((l x) x)
                           (otherwise 'empty))))
 
   (should (equal 'match (mu-case '(a b c)
-                          (['a _ 'c] 'match))))
+                          ((l 'a _ 'c) 'match))))
 
   (defmacro mu-case--clause-test (expr pat &rest body)
     (declare (indent 1))
@@ -512,40 +512,40 @@ message prefix matches PREFIX"
         'no-match)))
 
   (should (equal 'match (mu-case--clause-test '()
-                          [] 'match)))
+                          (l) 'match)))
 
   (should (equal 'symbol (mu-case--clause-test '(a)
-                           ['a] 'symbol)))
+                           (l 'a) 'symbol)))
 
   (should (equal 'b (mu-case--clause-test '(a b)
-                      [(or 'a 'b) (and x 'b)] x)))
+                      (l (or 'a 'b) (and x 'b)) x)))
 
   (should (equal 'match (mu-case--clause-test '(:key)
-                          [:key] 'match)))
+                          (l :key) 'match)))
 
   (should (equal :key (mu-case--clause-test '(:key)
-                        [x] x)))
+                        (l x) x)))
 
   (should (equal '(a :over b) (mu-case--clause-test '(a (:over) b)
-                                [x (or [rel] :to) y] (list x rel y)))))
+                                (l x (or (l rel) :to) y) (list x rel y)))))
 
 
 (ert-deftest mu-test-standard-mu-case-patterns ()
   "Mu-Case should allow standard pcase patterns"
 
   (should (equal '(a over b none) (mu-case '(a over b)
-                                    ([x
+                                    ((l x
                                       (and (pred symbolp)
                                            (or 'over 'to) rel)
-                                      y]
+                                      y)
                                      (list x rel y 'none)))))
 
   (should (equal '(1 2 3) (mu-case '(1 2)
-                            ([(and (pred numberp)
+                            ((l (and (pred numberp)
                                    (app 1- 0)
                                    x)
                               (and num
-                                   (let y 3))]
+                                   (let y 3)))
                              (list x num y))))))
 
 
@@ -553,36 +553,36 @@ message prefix matches PREFIX"
   "Mu-Case should allow matching the rest of a list"
 
   (should (equal '(b c) (mu-case '(a b c)
-                          (['a &rest tail] tail))))
+                          ((l 'a &rest tail) tail))))
 
   (should (equal 'c (mu-case '(a b c)
-                      (['a &rest ['b last]] last))))
+                      ((l 'a &rest (l 'b last)) last))))
 
   (should (equal 'c (mu-case '(a b c)
-                      (['a &rest (or [] ['b last])] last))))
+                      ((l 'a &rest (or (l ) (l 'b last))) last))))
 
   (should (equal 'match (mu-case '(a)
-                          (['a &rest (or [] ['b last])] 'match))))
+                          ((l 'a &rest (or (l ) (l 'b last))) 'match))))
 
   (should (equal '(a b h) (mu-case '(a :over b :in h)
-                            ([x (or :over :to) y &rest (or [:in z] [])]
+                            ((l x (or :over :to) y &rest (or (l :in z) (l )))
                              (list x y (or z 'none))))))
 
   ;; TODO contrived pattern, but probably shouldn't fail
-  (should (equal '(1 2) (mu-case '(1 2) ([&rest tail] tail)))))
+  (should (equal '(1 2) (mu-case '(1 2) ((l &rest tail) tail)))))
 
 
 (ert-deftest mu-test-mu-case-nested-list-patterns ()
   "Mu-Case should allow nested list patterns"
 
   (should (equal '(2 3) (mu-case '(1 (2 3))
-                          ([_ [a b]] (list a b)))))
+                          ((l _ (l a b)) (list a b)))))
 
   (should (equal '(1 2 3 4) (mu-case '((1 . 2) (3 . 4))
-                              ([[a &rest b]
-                                [(and (pred numberp) c)
+                              ((l (l a &rest b)
+                                (l (and (pred numberp) c)
                                  &rest
-                                 (and (pred numberp) d)]]
+                                 (and (pred numberp) d)))
                                (list a b c d))))))
 
 
@@ -591,22 +591,23 @@ message prefix matches PREFIX"
 
   (should (equal '(1 2)
                  (mu-case [1 2]
-                   ('[b c] (list b c)))))
+                   ((v b c) (list b c)))))
 
   (should (equal '(b c)
                  (mu-case (list 'a [b c])
-                   ([a '[b c]] (list b c)))))
+                   ((l a (v b c)) (list b c)))))
 
   ;; TODO vector pattern should support &rest
+
   (should (equal '(1 (2)) (mu-case [1 2]
-                            ('[x &rest y] (list x y))))))
+                            ((v x &rest y) (list x y))))))
 
 
 (ert-deftest mu-test-mu-case-errors ()
   "Mu-Case should signal malformed patterns"
   (should
    (mu--error-match "in mu-case malformed &rest" (mu-case '(a b c)
-                                                   (['a &rest foo bar] 'oops)))))
+                                                   ((l 'a &rest foo bar) 'oops)))))
 
 
 (ert-deftest mu-test-mu-let ()
@@ -618,14 +619,14 @@ message prefix matches PREFIX"
   ;; - mu-let
   (should (equal '(1) (mu-let ((a 1)
                                ;; no match, b unbound
-                               ([b] '(0 4)))
+                               ((l b) '(0 4)))
                         ;; b isn't used, so no error
                         (list a))))
 
   (should (equal '(void-variable b) (should-error
                                      (mu-let ((a 1)
                                               ;; no match, b unbound
-                                              ([b] '(0 4)))
+                                              ((l b) '(0 4)))
                                        ;; b is used but unbound, so error. b
                                        ;; would've matched 0 in Clojure
                                        (list a b))
@@ -634,14 +635,14 @@ message prefix matches PREFIX"
   (should (equal '(1 0) (mu-let ((a 1)
                                  ;; we can fake Clojure behavior for patterns that
                                  ;; are shorter than the value
-                                 ([b &rest _] '(0 4)))
+                                 ((l b &rest _) '(0 4)))
                           (list a b))))
 
   (should (equal '(void-variable b) (should-error
                                      (mu-let ((a 1)
                                               ;; but not for patterns that are
                                               ;; longer than the value
-                                              ([b c d] '(0 4)))
+                                              ((l b c d) '(0 4)))
                                        ;; b, c, d are unbound and error
                                        (list a b c d))
                                      :type 'error)))
@@ -649,19 +650,19 @@ message prefix matches PREFIX"
   ;; - mu-when-let
   (should-not (mu-when-let ((a 1)
                             ;; no match, b unbound
-                            ([b] '(0 4)))
+                            ((l b) '(0 4)))
                 ;; body never runs, entire block returns nil
                 (list a b)))
 
   ;; - mu-if-let
   (should (equal '(1) (mu-if-let ((a 1)
                                   ;; no match, b unbound
-                                  ([b] '(0 4)))
+                                  ((l b) '(0 4)))
                           (list a b)
                         ;; picks else branch, so no error
                         (list a))))
 
-  (should (mu--error-match "in mu-let malformed" (mu-let (([_])) 'foo)))
+  (should (mu--error-match "in mu-let malformed" (mu-let (((l _))) 'foo)))
 
   ;; should allow uncluttered let-bindings
   (eval
@@ -698,7 +699,7 @@ message prefix matches PREFIX"
 
   ;; match tables inside a list
   (should (equal '(1 2) (mu-case (list (ht (:a 1)) '((:b . 2)))
-                          ([(ht :a) (ht b)] (list a b)))))
+                          ((l (ht :a) (ht b)) (list a b)))))
 
   ;; allow all ht key pattern styles: :key, key, (:key id) ('key id)
   (should (equal '(1 2 3 4) (mu-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
