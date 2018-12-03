@@ -589,17 +589,42 @@ message prefix matches PREFIX"
 (ert-deftest mu-test-mu-case-vector-patterns ()
   "Mu-Case should allow simple vector patterns"
 
+  ;; vec-pattern of fixed length
+
   (should (equal '(1 2)
                  (mu-case [1 2]
-                   ((v b c) (list b c)))))
+                   ((vec b c) (list b c)))))
 
   (should (equal '(b c)
                  (mu-case (list 'a [b c])
-                   ((l a (v b c)) (list b c)))))
+                   ((l a (vec b c)) (list b c)))))
 
-  ;; TODO vector pattern should support &rest
+  (should
+   (mu--error-match "in mu-case vec-pattern"
+                    (mu-case [1 2]
+                      ((vec x &rest y) (list x y)))))
 
-  (should (equal '(1 (2)) (mu-case [1 2]
+  ;; v-pattern with &rest support
+
+  (should (equal 'match (mu-case [] ((v) 'match))))
+
+  (should (equal 'match (mu-case [1 2] ((v 1 2) 'match))))
+
+  (should (equal 2 (mu-case [1 2] ((v 1 y) y))))
+
+  (should (equal [2] (mu-case [1 2] ((v 1 &rest tail) tail))))
+
+  (should-not (mu-case [1 2] ((v 1) 'match)))
+
+  (should-not (mu-case [1 2] ((v 1 2 3) 'match)))
+
+  (should (equal []
+                 (mu-case [1 2]
+                   ;; TODO IMO, this is consistent with lists, but probably
+                   ;; warants a mention in documentation.
+                   ((v 1 2 &rest y) y))))
+
+  (should (equal '(1 [2]) (mu-case [1 2]
                             ((v x &rest y) (list x y))))))
 
 

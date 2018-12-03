@@ -80,7 +80,8 @@ unquoted context."
     ((pred symbolp)           pat)
     ;; list pattern
     (`(l . ,_)                (list '\` (mu-case--inside pat)))
-    (`(v . ,_)                (list '\` (mu-case--inside pat)))
+    ;; vector pattern
+    (`(vec . ,_)              (list '\` (mu-case--inside pat)))
     ;; seq pattern
     ((pred vectorp)           (mu-case--init `(seq ,@(seq-into pat 'list))))
     (`(or . ,pats)            (cons 'or (mapcar #'mu-case--init pats)))
@@ -113,7 +114,7 @@ quoted context i.e. a list matching pattern."
     ;; match empty list
     (`(l) '())
     ;; match empty vector
-    (`(v) [])
+    (`(vec) [])
     ;; TODO will be empty sequence?
     (`[] '())
     ;; TODO replace `-split-on' with some cl- combo
@@ -125,9 +126,10 @@ quoted context i.e. a list matching pattern."
                     (let* ((head (mapcar #'mu-case--inside head))
                            (tail (and tail (mu-case--inside (car tail)))))
                       (append head tail))))
-    ;; TODO would that solve &rest for vectors?
-    ;; (seq-into (mu-case--inside `(l ,@ pats)) 'vector)
-    (`(v . ,pats) (seq-into (mapcar #'mu-case--inside pats) 'vector))
+    (`(vec . ,pats) (if (memq '&rest pats)
+                        ;; vector pattern always has pre-defined length, so no &rest support
+                        (mu-error "in mu-case vec-pattern doesn't support &rest, use v-pattern instead in: %S" pats)
+                      (seq-into (mu-case--inside `(l ,@pats)) 'vector)))
     (`(quote ,(pred symbolp)) (cadr pat))
     ((pred keywordp)          pat)
     ((pred symbolp)           (list '\, pat))
@@ -270,6 +272,28 @@ supports the &rest pattern to match the remaining elements."
                       ;; reconstruct vector pattern
                       ;; TODO &rest pattern for vectors not done yet
                       (v ,@head ,@(if rest? (cons '&rest rest) rest)))))))
+
+
+(mu-defpattern v (&rest patterns)
+  "`mu-case' pattern to match vectors but allows &rest matching."
+  ;; Basic idea: keep splitting PATTERNS at &rest and recursing into chunks. Chunk
+  ;; with no &rest should produce a vec-pattern to break recursion.
+  (let* ((split (-split-on '&rest patterns))
+         (head (car split))
+         (rest (cadr split))
+         (rest? (when rest t))
+         (pat-len (length (if rest? head patterns))))
+    (if rest?
+        `(and (pred vectorp)
+              (app (lambda (v) (seq-take v ,pat-len))
+                   ,(if (null head)
+                        ;; no patterns before &rest or at all - match with empty vec
+                        `(vec)
+                      ;; shove head patterns into a v-pattern and match against that
+                      `(v ,@head)))
+              (app (lambda (v) (seq-subseq v ,pat-len)) ,@rest))
+      `(and (pred vectorp)
+            (vec ,@head)))))
 
 
 ;;* mu-let -------------------------------------------------------- *;;
