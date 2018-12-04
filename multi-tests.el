@@ -764,26 +764,6 @@ message prefix matches PREFIX"
   ;; NOTE seq-pattern behaves exactly like Clojure's [pat ...] in destructuring
   ;; contexts
 
-  (comment
-   ;; TODO There's something pathological with my seq implementation (most likely
-   ;; the &rest part). Compared to outright matching with v-pat and l-pat, seq for
-   ;; the same sequence can be 1000x slower!!!
-   ;;
-   ;; seq: 0.2887558937072754
-   ;; v:   0.0002601146697998047
-
-   ;; seq
-   (mu-test-time
-     (mu-case [[1 [2 3]] 4]
-       ([[a &rest [[b c]]] &rest d] (list a b c d))))
-
-   ;; v
-   (mu-test-time
-     (mu-case [[1 [2 3]] 4]
-       ((v (v a &rest (v (v b c))) &rest d) (list a b c d))))
-   ;; comment
-   )
-
   ;; matching a list with fewer elements than patterns, should set excessive
   ;; pattern variables to nil
   (should (equal '(1 2 nil) (mu-case `(1 2)

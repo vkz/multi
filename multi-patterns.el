@@ -267,25 +267,14 @@ supports the &rest pattern to match the remaining elements."
              (head (car split))
              (rest (cadr split))
              (rest? (when rest t))
-             (pat-len (length (if rest? head patterns)))
-             (head-seq `(lambda (seq) (car (mu--seq-split-and-pad seq ,pat-len))))
-             (rest-seq `(lambda (seq) (cadr (mu--seq-split-and-pad seq ,pat-len))))
-             (pred-seq-pat `(or (pred listp) (pred vectorp)))
-             (empty-seq-pat `(or (lst) (vec))))
+             (pat-len (length (if rest? head patterns))))
         (when (> (length rest) 1)
           (mu-error "in mu-case malformed &rest pattern %S" rest))
         (if rest?
-            `(and ,pred-seq-pat
-                  ;; head pattern
-                  (app ,head-seq
-                       ,(if (null head)
-                            empty-seq-pat
-                          `(seq ,@head)))
-                  ;; rest pattern
-                  (app ,rest-seq ,@rest))
-          `(and ,pred-seq-pat
-                (app ,head-seq (or (lst ,@head)
-                                   (vec ,@head))))))
+            `(app (lambda (seq) (mu--seq-split-and-pad seq ,pat-len))
+                  (lst (or (lst ,@head) (vec ,@head)) ,@rest))
+          `(app (lambda (seq) (car (mu--seq-split-and-pad seq ,pat-len)))
+                (or (lst ,@head) (vec ,@head)))))
     ;; empty seq-pattern
     `(or (lst) (vec))))
 
