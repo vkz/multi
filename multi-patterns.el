@@ -279,52 +279,54 @@ supports the &rest pattern to match the remaining elements."
     `(or (lst) (vec))))
 
 
+(defun mu--seq-split (seq pat-len)
+  (let* ((subseq (seq-take seq pat-len))
+         (took (length subseq)))
+    (list subseq
+          ;; rest: empty if seq was shorter than patterns
+          (seq-subseq seq took))))
+
+
 (mu-defpattern l (&rest patterns)
   "`mu-case' pattern to match vectors but allows &rest matching."
   ;; Basic idea: keep splitting PATTERNS at &rest and recursing into chunks. Chunk
   ;; with no &rest should produce a vec-pattern to break recursion.
-  (let* ((split (-split-on '&rest patterns))
-         (head (car split))
-         (rest (cadr split))
-         (rest? (when rest t))
-         (pat-len (length (if rest? head patterns))))
-    (when (> (length rest) 1)
-      (mu-error "in mu-case malformed &rest pattern %S" rest))
-    (if rest?
-        `(and (pred listp)
-              (app (lambda (l) (seq-take l ,pat-len))
-                   ,(if (null head)
-                        ;; no patterns before &rest or at all - match with empty lst
-                        `(lst)
-                      ;; shove head patterns into a l-pattern and match against that
-                      `(l ,@head)))
-              (app (lambda (l) (seq-subseq l ,pat-len)) ,@rest))
-      `(and (pred listp)
-            (lst ,@head)))))
+  (if patterns
+      (let* ((split (-split-on '&rest patterns))
+             (head (car split))
+             (rest (cadr split))
+             (rest? (when rest t))
+             (pat-len (length (if rest? head patterns))))
+        (when (> (length rest) 1)
+          (mu-error "in mu-case malformed &rest pattern %S" rest))
+        (if rest?
+            `(and (pred listp)
+                  (app (lambda (l) (mu--seq-split l ,pat-len))
+                       (lst (lst ,@head) ,@rest)))
+          `(and (pred listp)
+                (lst ,@head))))
+    `(lst)))
 
 
 (mu-defpattern v (&rest patterns)
   "`mu-case' pattern to match vectors but allows &rest matching."
   ;; Basic idea: keep splitting PATTERNS at &rest and recursing into chunks. Chunk
   ;; with no &rest should produce a vec-pattern to break recursion.
-  (let* ((split (-split-on '&rest patterns))
-         (head (car split))
-         (rest (cadr split))
-         (rest? (when rest t))
-         (pat-len (length (if rest? head patterns))))
-    (when (> (length rest) 1)
-      (mu-error "in mu-case malformed &rest pattern %S" rest))
-    (if rest?
-        `(and (pred vectorp)
-              (app (lambda (v) (seq-take v ,pat-len))
-                   ,(if (null head)
-                        ;; no patterns before &rest or at all - match with empty vec
-                        `(vec)
-                      ;; shove head patterns into a v-pattern and match against that
-                      `(v ,@head)))
-              (app (lambda (v) (seq-subseq v ,pat-len)) ,@rest))
-      `(and (pred vectorp)
-            (vec ,@head)))))
+  (if patterns
+      (let* ((split (-split-on '&rest patterns))
+             (head (car split))
+             (rest (cadr split))
+             (rest? (when rest t))
+             (pat-len (length (if rest? head patterns))))
+        (when (> (length rest) 1)
+          (mu-error "in mu-case malformed &rest pattern %S" rest))
+        (if rest?
+            `(and (pred vectorp)
+                  (app (lambda (v) (mu--seq-split v ,pat-len))
+                       (lst (vec ,@head) ,@rest)))
+          `(and (pred vectorp)
+                (vec ,@head))))
+    `(vec)))
 
 
 ;;* mu-let -------------------------------------------------------- *;;
