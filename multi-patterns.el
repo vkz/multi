@@ -79,7 +79,7 @@ unquoted context."
     ('otherwise               pat)
     ((pred symbolp)           pat)
     ;; list pattern
-    (`(l . ,_)                (list '\` (mu-case--inside pat)))
+    (`(lst . ,_)              (list '\` (mu-case--inside pat)))
     ;; vector pattern
     (`(vec . ,_)              (list '\` (mu-case--inside pat)))
     ;; seq pattern
@@ -97,9 +97,9 @@ unquoted context."
                                           (get 'mu-case :mu-patterns)
                                           id)))
                                    ;; known mu-case-pattern: expand, recurse
-       (mu-case--init (apply macro pats))
-       ;; unknown pattern: do nothing
-       pat))
+                                   (mu-case--init (apply macro pats))
+                                 ;; unknown pattern: do nothing
+                                 pat))
     ((pred listp)             pat)
     ((pred atom)              pat)
     (otherwise
@@ -112,24 +112,18 @@ quoted context i.e. a list matching pattern."
   (pcase pat
     ('() '())
     ;; match empty list
-    (`(l) '())
+    (`(lst) '())
     ;; match empty vector
     (`(vec) [])
-    ;; TODO will be empty sequence?
-    (`[] '())
     ;; TODO replace `-split-on' with some cl- combo
-    (`(l . ,pats) (let* ((split (-split-on '&rest pats))
-                         (head (car split))
-                         (tail (cadr split)))
-                    (when (> (length tail) 1)
-                      (mu-error "in mu-case malformed &rest pattern %S" tail))
-                    (let* ((head (mapcar #'mu-case--inside head))
-                           (tail (and tail (mu-case--inside (car tail)))))
-                      (append head tail))))
+    (`(lst . ,pats) (if (memq '&rest pats)
+                        (mu-error "in mu-case lst-pattern doesn't support &rest, use l-pattern instead in: %S" pats)
+                      (mapcar #'mu-case--inside pats)))
     (`(vec . ,pats) (if (memq '&rest pats)
                         ;; vector pattern always has pre-defined length, so no &rest support
                         (mu-error "in mu-case vec-pattern doesn't support &rest, use v-pattern instead in: %S" pats)
-                      (seq-into (mu-case--inside `(l ,@pats)) 'vector)))
+                      (seq-into (mapcar #'mu-case--inside pats) 'vector)))
+    ((pred vectorp) (list '\, (mu-case--init `(seq ,@(seq-into pat 'list)))))
     (`(quote ,(pred symbolp)) (cadr pat))
     ((pred keywordp)          pat)
     ((pred symbolp)           (list '\, pat))
@@ -228,6 +222,35 @@ Example:
          (and (pred listp) ,@alist-pats))))
 
 
+(defcustom mu-seq-pattern-force-list nil
+  "Controls if seq `mu-case' pattern should always produce
+subsequences of type 'list even if they resulted from matching a
+subsequence of a vector. Set it to 'list if you don't care
+whether you're matching lists or vectors and want any pattern
+variable bound to subsequence to be a list."
+  :options '(list nil))
+
+
+(defun mu--seq-split-and-pad (seq pat-len)
+  (let* ((type (case (type-of seq)
+                 (cons 'list)
+                 (vector 'vector)
+                 (otherwise (mu-error
+                             "in mu-case seq pattern applied to unrecognized type %s"
+                             (type-of seq)))))
+         ;; TODO replace with loop that also counts elements?
+         (subseq (seq-take seq pat-len))
+         (took (length subseq))
+         (less-by (- pat-len took)))
+    ;; return (list padded-head-seq rest-seq)
+    (list (if (< took pat-len)
+              ;; pad head with nils
+              (seq-concatenate type subseq (make-list less-by nil))
+            subseq)
+          ;; rest: empty if seq was shorter than patterns
+          (seq-subseq seq took))))
+
+
 (mu-defpattern seq (&rest patterns)
   "`mu-case' pattern to match lists and vectors alike. Match as
 many patterns against the sequence as possible: fewer patterns
@@ -239,39 +262,56 @@ supports the &rest pattern to match the remaining elements."
   ;; taking as many elements from the original as there're patterns. If the
   ;; sequence has fewer elements than the patterns, simply fill with nils. Now
   ;; match patterns against that newly built
+  (if patterns
+      (let* ((split (-split-on '&rest patterns))
+             (head (car split))
+             (rest (cadr split))
+             (rest? (when rest t))
+             (pat-len (length (if rest? head patterns)))
+             (head-seq `(lambda (seq) (car (mu--seq-split-and-pad seq ,pat-len))))
+             (rest-seq `(lambda (seq) (cadr (mu--seq-split-and-pad seq ,pat-len))))
+             (pred-seq-pat `(or (pred listp) (pred vectorp)))
+             (empty-seq-pat `(or (lst) (vec))))
+        (when (> (length rest) 1)
+          (mu-error "in mu-case malformed &rest pattern %S" rest))
+        (if rest?
+            `(and ,pred-seq-pat
+                  ;; head pattern
+                  (app ,head-seq
+                       ,(if (null head)
+                            empty-seq-pat
+                          `(seq ,@head)))
+                  ;; rest pattern
+                  (app ,rest-seq ,@rest))
+          `(and ,pred-seq-pat
+                (app ,head-seq (or (lst ,@head)
+                                   (vec ,@head))))))
+    ;; empty seq-pattern
+    `(or (lst) (vec))))
+
+
+(mu-defpattern l (&rest patterns)
+  "`mu-case' pattern to match vectors but allows &rest matching."
+  ;; Basic idea: keep splitting PATTERNS at &rest and recursing into chunks. Chunk
+  ;; with no &rest should produce a vec-pattern to break recursion.
   (let* ((split (-split-on '&rest patterns))
          (head (car split))
          (rest (cadr split))
          (rest? (when rest t))
-         (pat-len (length (if rest? head patterns)))
-         (take `(lambda (seq)
-                  (let* ((type (case (type-of seq)
-                                 (cons 'list)
-                                 (vector 'vector)
-                                 (otherwise (mu-error
-                                             "in mu-case seq pattern applied to unrecognized type %s"
-                                             (type-of seq)))))
-                         ;; TODO replace with loop that also counts elements?
-                         (subseq (seq-take seq ,pat-len))
-                         (took (length subseq))
-                         (less-by (- ,pat-len took)))
-                    (cond
-                     ;; sequence being matched is shorter than patterns
-                     ((< took ,pat-len) (seq-concatenate type subseq (make-list less-by nil)))
-                     ;; seq has at least as many elements as patterns and our's is
-                     ;; a &rest pattern, then reattach the rest of the seq, so
-                     ;; that the &rest pattern can try to match
-                     (,rest? (seq-concatenate type subseq (seq-subseq seq took)))
-                     ;; seq has at least as many elements as patterns
-                     (:else subseq))))))
-    `(and (or (pred vectorp)
-              (pred listp))
-          (app ,take (or
-                      ;; reconstruct list pattern
-                      (l ,@head ,@(if rest? (cons '&rest rest) rest))
-                      ;; reconstruct vector pattern
-                      ;; TODO &rest pattern for vectors not done yet
-                      (v ,@head ,@(if rest? (cons '&rest rest) rest)))))))
+         (pat-len (length (if rest? head patterns))))
+    (when (> (length rest) 1)
+      (mu-error "in mu-case malformed &rest pattern %S" rest))
+    (if rest?
+        `(and (pred listp)
+              (app (lambda (l) (seq-take l ,pat-len))
+                   ,(if (null head)
+                        ;; no patterns before &rest or at all - match with empty lst
+                        `(lst)
+                      ;; shove head patterns into a l-pattern and match against that
+                      `(l ,@head)))
+              (app (lambda (l) (seq-subseq l ,pat-len)) ,@rest))
+      `(and (pred listp)
+            (lst ,@head)))))
 
 
 (mu-defpattern v (&rest patterns)
@@ -283,6 +323,8 @@ supports the &rest pattern to match the remaining elements."
          (rest (cadr split))
          (rest? (when rest t))
          (pat-len (length (if rest? head patterns))))
+    (when (> (length rest) 1)
+      (mu-error "in mu-case malformed &rest pattern %S" rest))
     (if rest?
         `(and (pred vectorp)
               (app (lambda (v) (seq-take v ,pat-len))
