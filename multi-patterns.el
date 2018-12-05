@@ -3,6 +3,7 @@
 
 (require 'cl)
 
+;; TODO (declare (debug ..))
 
 ;; TODO Should I alias mu-case as (mu ...)? Would make it occupy less space and
 ;; hopefully foster more frequent use?
@@ -111,12 +112,14 @@ passing the rest of ARGS to the message.
 
 
 (defmacro mu-case (e &rest clauses)
-  "`pcase' like matching and destructuring with less noise."
+  "`pcase'-like matching and destructuring with less noise."
   (declare (indent 1))
-  ;; NOTE without this prop being set I get "eager macro expansion failure", I
-  ;; don't really understand why the code here runs on load file but whatever.
+
+  ;; storage for patterns defined with `mu-defpattern'
   (unless (get 'mu-case :mu-patterns)
     (define-symbol-prop 'mu-case :mu-patterns (ht)))
+
+  ;; hack to propagate expansion time errors to runtime
   (condition-case err
       `(pcase ,e
          ,@(mapcar #'mu-case--clause clauses))
@@ -133,8 +136,7 @@ passing the rest of ARGS to the message.
 
 
 (defun mu-case--init (pat)
-  "Generate a pcase pattern from a mu-case pattern assuming an
-unquoted context."
+  "Translate mu-pat into pcase-pat assuming in unquoted context"
   (pcase pat
     ('otherwise               pat)
     ((pred symbolp)           pat)
@@ -154,36 +156,34 @@ unquoted context."
     ;; mu-defpatterns
     (`(,(and id (pred symbolp)) . ,pats)
      (if-let ((macro (ht-get (get 'mu-case :mu-patterns) id)))
-         ;; known mu-case-pattern: expand, recurse
+         ;; registered pattern
          (mu-case--init (apply macro pats))
-       ;; unknown pattern: do nothing
+       ;; unknown pattern
        pat))
     ((pred listp)             pat)
     ((pred atom)              pat)
-    (otherwise
-     (mu-error :pattern pat))))
+    (otherwise                (mu-error :pattern pat))))
 
 
 (defun mu-case--inside (pat)
-  "Generate a pcase pattern from a mu-case pattern assuming an
-quoted context i.e. a list matching pattern."
+  "Translate mu-pat into pcase-pat assuming in quoted context"
   (pcase pat
-    ('() '())
+    ('()                      '())
     ;; empty list
-    (`(lst) '())
+    (`(lst)                   '())
     ;; empty vector
-    (`(vec) [])
+    (`(vec)                   [])
     ;; list pattern
-    (`(lst . ,pats) (if (some #'mu--rest? pats)
-                        ;; TODO this check might be expensive, should we do it?
-                        (mu-error :lst-pattern pats)
-                      (mapcar #'mu-case--inside pats)))
+    (`(lst . ,pats)           (if (some #'mu--rest? pats)
+                                  ;; TODO this check might be expensive, should we do it?
+                                  (mu-error :lst-pattern pats)
+                                (mapcar #'mu-case--inside pats)))
     ;; vector pattern
-    (`(vec . ,pats) (if (some #'mu--rest? pats)
-                        (mu-error :vec-pattern pats)
-                      (seq-into (mapcar #'mu-case--inside pats) 'vector)))
+    (`(vec . ,pats)           (if (some #'mu--rest? pats)
+                                  (mu-error :vec-pattern pats)
+                                (seq-into (mapcar #'mu-case--inside pats) 'vector)))
     ;; seq pattern
-    ((pred vectorp) (list '\, (mu-case--init `(seq ,@(seq-into pat 'list)))))
+    ((pred vectorp)           (list '\, (mu-case--init `(seq ,@(seq-into pat 'list)))))
     ;; quoted symbol
     (`(quote ,(pred symbolp)) (cadr pat))
     ((pred keywordp)          pat)
@@ -191,31 +191,32 @@ quoted context i.e. a list matching pattern."
     ;; TODO do I need to check for an empty list here?
     ((pred listp)             (list '\, (mu-case--init pat)))
     ((pred atom)              pat)
-    (otherwise
-     (mu-error :pattern pat))))
+    (otherwise                (mu-error :pattern pat))))
 
 
 ;;* mu-defpattern ------------------------------------------------- *;;
 
 
-;; NOTE All we do here is wrap user macro into a (lambda (ARGLIST) BODY) and store
-;; it in the hash-table in mu-case's plist under :mu-patterns slot. Whenever
-;; `mu-case' encounters a (NAME PATTERNS) pattern it looks up the NAME in its
-;; :mu-patterns property and calls (apply (lambda (ARGLIST) BODY) PATTERNS)
+;; NOTE All we do here is wrap user "macro" into a (lambda (ARGLIST) BODY) and
+;; store it in the hash-table stored in mu-case's plist under :mu-patterns slot.
+;; Whenever `mu-case' encounters a (NAME PATTERNS) pattern it looks up the NAME in
+;; its :mu-patterns property and calls (apply (lambda (ARGLIST) BODY) PATTERNS)
 ;; which must produce a valid mu-case pattern. So, techincally the user doesn't
 ;; really define a macro so much as a function that takes patterns and must
-;; generate a mu-case pattern, that is `mu-case' effectively plays the role
-;; of a "macro expander" by simply invoking the function the user provided at
-;; compile time.
+;; generate a mu-case pattern, that is `mu-case' effectively plays the role of a
+;; "macro expander" by simply invoking the function the user provided at compile
+;; time.
+
+
 (defmacro mu-defpattern (name arglist &optional docstring &rest body)
   "Define a new kind of mu-case PATTERN. Patterns of the
 form (NAME &rest PATTERNS) will be expanded by this macro with
 PATTERS bound according to the ARGLIST. Macro expansion must
-produce a valid `mu-case' pattern. The macro is allowed to
-throw `mu-error' to signal improper use of the pattern. This
-will be handled correctly to inform the user. Optional DOCSTRING
-maybe supplied for the convenience of other programmers reading
-your macro code.
+produce a valid `mu-case' pattern. The macro is allowed to throw
+`mu-error' to signal improper use of the pattern. This will be
+handled correctly to inform the user. Optional DOCSTRING maybe
+supplied for the convenience of other programmers reading your
+macro code.
 
 \(fn NAME ARGLIST &optional DOCSTRING &rest BODY)"
   (declare (doc-string 3) (indent 2))
@@ -261,10 +262,10 @@ your macro code.
 
 
 (mu-defpattern ht (&rest patterns)
-  "`mu-case' pattern to match hash-tables and alists. ht
-expects to receive key-patterns that would be used to lookup and
-bind corresponding values in the hash-table or alist being
-matched. Possible key-patterns are:
+  "`mu-case' pattern to match hash-tables and alists. ht expects
+to receive key-patterns that would be used to lookup and bind
+corresponding values in the hash-table or alist being matched.
+Possible key-PATTERNS are:
 
   :a or a  - try keys in order :a, 'a and bind to a,
   'a       - try keys in order 'a, :a and bind to a,
@@ -320,7 +321,7 @@ supports the &rest pattern to match the remaining elements."
   ;; Basic idea: instead of trying to match the sequence, build a new sequence by
   ;; taking as many elements from the original as there're patterns. If the
   ;; sequence has fewer elements than the patterns, simply fill with nils. Now
-  ;; match patterns against that newly built
+  ;; match patterns against that newly built seq.
   (if patterns
       (let* ((split (mu--split-when #'mu--rest? patterns))
              (head (car split))
@@ -330,8 +331,10 @@ supports the &rest pattern to match the remaining elements."
         (when (> (length rest) 1)
           (mu-error :rest-pattern rest))
         (if rest?
+            ;; match head and rest
             `(app (lambda (seq) (mu--seq-split-and-pad seq ,pat-len))
                   (lst (or (lst ,@head) (vec ,@head)) ,@rest))
+          ;; match head only
           `(app (lambda (seq) (car (mu--seq-split-and-pad seq ,pat-len)))
                 (or (lst ,@head) (vec ,@head)))))
     ;; empty seq-pattern
@@ -347,9 +350,9 @@ supports the &rest pattern to match the remaining elements."
 
 
 (mu-defpattern l (&rest patterns)
-  "`mu-case' pattern to match vectors but allows &rest matching."
+  "`mu-case' list-pattern that allows &rest matching"
   ;; Basic idea: keep splitting PATTERNS at &rest and recursing into chunks. Chunk
-  ;; with no &rest should produce a vec-pattern to break recursion.
+  ;; with no &rest should produce a lst-pattern to break recursion.
   (if patterns
       (let* ((split (mu--split-when #'mu--rest? patterns))
              (head (car split))
@@ -359,18 +362,19 @@ supports the &rest pattern to match the remaining elements."
         (when (> (length rest) 1)
           (mu-error :rest-pattern rest))
         (if rest?
+            ;; match head and rest
             `(and (pred listp)
                   (app (lambda (l) (mu--seq-split l ,pat-len))
                        (lst (lst ,@head) ,@rest)))
+          ;; match head only
           `(and (pred listp)
                 (lst ,@head))))
     `(lst)))
 
 
 (mu-defpattern v (&rest patterns)
-  "`mu-case' pattern to match vectors but allows &rest matching."
-  ;; Basic idea: keep splitting PATTERNS at &rest and recursing into chunks. Chunk
-  ;; with no &rest should produce a vec-pattern to break recursion.
+  "`mu-case' vector-pattern that allows &rest matching"
+  ;; Basic idea: just like l-pattern
   (if patterns
       (let* ((split (mu--split-when #'mu--rest? patterns))
              (head (car split))
@@ -393,9 +397,9 @@ supports the &rest pattern to match the remaining elements."
 
 (defcustom mu-let-parens 'yes
   "Controls if `mu-let' shoud have a set of parens around each
-binding clause like normal `let': t (default) - yes, nil - no,
-square - no extra parens, but the entire set of bindings must be
-in [] instead of ()."
+binding clause like normal `let': 'yes (default), 'no, 'square -
+no extra parens, but the entire set of bindings must be inside []
+instead of ()."
   :options '(yes no square))
 
 
@@ -448,8 +452,7 @@ in [] instead of ()."
 
 
 (defmacro mu-let (bindings &rest body)
-  "Like `let*' but allows mu-case patterns in place of
-identifiers being bound."
+  "Like `let*' but allow mu-case patterns to bind variables"
   (declare (indent 1))
   (condition-case err
       (mu--let (mu--let-bindings bindings) body)
@@ -457,8 +460,7 @@ identifiers being bound."
 
 
 (defmacro mu-when-let (bindings &rest body)
-  "Like `when-let*' but allows mu-case patterns in place of
-identifiers being bound."
+  "Like `when-let*' but allow mu-case patterns to bind variables"
   (declare (indent 1))
   (condition-case err
       (mu--when-let (mu--let-bindings bindings) body)
@@ -466,8 +468,7 @@ identifiers being bound."
 
 
 (defmacro mu-if-let (bindings then-body &rest else-body)
-  "Like `if-let*' but allows mu-case patterns in place of
-identifiers being bound."
+  "Like `if-let*' but allow mu-case patterns to bind variables"
   (declare (indent 2))
   (condition-case err
       (mu--if-let (mu--let-bindings bindings) then-body else-body)
@@ -477,9 +478,12 @@ identifiers being bound."
 ;;* mu-defun ------------------------------------------------------ *;;
 
 
+;; TODO re-write `mu-defun' functions with `mu-let'
+
+
 (defun mu--defun-meta (body &optional map)
-  "Parses mu-defun and mu-defmacro preamble for atribute
-declarations. Returns a hash-table."
+  "Return a hash-table of attributes parsed from `mu-defun' or
+`mu-defmacro' preamble"
   (default map :to (ht))
   (cond
    ((keywordp (car body)) (ht-set map (pop body) (pop body)) (mu--defun-meta body map))
@@ -487,9 +491,9 @@ declarations. Returns a hash-table."
 
 
 (defun mu--defun-sig (split-args body &optional doc sig sigs)
-  "Creates a docstring from DOC adding signature SIG if supplied
+  "Create a docstring from DOC adding signature SIG if supplied
 and extra signatures either supplied or generated from the
-arglist and mu-case patterns in the BODY."
+arglist and `mu-case' patterns in the BODY."
   (default doc :to "")
   (let* ((head (car split-args))
          (tail (cadr split-args))
