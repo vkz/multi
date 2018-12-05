@@ -552,8 +552,17 @@ message prefix matches PREFIX"
 (ert-deftest mu-test-mu-case-rest-patterns ()
   "Mu-Case should allow matching the rest of a list"
 
+  ;; &rest separator should work
   (should (equal '(b c) (mu-case '(a b c)
                           ((l 'a &rest tail) tail))))
+
+  ;; | separator should work
+  (should (equal '(b c) (mu-case '(a b c)
+                          ((l 'a | tail) tail))))
+
+  ;; & separator should work
+  (should (equal '(b c) (mu-case '(a b c)
+                          ((l 'a & tail) tail))))
 
   (should (equal 'c (mu-case '(a b c)
                       ((l 'a &rest (l 'b last)) last))))
@@ -569,19 +578,19 @@ message prefix matches PREFIX"
                              (list x y (or z 'none))))))
 
   ;; destructuring nested list in &rest should work
-   (should (equal '(1 2 3) (mu-case '(1 (2 3))
-                             ((l a &rest (l (l b c))) (list a b c)))))
+  (should (equal '(1 2 3) (mu-case '(1 (2 3))
+                            ((l a &rest (l (l b c))) (list a b c)))))
 
-   (should (equal '(1 2 3 (4)) (mu-case '((1 (2 3)) 4)
-                                 ((l (l a &rest (l (l b c))) &rest d) (list a b c d)))))
+  (should (equal '(1 2 3 (4)) (mu-case '((1 (2 3)) 4)
+                                ((l (l a &rest (l (l b c))) &rest d) (list a b c d)))))
 
-   ;; ditto for vectors
-   (should (equal '(1 2 3 [4]) (mu-case [[1 [2 3]] 4]
-                                 ((v (v a &rest (v (v b c))) &rest d) (list a b c d)))))
+  ;; ditto for vectors
+  (should (equal '(1 2 3 [4]) (mu-case [[1 [2 3]] 4]
+                                ((v (v a &rest (v (v b c))) &rest d) (list a b c d)))))
 
 
   ;; TODO contrived pattern, but probably shouldn't fail
-   (comment (should (equal '(1 2) (mu-case '(1 2) ((l &rest tail) tail))))))
+  (comment (should (equal '(1 2) (mu-case '(1 2) ((l &rest tail) tail))))))
 
 
 (ert-deftest mu-test-mu-case-nested-list-patterns ()

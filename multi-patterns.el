@@ -4,37 +4,71 @@
 (require 'cl)
 
 
-;; TODO We match lists with [], vectors with '[], sequences with (seq ...). Since
-;; seq-pattern works for both, a reasonable question to ask is why not match
-;; sequences with []? So, something like that:
-;;
-;; - sequence with [],
-;; - list     with (list ...), or (l ...)
-;; - vector   with (vec ...),  or (v ...).
-;;
-;; Is this more concise? More natural?
-
-;; TODO (mu-defpattern vec (&rest patterns)) and probably remove '[] from mu--case
-
-;; TODO &rest pattern for vectors
-
 ;; TODO Should I alias mu-case as (mu ...)? Would make it occupy less space and
 ;; hopefully foster more frequent use?
 
-;; TODO Also allow | instead of &rest, which gets much too heavy when matching
-;; alists
-
-;; TODO we can redeem sequential nature of pattern matching so it works for list
-;; and vectors alike simply by replacing any seq pattern with an app-pattern like
-;; so (app (fn (v) (seq-into v 'list))). Probably results in some overhead, so
-;; make it optional? Looks like pcase has a (seq pat ...) but it has funky
-;; semantics in the way it handles seq tails. We could allow it or build on it.
+;; TODO byte-compile and test for time
 
 ;; NOTE Although `mu-case--init' and `mu-case--inside' are superficially the
 ;; same we need both because `mu-case--inside' assumes to be inside backquoted
 ;; pattern e.g. `(,foo ,bar) in pcase syntax or [foo bar] in our dsl , while
 ;; `mu-case--init' assumes to work either outside of a backquoted context or
 ;; inside of an unquoted pattern.
+
+
+;;* Prelude ------------------------------------------------------- *;;
+
+
+;; TODO (ht), other prelude.el that's used
+
+
+(defun mu--split-when (pred lst)
+  "Partition the list LST on every item that satisfies predicate
+PRED. Do not include such items into partitions. Return a list of
+partitions."
+  (cl-loop for item in lst
+           if (funcall pred item)
+           collect partition into partitions
+           and do (setq partition '())
+           else
+           collect item into partition
+           finally return (nconc partitions (list partition))))
+
+(comment
+
+ ;; NOTE Dash's `-split-when' may on occasion be a tiny bit faster, because it
+ ;; uses a destructive `!cdr' to update the list in a while loop. If you
+ ;; macro-expand my cl-loop above u'd see the body that's almost exactly like
+ ;; -split-when and in fact I could re-write the above my loop to be 100% like the
+ ;; -split-when except the !cdr part but it'd make it less readable.
+
+ (byte-compile 'mu--split-when)
+ (byte-compile '-split-when)
+
+ (list
+  (mu-test-time
+    (dotimes (_ 1000)
+      (list
+       (mu--split-when #'mu--rest? '(a b &rest c d &rest e f))
+       (mu--split-when #'mu--rest? '(&rest c d &rest e f))
+       (mu--split-when #'mu--rest? '(a b &rest c d &rest))
+       (mu--split-when #'mu--rest? '())
+       (mu--split-when #'mu--rest? '(&rest))
+       (mu--split-when #'mu--rest? '(a b)))))
+
+
+  (mu-test-time
+    (dotimes (_ 1000)
+      (list
+       (-split-when #'mu--rest? '(a b &rest c d &rest e f))
+       (-split-when #'mu--rest? '(&rest c d &rest e f))
+       (-split-when #'mu--rest? '(a b &rest c d &rest))
+       (-split-when #'mu--rest? '())
+       (-split-when #'mu--rest? '(&rest))
+       (-split-when #'mu--rest? '(a b))))))
+
+ ;; comment
+ )
 
 
 ;;* mu-error ------------------------------------------------------ *;;
@@ -72,6 +106,11 @@ exactly like `error'
   `(,(mu-case--init pat) ,@body))
 
 
+(defun mu--rest? (item)
+  "Test if the ITEM is a `&rest'-like separator"
+  (memq item '(| & &rest)))
+
+
 (defun mu-case--init (pat)
   "Generate a pcase pattern from a mu-case pattern assuming an
 unquoted context."
@@ -84,22 +123,20 @@ unquoted context."
     (`(vec . ,_)              (list '\` (mu-case--inside pat)))
     ;; seq pattern
     ((pred vectorp)           (mu-case--init `(seq ,@(seq-into pat 'list))))
+    ;; standard pcase patterns
     (`(or . ,pats)            (cons 'or (mapcar #'mu-case--init pats)))
     (`(and . ,pats)           (cons 'and (mapcar #'mu-case--init pats)))
     (`(app ,fun ,pat)         (list 'app fun (mu-case--init pat)))
     (`(let ,pat ,exp)         (list 'let (mu-case--init pat) exp))
+    ;; quoted symbol
     (`(quote ,(pred symbolp)) pat)
-    ;; registered mu-case-pattern
-    (`(,(and id (pred symbolp))
-       .
-       ,pats)                  (if-let ((macro
-                                         (ht-get
-                                          (get 'mu-case :mu-patterns)
-                                          id)))
-                                   ;; known mu-case-pattern: expand, recurse
-                                   (mu-case--init (apply macro pats))
-                                 ;; unknown pattern: do nothing
-                                 pat))
+    ;; mu-defpatterns
+    (`(,(and id (pred symbolp)) . ,pats)
+     (if-let ((macro (ht-get (get 'mu-case :mu-patterns) id)))
+         ;; known mu-case-pattern: expand, recurse
+         (mu-case--init (apply macro pats))
+       ;; unknown pattern: do nothing
+       pat))
     ((pred listp)             pat)
     ((pred atom)              pat)
     (otherwise
@@ -111,19 +148,22 @@ unquoted context."
 quoted context i.e. a list matching pattern."
   (pcase pat
     ('() '())
-    ;; match empty list
+    ;; empty list
     (`(lst) '())
-    ;; match empty vector
+    ;; empty vector
     (`(vec) [])
-    ;; TODO replace `-split-on' with some cl- combo
-    (`(lst . ,pats) (if (memq '&rest pats)
+    ;; list pattern
+    (`(lst . ,pats) (if (some #'mu--rest? pats)
+                        ;; TODO this check might be expensive, should we do it?
                         (mu-error "in mu-case lst-pattern doesn't support &rest, use l-pattern instead in: %S" pats)
                       (mapcar #'mu-case--inside pats)))
-    (`(vec . ,pats) (if (memq '&rest pats)
-                        ;; vector pattern always has pre-defined length, so no &rest support
+    ;; vector pattern
+    (`(vec . ,pats) (if (some #'mu--rest? pats)
                         (mu-error "in mu-case vec-pattern doesn't support &rest, use v-pattern instead in: %S" pats)
                       (seq-into (mapcar #'mu-case--inside pats) 'vector)))
+    ;; seq pattern
     ((pred vectorp) (list '\, (mu-case--init `(seq ,@(seq-into pat 'list)))))
+    ;; quoted symbol
     (`(quote ,(pred symbolp)) (cadr pat))
     ((pred keywordp)          pat)
     ((pred symbolp)           (list '\, pat))
@@ -199,7 +239,6 @@ your macro code.
      (mu-error "in mu-case malformed ht pattern in %S" patterns))))
 
 
-;; TODO this should probably be called t-pattern, not ht-pattern
 (mu-defpattern ht (&rest patterns)
   "`mu-case' pattern to match hash-tables and alists. ht
 expects to receive key-patterns that would be used to lookup and
@@ -222,6 +261,7 @@ Example:
          (and (pred listp) ,@alist-pats))))
 
 
+;; TODO force-list in seq-patterns
 (defcustom mu-seq-pattern-force-list nil
   "Controls if seq `mu-case' pattern should always produce
 subsequences of type 'list even if they resulted from matching a
@@ -263,7 +303,7 @@ supports the &rest pattern to match the remaining elements."
   ;; sequence has fewer elements than the patterns, simply fill with nils. Now
   ;; match patterns against that newly built
   (if patterns
-      (let* ((split (-split-on '&rest patterns))
+      (let* ((split (mu--split-when #'mu--rest? patterns))
              (head (car split))
              (rest (cadr split))
              (rest? (when rest t))
@@ -292,7 +332,7 @@ supports the &rest pattern to match the remaining elements."
   ;; Basic idea: keep splitting PATTERNS at &rest and recursing into chunks. Chunk
   ;; with no &rest should produce a vec-pattern to break recursion.
   (if patterns
-      (let* ((split (-split-on '&rest patterns))
+      (let* ((split (mu--split-when #'mu--rest? patterns))
              (head (car split))
              (rest (cadr split))
              (rest? (when rest t))
@@ -313,7 +353,7 @@ supports the &rest pattern to match the remaining elements."
   ;; Basic idea: keep splitting PATTERNS at &rest and recursing into chunks. Chunk
   ;; with no &rest should produce a vec-pattern to break recursion.
   (if patterns
-      (let* ((split (-split-on '&rest patterns))
+      (let* ((split (mu--split-when #'mu--rest? patterns))
              (head (car split))
              (rest (cadr split))
              (rest? (when rest t))
@@ -462,7 +502,7 @@ arglist and mu-case patterns in the BODY."
 (defun mu--defun (fun-type name arglist body)
   (declare (indent defun))
   (let* ((meta           (mu--defun-meta body))
-         (split-args     (-split-on '&rest arglist))
+         (split-args     (mu--split-when #'mu--rest? arglist))
          (head-args      (car split-args))
          (rest-arg       (car (cadr split-args)))
          (body           (ht-get meta :body))
