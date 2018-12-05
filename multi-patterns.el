@@ -28,10 +28,10 @@ PRED. Do not include such items into partitions. Return a list of
 partitions."
   (cl-loop for item in lst
            if (funcall pred item)
-           collect partition into partitions
-           and do (setq partition '())
+             collect partition into partitions
+             and do (setq partition '())
            else
-           collect item into partition
+             collect item into partition
            finally return (nconc partitions (list partition))))
 
 (comment
@@ -77,13 +77,34 @@ partitions."
 (define-error 'mu-error "mu-error")
 
 
+(defconst mu--errors
+  (ht
+   (:lst-pattern     '("in mu-case lst-pattern doesn't support &rest,"
+                       " use l-pattern instead in: %S"))
+   (:vec-pattern     '("in mu-case vec-pattern doesn't support &rest,"
+                       " use v-pattern instead in: %S"))
+   (:pattern         '("in mu-case unrecognized pattern %S"))
+   (:ht-pattern      '("in mu-case malformed ht pattern in %S"))
+   (:seq-pattern     '("in mu-case seq pattern applied to unrecognized type %s"))
+   (:rest-pattern    '("in mu-case malformed &rest pattern %S"))
+   (:let-malformed   '("in mu-let malformed binding list in %S"))
+   (:defun-malformed '("in mu-defun/macro malformed arglist has no"
+                       " &rest argument in %S"))))
+
+
 (defun mu-error (&rest args)
   "Signals errors specific to `multi' library. Can be caught with
 'mu-error ERROR-SYMBOL in `condition-case', otherwise behaves
-exactly like `error'
+exactly like `error'. Alternatively takes a keyword as the first
+ARG to lookup corresponding error-msg in the `mu--errors' table,
+passing the rest of ARGS to the message.
 
 \(fn string &rest args)"
-  (signal 'mu-error (list (apply #'format-message args))))
+  (if-let ((msgs (ht-get mu--errors (car args))))
+      (signal 'mu-error (list (apply #'format-message
+                                     (string-join msgs "")
+                                     (cdr args))))
+    (signal 'mu-error (list (apply #'format-message args)))))
 
 
 ;;* mu-case ------------------------------------------------------- *;;
@@ -140,7 +161,7 @@ unquoted context."
     ((pred listp)             pat)
     ((pred atom)              pat)
     (otherwise
-     (mu-error "in mu-case unrecognized pattern %S" pat))))
+     (mu-error :pattern pat))))
 
 
 (defun mu-case--inside (pat)
@@ -155,11 +176,11 @@ quoted context i.e. a list matching pattern."
     ;; list pattern
     (`(lst . ,pats) (if (some #'mu--rest? pats)
                         ;; TODO this check might be expensive, should we do it?
-                        (mu-error "in mu-case lst-pattern doesn't support &rest, use l-pattern instead in: %S" pats)
+                        (mu-error :lst-pattern pats)
                       (mapcar #'mu-case--inside pats)))
     ;; vector pattern
     (`(vec . ,pats) (if (some #'mu--rest? pats)
-                        (mu-error "in mu-case vec-pattern doesn't support &rest, use v-pattern instead in: %S" pats)
+                        (mu-error :vec-pattern pats)
                       (seq-into (mapcar #'mu-case--inside pats) 'vector)))
     ;; seq pattern
     ((pred vectorp) (list '\, (mu-case--init `(seq ,@(seq-into pat 'list)))))
@@ -171,7 +192,7 @@ quoted context i.e. a list matching pattern."
     ((pred listp)             (list '\, (mu-case--init pat)))
     ((pred atom)              pat)
     (otherwise
-     (mu-error "in mu-case unrecognized pattern %S" pat))))
+     (mu-error :pattern pat))))
 
 
 ;;* mu-defpattern ------------------------------------------------- *;;
@@ -236,7 +257,7 @@ your macro code.
        ,@(mu--ht-pattern pats)))
 
     (otherwise
-     (mu-error "in mu-case malformed ht pattern in %S" patterns))))
+     (mu-error :ht-pattern patterns))))
 
 
 (mu-defpattern ht (&rest patterns)
@@ -275,9 +296,7 @@ variable bound to subsequence to be a list."
   (let* ((type (case (type-of seq)
                  (cons 'list)
                  (vector 'vector)
-                 (otherwise (mu-error
-                             "in mu-case seq pattern applied to unrecognized type %s"
-                             (type-of seq)))))
+                 (otherwise (mu-error :seq-pattern (type-of seq)))))
          ;; TODO replace with loop that also counts elements?
          (subseq (seq-take seq pat-len))
          (took (length subseq))
@@ -309,7 +328,7 @@ supports the &rest pattern to match the remaining elements."
              (rest? (when rest t))
              (pat-len (length (if rest? head patterns))))
         (when (> (length rest) 1)
-          (mu-error "in mu-case malformed &rest pattern %S" rest))
+          (mu-error :rest-pattern rest))
         (if rest?
             `(app (lambda (seq) (mu--seq-split-and-pad seq ,pat-len))
                   (lst (or (lst ,@head) (vec ,@head)) ,@rest))
@@ -338,7 +357,7 @@ supports the &rest pattern to match the remaining elements."
              (rest? (when rest t))
              (pat-len (length (if rest? head patterns))))
         (when (> (length rest) 1)
-          (mu-error "in mu-case malformed &rest pattern %S" rest))
+          (mu-error :rest-pattern rest))
         (if rest?
             `(and (pred listp)
                   (app (lambda (l) (mu--seq-split l ,pat-len))
@@ -359,7 +378,7 @@ supports the &rest pattern to match the remaining elements."
              (rest? (when rest t))
              (pat-len (length (if rest? head patterns))))
         (when (> (length rest) 1)
-          (mu-error "in mu-case malformed &rest pattern %S" rest))
+          (mu-error :rest-pattern rest))
         (if rest?
             `(and (pred vectorp)
                   (app (lambda (v) (mu--seq-split v ,pat-len))
@@ -386,7 +405,7 @@ in [] instead of ()."
          (val (cadr pair)))
     (cond
      (pair (unless (= 2 (length pair))
-             (mu-error "in mu-let malformed binding list in %S" pair))
+             (mu-error :let-malformed pair))
            `(mu-case ,val
               (,pat ,(mu--let (cdr bindings) body))
               (otherwise ,(mu--let (cdr bindings) body))))
@@ -400,7 +419,7 @@ in [] instead of ()."
          (val (cadr pair)))
     (cond
      (pair (unless (= 2 (length pair))
-             (mu-error "in mu-when-let malformed binding list in %S" pair))
+             (mu-error :let-malformed pair))
            `(mu-case ,val
               (,pat ,(mu--when-let (cdr bindings) body))))
      (:else
@@ -413,7 +432,7 @@ in [] instead of ()."
          (val (cadr pair)))
     (cond
      (pair (unless (= 2 (length pair))
-             (mu-error "in mu-if-let malformed binding list in %S" pair))
+             (mu-error :let-malformed pair))
            `(mu-case ,val
               (,pat ,(mu--if-let (cdr bindings) then-body else-body))
               (otherwise (progn ,@else-body))))
@@ -512,10 +531,7 @@ arglist and mu-case patterns in the BODY."
          (dspec          (ht-get meta :declare))
          (ispec          (ht-get meta :interactive)))
     (if (or (not rest-arg) (not (symbolp rest-arg)))
-
-        `(mu-error "in mu-defun/macro malformed arglist has no &rest argument in %S"
-                   ',arglist)
-
+        `(mu-error :defun-malformed ',arglist)
       `(,fun-type
         ,name ,arglist
         ,(mu--defun-sig split-args body doc sig sigs)
