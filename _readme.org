@@ -1,0 +1,92 @@
+#+OPTIONS: author:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: prop:nil
+#+OPTIONS: d:nil
+
+#+EXPORT_FILE_NAME: README.org
+#+TITLE: Multi-methods and multi-patterns for Emacs Lisp
+
+#+PROPERTY: header-args :exports code :results none :cache no
+#+PROPERTY: header-args:emacs-lisp :tangle ./_readme-tests.el
+#+PROPERTY: header-args:emacs-lisp+ :noeval
+
+* Order of actions                                                 :noexport:
+
+- org-babel-execute-buffer to setup tangle-body-hook,
+- org-babel-tangle into readme.el,
+- batch run tests in reademe.el,
+- org export as org into README.org,
+- git add README.org (see how dash.el does it)
+
+* Preamble that sets up the =org-babel-tangle-body-hook=           :noexport:
+
+We want to wrap every example in (example ..) macro when we tangle.
+
+#+begin_src emacs-lisp :exports none :results output silent :eval yes :tangle no
+  (defun mu-tangle-example ()
+    (goto-char (point-min))
+    (when (search-forward "=>" nil t)
+      (goto-char (point-min))
+      (let ((code nil))
+        (condition-case eof
+            (while t (push (read (current-buffer)) code))
+          (end-of-file nil))
+        (setq code (nreverse code))
+        (erase-buffer)
+        (dolist (ex (mapcar (lambda (e) (cons 'example e)) (seq-partition code 3)))
+          (insert (pp-to-string ex))
+          (newline)
+          (newline)))))
+
+  (add-hook 'org-babel-tangle-body-hook #'mu-tangle-example)
+
+  (message "README: `org-babel-tangle-body-hook' has been updated with `mu-tangle-example'")
+
+  (org-babel-tangle)
+  (load-file "_readme-tests.el")
+  (let ((stats (ert-run-tests-batch nil)))
+    (if (zerop (ert-stats-completed-unexpected stats))
+        (org-export-to-file 'org "README.org")
+      (error "README tests failed")))
+#+end_src
+
+* Tangle but don't eval or export                                  :noexport:
+
+Define (example ...) macro that will generate ert test cases from our examples.
+
+#+begin_src emacs-lisp :exports none
+  ;; -*- lexical-binding: t; -*-
+
+  (require 'ert)
+  (load-file "multi-patterns.el")
+
+  (ert-delete-all-tests)
+
+  (defmacro example (test _ expected)
+    `(ert-deftest ,(intern (symbol-name (gensym "example"))) ()
+       "test"
+       (should (equal ,expected ,test))))
+
+#+end_src
+
+* Example
+
+#+begin_src emacs-lisp
+
+  (mu-case '(a b c)
+    ((l 'a &rest tail) tail))
+  =>
+  '(b c)
+
+#+end_src
+
+* Another example
+
+#+begin_src emacs-lisp
+
+  (mu-case '(a b c)
+    ((l 'a &rest tail) tail))
+  =>
+  '(b c)
+
+#+end_src
