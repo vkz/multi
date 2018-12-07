@@ -7,20 +7,12 @@
 #+TITLE: Multi-methods and multi-patterns for Emacs Lisp
 
 #+PROPERTY: header-args :exports code :results none :cache no
-#+PROPERTY: header-args:emacs-lisp :tangle ./_readme-tests.el
+#+PROPERTY: header-args:emacs-lisp :tangle ./test-readme.el
 #+PROPERTY: header-args:emacs-lisp+ :noeval
 
-* Order of actions                                                 :noexport:
+* make-readme                                                      :noexport:
 
-- org-babel-execute-buffer to setup tangle-body-hook,
-- org-babel-tangle into readme.el,
-- batch run tests in reademe.el,
-- org export as org into README.org,
-- git add README.org (see how dash.el does it)
-
-* Preamble that sets up the =org-babel-tangle-body-hook=           :noexport:
-
-We want to wrap every example in (example ..) macro when we tangle.
+Simply run: =M-x org-babel-execute-buffer=
 
 #+begin_src emacs-lisp :exports none :results output silent :eval yes :tangle no
   (defun mu-tangle-example ()
@@ -38,21 +30,30 @@ We want to wrap every example in (example ..) macro when we tangle.
           (newline)
           (newline)))))
 
+  ;; hook that tangles an example into ert-tests
   (add-hook 'org-babel-tangle-body-hook #'mu-tangle-example)
-
   (message "README: `org-babel-tangle-body-hook' has been updated with `mu-tangle-example'")
 
+  ;; export to README.org
+  (require 'ox)
+  (org-export-to-file 'org "README.org")
+
+  ;; tangle examples into ert-tests
   (org-babel-tangle)
-  (load-file "_readme-tests.el")
-  (let ((stats (ert-run-tests-batch nil)))
-    (if (zerop (ert-stats-completed-unexpected stats))
-        (org-export-to-file 'org "README.org")
-      (error "README tests failed")))
+
+  ;; load tests
+  (load-file "test-readme.el")
+
+  ;; run tests
+  (if noninteractive
+      ;; exit emacs with 0 or 1 error-code
+      (ert-run-tests-batch-and-exit nil)
+    ;; test and show summary
+    (ert t)
+    (pop-to-buffer "*ert*"))
 #+end_src
 
-* Tangle but don't eval or export                                  :noexport:
-
-Define (example ...) macro that will generate ert test cases from our examples.
+* test-readme                                                      :noexport:
 
 #+begin_src emacs-lisp :exports none
   ;; -*- lexical-binding: t; -*-

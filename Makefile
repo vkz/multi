@@ -1,14 +1,16 @@
 .POSIX:
 .SUFFIXES:
 
+
 readme:
 	emacs -batch \
 	-l ~/.emacs.d/init.el \
 	-l ~/Code/drill/prelude.el \
-	-l ./_readme.el
+	-eval "(progn (find-file \"make-readme.org\") (org-babel-execute-buffer))"
+
 
 clean:
-	rm -f README.org _readme-tests.el
+	rm -f README.org test-readme.el
 
 
 
