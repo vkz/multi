@@ -521,31 +521,56 @@ arglist and `mu-case' patterns in the BODY."
      (concat doc sig))))
 
 
+(defun mu--simple-defun (fun-type name pattern body)
+  (let* ((args (gensym "args"))
+         (docstring (when (stringp (car body)) (list (car body))))
+         (body (if docstring (cdr body) body)))
+    `(defun ,name (&rest ,args)
+       ,@docstring
+       (mu-case ,args
+         (,pattern ,@body)
+         (otherwise
+          (multi-error "in foo: arguments do not satisfy the arglist pattern %S" ,args))))))
+
+
+(example
+ (mu-defun foobar [a b | tail]
+   "docstring"
+   (list a b tail))
+ (foobar 1 2 3)
+ ;; example
+ )
+
+
 ;; TODO gv-setter
 (defun mu--defun (fun-type name arglist body)
   (declare (indent defun))
-  (let* ((meta           (mu--defun-meta body))
-         (split-args     (mu--split-when #'mu--rest? arglist))
-         (head-args      (car split-args))
-         (rest-arg       (car (cadr split-args)))
-         (body           (ht-get meta :body))
-         (doc            (ht-get meta :doc))
-         (sig            (ht-get meta :sig))
-         (sigs           (ht-get meta :sigs))
-         (dspec          (ht-get meta :declare))
-         (ispec          (ht-get meta :interactive)))
-    (if (or (not rest-arg) (not (symbolp rest-arg)))
-        `(mu-error :defun-malformed ',arglist)
-      `(,fun-type
-        ,name ,arglist
-        ,(mu--defun-sig split-args body doc sig sigs)
-        ,@(when dspec `((declare ,@dspec)))
-        ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
-        ;; TODO what if I wrap the body in condition-case so that any mu-error
-        ;; maybe reported in terms of current function e.g. mu-defun or
-        ;; mu-defmacro in this case? Wonder how big of an overhead it'd be.
-        (mu-case ,rest-arg
-          ,@body)))))
+  (if (vectorp arglist)
+      ;; (mu-defun foo [pat] "doc" body)
+      (mu--simple-defun fun-type name arglist body)
+    ;; (mu-defun foo (arglist) attrs (pat body) ...)
+    (let* ((meta           (mu--defun-meta body))
+           (split-args     (mu--split-when #'mu--rest? arglist))
+           (head-args      (car split-args))
+           (rest-arg       (car (cadr split-args)))
+           (body           (ht-get meta :body))
+           (doc            (ht-get meta :doc))
+           (sig            (ht-get meta :sig))
+           (sigs           (ht-get meta :sigs))
+           (dspec          (ht-get meta :declare))
+           (ispec          (ht-get meta :interactive)))
+      (if (or (not rest-arg) (not (symbolp rest-arg)))
+          `(mu-error :defun-malformed ',arglist)
+        `(,fun-type
+          ,name ,arglist
+          ,(mu--defun-sig split-args body doc sig sigs)
+          ,@(when dspec `((declare ,@dspec)))
+          ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
+          ;; TODO what if I wrap the body in condition-case so that any mu-error
+          ;; maybe reported in terms of current function e.g. mu-defun or
+          ;; mu-defmacro in this case? Wonder how big of an overhead it'd be.
+          (mu-case ,rest-arg
+            ,@body))))))
 
 
 (defun mu--set-defun-docstring (fun-type)
