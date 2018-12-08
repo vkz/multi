@@ -144,6 +144,12 @@ passing the rest of ARGS to the message.
     (`(lst . ,_)              (list '\` (mu-case--inside pat)))
     ;; vector pattern
     (`(vec . ,_)              (list '\` (mu-case--inside pat)))
+
+    ;; TODO I can make [] to be strict or not in different contexts by
+    ;; parameterizing seq-pattern here and in `mu-case--inside', so seq = `seq'
+    ;; would be non-strict, while seq = `lv' would be strict, so say multi-head
+    ;; `mu-defun' and `mu-case' would use `lv', but `mu-let' would use `seq'.
+    ;;
     ;; seq pattern
     ((pred vectorp)           (mu-case--init `(seq ,@(seq-into pat 'list))))
     ;; standard pcase patterns
@@ -347,6 +353,65 @@ supports the &rest pattern to match the remaining elements."
     (list subseq
           ;; rest: empty if seq was shorter than patterns
           (seq-subseq seq took))))
+
+
+;; TODO As I only just discovered seq patterns in Clojure's multi-head defn subtly
+;; differ from those say in let-context: in defn you often want to dispatch based
+;; on the length of the sequence i.e. how many elements your []-pattern attempts
+;; to match, so blindly using mu-pattern [] would almost always have the very
+;; first pattern succeed. What we want in the `mu-defun' is to have a strict
+;; seq-pattern, where the pattern with the best matching arrity suceeds. One way
+;; to do it is to re-write [] in our defuns into a `lv' seq-pattern below. Another
+;; way is to re-write [] into (or (l pats) (v pats)). Computationally IMO `lv' has
+;; less overhead, since the (or .. ..) would have to expand two almost identical
+;; patterns. I think Clojure's defn is even more limiting. It is actually an fixed
+;; arrity function with optional &rest pattern but only where such pattern is of
+;; bigger arrity than every other fixed pattern:
+;;
+;;   (mu-defun foo (&rest args)
+;;     ([a b c] ...)
+;;     ;; is not allowed in Clojure: pat with &rest has to be of bigger arrity
+;;     ;; than every other dispatch pattern
+;;     ([a b &rest c] ...))
+;;
+;; neither is the following overloading of the same arrities is allowed:
+;;
+;;   (mu-defun foo (&rest args)
+;;     ([a [b c] d] (list a b c d))
+;;     ([a [b]   c] (list a b c)))
+;;
+;; I actually think this latter case is unreasonable. Btw if I am to allow such
+;; dispatch, I'd need all [] acting as strict seq-patterns, not just the outer
+;; ones. This implies that [] needs to be dynamic somehow - parameterized by the
+;; type of seq-pattern I want it to become after the re-write in `mu-case--init'
+;; and `mu-case--inside'.
+;;
+;; Curiously, same could be desired whenever we dispatch by matching a sequence
+;; rathen than simply bind by destructuring: I doubt we ever want the very first
+;; pattern to shadow whatever follows, so similar semantics maybe prefered in
+;; `mu-case' but not in `mu-let' or the simple one-armed `mu-defun', where the
+;; latter two only destructure and bind, not choose a pattern to dispatch.
+(mu-defpattern lv (&rest patterns)
+  "`mu-case' pattern to match lists and vectors alike. Unlike
+seq-pattern [] it is strict and behaves like l-pattern for lists
+or v-pattern for vectors: must match the entire sequence to
+succeed."
+  (if patterns
+      (let* ((split (mu--split-when #'mu--rest? patterns))
+             (head (car split))
+             (rest (cadr split))
+             (rest? (when rest t))
+             (pat-len (length (if rest? head patterns))))
+        (when (> (length rest) 1)
+          (mu-error :rest-pattern rest))
+        (if rest?
+            ;; match head and rest
+            `(app (lambda (seq) (mu--seq-split seq ,pat-len))
+                  (lst (or (lst ,@head) (vec ,@head)) ,@rest))
+          ;; match head only
+          `(or (lst ,@head) (vec ,@head))))
+    ;; empty seq-pattern
+    `(or (lst) (vec))))
 
 
 (mu-defpattern l (&rest patterns)
