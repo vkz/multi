@@ -89,6 +89,455 @@ message prefix matches PREFIX"
  )
 
 
+;;* multi-patterns ------------------------------------------------ *;;
+
+
+(ert-deftest mu-test-basic-patterns ()
+  "most basic patterns should work"
+
+  (defmacro mu-case--clause-test (expr pat &rest body)
+    (declare (indent 1))
+    `(pcase ,expr
+       ,(mu-case--clause 'seq (cons pat body))
+       (otherwise
+        'no-match)))
+
+  (should (equal 'match (mu-case--clause-test '()
+                          (l) 'match)))
+
+  (should (equal 'symbol (mu-case--clause-test '(a)
+                           (l 'a) 'symbol)))
+
+  (should (equal 'b (mu-case--clause-test '(a b)
+                      (l (or 'a 'b) (and x 'b)) x)))
+
+  (should (equal 'match (mu-case--clause-test '(:key)
+                          (l :key) 'match)))
+
+  (should (equal :key (mu-case--clause-test '(:key)
+                        (l x) x)))
+
+  (should (equal '(a :over b) (mu-case--clause-test '(a (:over) b)
+                                (l x (or (l rel) :to) y) (list x rel y)))))
+
+
+(ert-deftest mu-test-standard-pcase-patterns ()
+  "standard pcase patterns should work"
+
+  (should (equal '(a over b none) (mu-case '(a over b)
+                                    ((l x
+                                        (and (pred symbolp)
+                                             (or 'over 'to) rel)
+                                        y)
+                                     (list x rel y 'none)))))
+
+  (should (equal '(1 2 3) (mu-case '(1 2)
+                            ((l (and (pred numberp)
+                                     (app 1- 0)
+                                     x)
+                                (and num
+                                     (let y 3)))
+                             (list x num y))))))
+
+
+;;** - list-patterns  --------------------------------------------- *;;
+
+
+(ert-deftest mu-test-list-patterns ()
+  "list patterns `lst' and `l' should work"
+
+  (should (equal 'match (mu-case '(a)
+                          (_ 'match))))
+
+  (should (equal '(a) (mu-case '(a)
+                        (lst lst))))
+
+  (should (equal '(a) (mu-case '(a)
+                        ((l x y) (list x y))
+                        ((l x) (list x)))))
+
+  (should (equal 'empty (mu-case '()
+                          ((l x) x)
+                          (otherwise 'empty))))
+
+  (should (equal 'match (mu-case '(a b c)
+                          ((l 'a _ 'c) 'match))))
+
+  (should (equal '(2 3) (mu-case '(1 (2 3))
+                          ((l _ (l a b)) (list a b)))))
+
+  (should (equal 'match (mu-case '((1 2))
+                          ((l (l 1 &rest (l (pred numberp)))) 'match))))
+
+  (should (equal '(1 2 3 4) (mu-case '((1 2) (3 4))
+                              ((l (l (and (pred numberp) a) &rest (l b))
+                                  (l (and (pred numberp) c) &rest (l d)))
+                               (list a b c d)))))
+
+  (comment
+
+   ;; TODO current implementation of l-pat doesn't work for improper lists, but
+   ;; since pcase does, imo I need to fix this. Problem is with my using `seq-take'
+   ;; and `seq-subseq' which presuppose that we are acting on a proper sequence.
+   (mu-case '(1 . 2)
+     ((l a &rest b) (list a b)))
+   ;; comment
+   ))
+
+
+;;** - vector-patterns  ------------------------------------------- *;;
+
+
+(ert-deftest mu-test-vector-patterns ()
+  "vector patterns `vec' and `v' should work"
+
+  ;; vec-pattern of fixed length
+
+  (should (equal '(1 2) (mu-case [1 2]
+                          ((vec b c) (list b c)))))
+
+  (should (equal '(b c) (mu-case (list 'a [b c])
+                          ((l a (vec b c)) (list b c)))))
+
+  (should (mu--error-match "in mu-case vec-pattern"
+                           (mu-case [1 2]
+                             ((vec x &rest y) (list x y)))))
+
+  ;; v-pattern with &rest support
+
+  (should (equal 'match (mu-case [] ((v) 'match))))
+
+  (should (equal 2 (mu-case [1 2] ((v 1 y) y))))
+
+  (should (equal [2] (mu-case [1 2] ((v 1 &rest y) y))))
+
+  (should (equal 2 (mu-case [1 2] ((v 1 &rest [y]) y))))
+
+  (should-not (mu-case [1 2] ((v 1) 'match)))
+
+  (should-not (mu-case [1 2] ((v 1 2 3) 'match)))
+
+  (should (equal '(1 [2]) (mu-case [1 2]
+                            ((v x &rest y) (list x y)))))
+
+  (should (equal []
+                 (mu-case [1 2]
+                   ;; TODO IMO, this is consistent with lists, but probably
+                   ;; warrants a mention in documentation.
+                   ((v 1 2 &rest y) y)))))
+
+
+;;** - table-patterns  -------------------------------------------- *;;
+
+
+(ert-deftest mu-test-table-patterns ()
+  "ht-pattern should work with hash-tables and alists"
+
+  ;; match empty hash-table
+  (should (equal 'match (mu-case (ht)
+                          ((ht) 'match))))
+
+  ;; match hash-table
+  (should (equal 1 (mu-case (ht (:a 1))
+                     ((ht :a) a))))
+
+  ;; match alist
+  (should (equal 1 (mu-case '((:a . 1))
+                     ((ht :a) a))))
+
+  ;; match whatever key-types hash-tables and alists allow
+  (should (equal 1 (mu-case (ht ("foo" 1))
+                     ((ht ("foo" a)) a))))
+
+  ;; match tables inside a list
+  (should (equal '(1 2) (mu-case (list (ht (:a 1)) '((:b . 2)))
+                          ((l (ht :a) (ht b)) (list a b)))))
+
+  ;; allow all ht key pattern styles: :key, key, (:key id) ('key id)
+  (should (equal '(1 2 3 4) (mu-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
+                              ((ht :a b 'c ('d D)) (list a b c D)))))
+
+  (should (mu--error-match "in mu-case malformed ht pattern"
+                           (mu-case (ht (:a 1))
+                             ((ht "a"))))))
+
+
+;;** - sequence-patterns  ----------------------------------------- *;;
+
+
+(ert-deftest mu-test-sequence-patterns ()
+  "sequence patterns [], `seq' and `lv' should work"
+
+  (mu-test (foo)
+
+    ;; NOTE `mu-case' uses `lv' pattern, so is strict
+    ;; NOTE `mu-let' uses `seq' pattern, so isn't strict
+
+    (should (equal '(1 2) (mu-case `(1 2) ([x y] (list x y)))))
+
+    ;; &rest pattern should work for sequences
+    (should (equal '(1 (2)) (mu-case `(1 2) ([x &rest tail] (list x tail)))))
+
+    ;; including vectors
+    (should (equal '(1 [2]) (mu-case [1 2] ([x &rest tail] (list x tail)))))
+
+    (should (equal '(1 2) (mu-case [1 2] ([x &rest [tail]] (list x tail)))))
+
+    (should (equal '(1 2) (mu-case [[1 [2]]]
+                            ([[a &rest [[b]]]] (list a b)))))
+
+    (should (equal '(1 2 3 [4]) (mu-case [[1 [2 3]] 4]
+                                  ([[a &rest [[b c]]] &rest d] (list a b c d)))))
+
+    (should (equal '(1 2 3 (4)) (mu-case '((1 (2 3)) 4)
+                                  ([[a &rest [[b c]]] &rest d] (list a b c d)))))
+
+    ;; since [] is strict in mu-case then
+    (should-not (mu-case `(1 2) ([x y z] (list x y z))))
+
+    ;; ditto for vectors
+    (should-not (mu-case [1 2] ([x y z] (list x y z))))
+
+    ;; but [] is not strict in mu-let, so
+    (should (equal '(1 2 nil) (mu-let (([x y z] '(1 2))) (list x y z))))
+
+    ;; ditto for vectors
+    (should (equal '(1 2 nil) (mu-let (([x y z] [1 2])) (list x y z))))
+
+
+    ;; for strict seq
+    (should (equal '(1 2) (mu--case lv [1 2]
+                            ([a b c] 'skip)
+                            ([a b] (list a b)))))
+
+    ;; for non-strict seq
+    (should (equal '(1 2 nil) (mu--case seq [1 2]
+                                ([a b c] (list a b c))
+                                ([a b] 'nope))))
+
+    ;; or mu-let
+    (should (equal '(1 2 nil) (mu-let (([a b c] '(1 2)))
+                                (list a b c))))
+
+    ;; works even when there're more patterns than seq elements
+    (should (equal '(1 2 nil nil) (mu-let (([x y z &rest tail] '(1 2)))
+                                    (list x y z tail))))
+
+
+    ;; even for deeply nested sequences
+    (should (equal '(1 2 nil 3) (mu-let (([[a [b c]] d] [[1 [2]] 3]))
+                                  (list a b c d))))
+
+
+    ;; [] must be strict in a simple single-head mu-defun
+    (mu-defun foo (&rest args)
+      ([a b c] (list a b c))
+      ([a b] (list a b)))
+
+    (should (equal '(1 2) (foo 1 2)))
+    (should (equal '(1 2 3) (foo 1 2 3)))
+
+    ;; even the nested [] must be strict
+    (mu-defun foo (&rest args)
+      ([a [b c] d] (list a b c d))
+      ([a [b] c] (list a b c)))
+
+    (should (equal '(1 2 3 4) (foo 1 '(2 3) 4)))
+    (should (equal '(1 2 3) (foo 1 '(2) 3)))
+
+    (comment
+     ;; TODO
+     (eval
+      '(let ((mu-seq-pattern-force-list 'list))
+         (mu-case [[1 [2]] 3]
+           ([[x &rest [y]] &rest z] (list x y z))))
+      'lexical-scope)))
+  ;; comment
+  )
+
+
+;;** - rest-patterns  --------------------------------------------- *;;
+
+
+(ert-deftest mu-test-rest-patterns ()
+  "patterns with &rest should work"
+
+  ;; &rest separator should work
+  (should (equal '(b c) (mu-case '(a b c)
+                          ((l 'a &rest tail) tail))))
+
+  ;; | separator should work
+  (should (equal '(b c) (mu-case '(a b c)
+                          ((l 'a | tail) tail))))
+
+  ;; & separator should work
+  (should (equal '(b c) (mu-case '(a b c)
+                          ((l 'a & tail) tail))))
+
+  (should (equal 'c (mu-case '(a b c)
+                      ((l 'a &rest (l 'b last)) last))))
+
+  (should (equal 'c (mu-case '(a b c)
+                      ((l 'a &rest (or (l ) (l 'b last))) last))))
+
+  (should (equal 'match (mu-case '(a)
+                          ((l 'a &rest (or (l ) (l 'b last))) 'match))))
+
+  (should (equal '(a b h) (mu-case '(a :over b :in h)
+                            ((l x (or :over :to) y &rest (or (l :in z) (l )))
+                             (list x y (or z 'none))))))
+
+  ;; destructuring nested list in &rest should work
+  (should (equal '(1 2 3) (mu-case '(1 (2 3))
+                            ((l a &rest (l (l b c))) (list a b c)))))
+
+  (should (equal '(1 2 3 (4)) (mu-case '((1 (2 3)) 4)
+                                ((l (l a &rest (l (l b c))) &rest d) (list a b c d)))))
+
+  ;; ditto for vectors
+  (should (equal '(1 2 3 [4]) (mu-case [[1 [2 3]] 4]
+                                ((v (v a &rest (v (v b c))) &rest d) (list a b c d)))))
+
+
+  ;; TODO contrived pattern, but probably shouldn't fail
+  (comment (should (equal '(1 2) (mu-case '(1 2) ((l &rest tail) tail))))))
+
+
+;;** - mu-let  ---------------------------------------------------- *;;
+
+
+(ert-deftest mu-test-mu-let ()
+  "`mu-let' should work"
+
+  ;; Compare 3 different behaviors of mu-let, mu-if-let, mu-when-let when
+  ;; list-pattern is much too short for a match:
+
+  ;; - mu-let
+  (should (equal '(1) (mu-let ((a 1)
+                               ;; no match, b unbound
+                               ((l b) '(0 4)))
+                        ;; b isn't used, so no error
+                        (list a))))
+
+  (should (equal '(void-variable b) (should-error
+                                     (mu-let ((a 1)
+                                              ;; no match, b unbound
+                                              ((l b) '(0 4)))
+                                       ;; b is used but unbound, so error. b
+                                       ;; would've matched 0 in Clojure
+                                       (list a b))
+                                     :type 'error)))
+
+  (should (equal '(1 0) (mu-let ((a 1)
+                                 ;; we can fake Clojure behavior for patterns that
+                                 ;; are shorter than the value
+                                 ((l b &rest _) '(0 4)))
+                          (list a b))))
+
+  (should (equal '(void-variable b) (should-error
+                                     (mu-let ((a 1)
+                                              ;; but not for patterns that are
+                                              ;; longer than the value
+                                              ((l b c d) '(0 4)))
+                                       ;; b, c, d are unbound and error
+                                       (list a b c d))
+                                     :type 'error)))
+
+  ;; - mu-when-let
+  (should-not (mu-when-let ((a 1)
+                            ;; no match, b unbound
+                            ((l b) '(0 4)))
+                ;; body never runs, entire block returns nil
+                (list a b)))
+
+  ;; - mu-if-let
+  (should (equal '(1) (mu-if-let ((a 1)
+                                  ;; no match, b unbound
+                                  ((l b) '(0 4)))
+                          (list a b)
+                        ;; picks else branch, so no error
+                        (list a))))
+
+  ;; should allow uncluttered let-bindings
+  (eval
+   '(let ((mu-let-parens 'no))
+      (should (equal '(1 2) (mu-let (a 1 b 2)
+                              (list a b)))))
+   'lexical-scope)
+
+  (eval
+   '(let ((mu-let-parens 'square))
+      (should (equal '(1 2) (mu-let [a 1 b 2]
+                              (list a b)))))
+   'lexical-scope))
+
+
+;;** - mu-defun  -------------------------------------------------- *;;
+
+
+(ert-deftest mu-test-mu-defun ()
+  "single-head and multi-head `mu-defun' should work"
+  (mu-test (foo-fun foo-macro)
+    (should
+     (equal '((:a :b 1 2)
+              (:a :b 1)
+              (:a :b)
+              (:a nil))
+
+            (progn
+              (mu-defun foo-fun (&optional a b &rest args)
+                :doc "string"
+                :sig (a b c d)
+                :interactive t
+                ((l x y)     (list a b x y))
+                ((l x)       (list a b x))
+                (otherwise (list a b)))
+
+              (list
+               (foo-fun :a :b 1 2)
+               (foo-fun :a :b 1)
+               (foo-fun :a :b 1 2 3)
+               (foo-fun :a)))))
+
+    (should
+     (equal '((:a :b 1 2)
+              (:a :b 1)
+              (:a :b))
+
+            (progn
+              (mu-defmacro foo-macro (a b &rest args)
+                :doc "string"
+                :sig (a x :in other)
+                :sigs t
+                :declare ((indent defun))
+                ((l x y)     `(list ,a ,b ,x ,y))
+                ((l x)       `(list ,a ,b ,x))
+                (otherwise `(list ,a ,b)))
+
+              (list
+               (foo-macro :a :b 1 2)
+               (foo-macro :a :b 1)
+               (foo-macro :a :b 1 2 3)))))))
+
+
+;;** - errors in patterns ----------------------------------------- *;;
+
+
+(ert-deftest mu-test-pattern-errors ()
+  "Detect and signal malformed patterns"
+  (should
+   (mu--error-match "in mu-case malformed &rest" (mu-case '(a b c)
+                                                   ((l 'a &rest foo bar) 'oops))))
+
+  (should (mu--error-match "in mu-let malformed" (mu-let (((l _))) 'foo)))
+
+  ;; TODO more tests
+  )
+
+
+;;* multi-methods ------------------------------------------------- *;;
+
+
 (defmacro mu--install-shape-rels ()
   ;; :dot  ->  :square  ->  :rect   *-> :shape
   ;;            |                   ^
@@ -101,12 +550,6 @@ message prefix matches PREFIX"
      (mu-rel :square isa :parallelogram)
      (mu-rel :parallelogram isa :multiangle)
      (mu-rel :parallelogram isa :shape)))
-
-
-;;* Tests --------------------------------------------------------- *;;
-
-
-;;** - mu-methods ----------------------------------------------- *;;
 
 
 (ert-deftest mu-test-implementation-details ()
@@ -479,433 +922,6 @@ message prefix matches PREFIX"
       (should (equal :parallelogram (bar :rect)))
       (should (equal :parallelogram (bar :square))))
    'lexical-scope))
-
-
-;;** - mu-case ------------------------------------------------- *;;
-
-
-(ert-deftest mu-test-simple-mu-case-patterns ()
-  "Mu-Case should match simple patterns"
-
-  (should (equal 'match (mu-case '(a)
-                          (_ 'match))))
-
-  (should (equal '(a) (mu-case '(a)
-                        (lst lst))))
-
-  (should (equal '(a) (mu-case '(a)
-                        ((l x y) (list x y))
-                        ((l x) (list x)))))
-
-  (should (equal 'empty (mu-case '()
-                          ((l x) x)
-                          (otherwise 'empty))))
-
-  (should (equal 'match (mu-case '(a b c)
-                          ((l 'a _ 'c) 'match))))
-
-  (defmacro mu-case--clause-test (expr pat &rest body)
-    (declare (indent 1))
-    `(pcase ,expr
-       ,(mu-case--clause 'seq (cons pat body))
-       (otherwise
-        'no-match)))
-
-  (should (equal 'match (mu-case--clause-test '()
-                          (l) 'match)))
-
-  (should (equal 'symbol (mu-case--clause-test '(a)
-                           (l 'a) 'symbol)))
-
-  (should (equal 'b (mu-case--clause-test '(a b)
-                      (l (or 'a 'b) (and x 'b)) x)))
-
-  (should (equal 'match (mu-case--clause-test '(:key)
-                          (l :key) 'match)))
-
-  (should (equal :key (mu-case--clause-test '(:key)
-                        (l x) x)))
-
-  (should (equal '(a :over b) (mu-case--clause-test '(a (:over) b)
-                                (l x (or (l rel) :to) y) (list x rel y)))))
-
-
-(ert-deftest mu-test-standard-mu-case-patterns ()
-  "Mu-Case should allow standard pcase patterns"
-
-  (should (equal '(a over b none) (mu-case '(a over b)
-                                    ((l x
-                                      (and (pred symbolp)
-                                           (or 'over 'to) rel)
-                                      y)
-                                     (list x rel y 'none)))))
-
-  (should (equal '(1 2 3) (mu-case '(1 2)
-                            ((l (and (pred numberp)
-                                   (app 1- 0)
-                                   x)
-                              (and num
-                                   (let y 3)))
-                             (list x num y))))))
-
-
-(ert-deftest mu-test-mu-case-rest-patterns ()
-  "Mu-Case should allow matching the rest of a list"
-
-  ;; &rest separator should work
-  (should (equal '(b c) (mu-case '(a b c)
-                          ((l 'a &rest tail) tail))))
-
-  ;; | separator should work
-  (should (equal '(b c) (mu-case '(a b c)
-                          ((l 'a | tail) tail))))
-
-  ;; & separator should work
-  (should (equal '(b c) (mu-case '(a b c)
-                          ((l 'a & tail) tail))))
-
-  (should (equal 'c (mu-case '(a b c)
-                      ((l 'a &rest (l 'b last)) last))))
-
-  (should (equal 'c (mu-case '(a b c)
-                      ((l 'a &rest (or (l ) (l 'b last))) last))))
-
-  (should (equal 'match (mu-case '(a)
-                          ((l 'a &rest (or (l ) (l 'b last))) 'match))))
-
-  (should (equal '(a b h) (mu-case '(a :over b :in h)
-                            ((l x (or :over :to) y &rest (or (l :in z) (l )))
-                             (list x y (or z 'none))))))
-
-  ;; destructuring nested list in &rest should work
-  (should (equal '(1 2 3) (mu-case '(1 (2 3))
-                            ((l a &rest (l (l b c))) (list a b c)))))
-
-  (should (equal '(1 2 3 (4)) (mu-case '((1 (2 3)) 4)
-                                ((l (l a &rest (l (l b c))) &rest d) (list a b c d)))))
-
-  ;; ditto for vectors
-  (should (equal '(1 2 3 [4]) (mu-case [[1 [2 3]] 4]
-                                ((v (v a &rest (v (v b c))) &rest d) (list a b c d)))))
-
-
-  ;; TODO contrived pattern, but probably shouldn't fail
-  (comment (should (equal '(1 2) (mu-case '(1 2) ((l &rest tail) tail))))))
-
-
-(ert-deftest mu-test-mu-case-nested-list-patterns ()
-  "Mu-Case should allow nested list patterns"
-
-  (should (equal '(2 3) (mu-case '(1 (2 3))
-                          ((l _ (l a b)) (list a b)))))
-
-  (should (equal 'match (mu-case '((1 2))
-                          ((l (l 1 &rest (l (pred numberp)))) 'match))))
-
-  (should (equal '(1 2 3 4) (mu-case '((1 2) (3 4))
-                              ((l (l (and (pred numberp) a) &rest (l b))
-                                  (l (and (pred numberp) c) &rest (l d)))
-                               (list a b c d)))))
-
-  (comment
-
-   ;; TODO current implementation of l-pat doesn't work for improper lists, but
-   ;; since pcase does, imo I need to fix this. Problem is with my using `seq-take'
-   ;; and `seq-subseq' which presuppose that we are acting on a proper sequence.
-   (mu-case '(1 . 2)
-     ((l a &rest b) (list a b)))
-   ;; comment
-   ))
-
-
-(ert-deftest mu-test-mu-case-vector-patterns ()
-  "Mu-Case should allow simple vector patterns"
-
-  ;; vec-pattern of fixed length
-
-  (should (equal '(1 2)
-                 (mu-case [1 2]
-                   ((vec b c) (list b c)))))
-
-  (should (equal '(b c)
-                 (mu-case (list 'a [b c])
-                   ((l a (vec b c)) (list b c)))))
-
-  (should
-   (mu--error-match "in mu-case vec-pattern"
-                    (mu-case [1 2]
-                      ((vec x &rest y) (list x y)))))
-
-  ;; v-pattern with &rest support
-
-  (should (equal 'match (mu-case [] ((v) 'match))))
-
-  (should (equal 2 (mu-case [1 2] ((v 1 y) y))))
-
-  (should (equal [2] (mu-case [1 2] ((v 1 &rest y) y))))
-
-  (should (equal 2 (mu-case [1 2] ((v 1 &rest [y]) y))))
-
-  (should-not (mu-case [1 2] ((v 1) 'match)))
-
-  (should-not (mu-case [1 2] ((v 1 2 3) 'match)))
-
-  (should (equal '(1 [2]) (mu-case [1 2]
-                            ((v x &rest y) (list x y)))))
-
-  (should (equal []
-                 (mu-case [1 2]
-                   ;; TODO IMO, this is consistent with lists, but probably
-                   ;; warants a mention in documentation.
-                   ((v 1 2 &rest y) y)))))
-
-
-(ert-deftest mu-test-mu-case-errors ()
-  "Mu-Case should signal malformed patterns"
-  (should
-   (mu--error-match "in mu-case malformed &rest" (mu-case '(a b c)
-                                                   ((l 'a &rest foo bar) 'oops)))))
-
-
-(ert-deftest mu-test-mu-let ()
-  "Mu-let should work"
-
-  ;; Compare 3 different behaviors of mu-let, mu-if-let, mu-when-let when
-  ;; list-pattern is much too short for a match:
-
-  ;; - mu-let
-  (should (equal '(1) (mu-let ((a 1)
-                               ;; no match, b unbound
-                               ((l b) '(0 4)))
-                        ;; b isn't used, so no error
-                        (list a))))
-
-  (should (equal '(void-variable b) (should-error
-                                     (mu-let ((a 1)
-                                              ;; no match, b unbound
-                                              ((l b) '(0 4)))
-                                       ;; b is used but unbound, so error. b
-                                       ;; would've matched 0 in Clojure
-                                       (list a b))
-                                     :type 'error)))
-
-  (should (equal '(1 0) (mu-let ((a 1)
-                                 ;; we can fake Clojure behavior for patterns that
-                                 ;; are shorter than the value
-                                 ((l b &rest _) '(0 4)))
-                          (list a b))))
-
-  (should (equal '(void-variable b) (should-error
-                                     (mu-let ((a 1)
-                                              ;; but not for patterns that are
-                                              ;; longer than the value
-                                              ((l b c d) '(0 4)))
-                                       ;; b, c, d are unbound and error
-                                       (list a b c d))
-                                     :type 'error)))
-
-  ;; - mu-when-let
-  (should-not (mu-when-let ((a 1)
-                            ;; no match, b unbound
-                            ((l b) '(0 4)))
-                ;; body never runs, entire block returns nil
-                (list a b)))
-
-  ;; - mu-if-let
-  (should (equal '(1) (mu-if-let ((a 1)
-                                  ;; no match, b unbound
-                                  ((l b) '(0 4)))
-                          (list a b)
-                        ;; picks else branch, so no error
-                        (list a))))
-
-  (should (mu--error-match "in mu-let malformed" (mu-let (((l _))) 'foo)))
-
-  ;; should allow uncluttered let-bindings
-  (eval
-   '(let ((mu-let-parens 'no))
-      (should (equal '(1 2) (mu-let (a 1 b 2)
-                              (list a b)))))
-   'lexical-scope)
-
-  (eval
-   '(let ((mu-let-parens 'square))
-      (should (equal '(1 2) (mu-let [a 1 b 2]
-                              (list a b)))))
-   'lexical-scope))
-
-
-(ert-deftest mu-test-ht-pattern ()
-  "Mu-case should pattern match on hash-tables and alists"
-
-  ;; match empty hash-table
-  (should (equal 'match (mu-case (ht)
-                          ((ht) 'match))))
-
-  ;; match hash-table
-  (should (equal 1 (mu-case (ht (:a 1))
-                     ((ht :a) a))))
-
-  ;; match alist
-  (should (equal 1 (mu-case '((:a . 1))
-                     ((ht :a) a))))
-
-  ;; match whatever key-types hash-tables and alists allow
-  (should (equal 1 (mu-case (ht ("foo" 1))
-                     ((ht ("foo" a)) a))))
-
-  ;; match tables inside a list
-  (should (equal '(1 2) (mu-case (list (ht (:a 1)) '((:b . 2)))
-                          ((l (ht :a) (ht b)) (list a b)))))
-
-  ;; allow all ht key pattern styles: :key, key, (:key id) ('key id)
-  (should (equal '(1 2 3 4) (mu-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
-                              ((ht :a b 'c ('d D)) (list a b c D)))))
-
-  (should (mu--error-match "in mu-case malformed ht pattern"
-                              (mu-case (ht (:a 1))
-                                ((ht "a"))))))
-
-
-(ert-deftest mu-test-seq-pattern ()
-  "Mu-case should pattern match sequences (vectors and lists)"
-
-  ;; NOTE seq-pattern behaves exactly like Clojure's [pat ...] in destructuring
-  ;; contexts
-
-  ;; since [] is strict in mu-case then
-  (should-not (mu-case `(1 2) ([x y z] (list x y z))))
-
-  ;; ditto for vectors
-  (should-not (mu-case [1 2] ([x y z] (list x y z))))
-
-  ;; but [] is not strict in mu-let, so
-  (should (equal '(1 2 nil) (mu-let (([x y z] '(1 2))) (list x y z))))
-
-  ;; ditto for vectors
-  (should (equal '(1 2 nil) (mu-let (([x y z] [1 2])) (list x y z))))
-
-  ;; &rest pattern should work for sequences
-  (should (equal '(1 (2)) (mu-case `(1 2)
-                            ([x &rest tail] (list x tail)))))
-
-  ;; including vectors
-  (should (equal '(1 [2]) (mu-case [1 2]
-                            ([x &rest tail] (list x tail)))))
-
-  (should (equal '(1 2) (mu-case [1 2]
-                          ([x &rest [tail]] (list x tail)))))
-
-  ;; even if there're more patterns than seq elements
-  (should (equal '(1 2 nil nil) (mu-let (([x y z &rest tail] '(1 2)))
-                                  (list x y z tail))))
-
-
-  ;; deeply nested seq patterns should work
-  (should (equal '(1 2 nil 3) (mu-let (([[a [b c]] d] [[1 [2]] 3]))
-                                (list a b c d))))
-
-  (should (equal '(1 2) (mu-case [[1 [2]]]
-                          ([[a &rest [[b]]]] (list a b)))))
-
-  (should (equal '(1 2 3 [4]) (mu-case [[1 [2 3]] 4]
-                                ([[a &rest [[b c]]] &rest d] (list a b c d)))))
-
-  (should (equal '(1 2 3 (4)) (mu-case '((1 (2 3)) 4)
-                                ([[a &rest [[b c]]] &rest d] (list a b c d)))))
-
-  (comment
-   ;; TODO
-   (eval
-    '(let ((mu-seq-pattern-force-list 'list))
-       (mu-case [[1 [2]] 3]
-         ([[x &rest [y]] &rest z] (list x y z))))
-    'lexical-scope))
-  ;; comment
-  )
-
-
-(ert-deftest mu-test-overloading-seq ()
-  "Overloading [] pattern should work"
-  (mu-test (foo)
-
-    ;; for strict seq
-    (should (equal '(1 2) (mu--case lv [1 2]
-                            ([a b c] 'skip)
-                            ([a b] (list a b)))))
-
-    ;; [] must be strict in a simple single-head mu-defun
-    (mu-defun foo (&rest args)
-      ([a b c] (list a b c))
-      ([a b] (list a b)))
-
-    (should (equal '(1 2) (foo 1 2)))
-    (should (equal '(1 2 3) (foo 1 2 3)))
-
-    ;; even the nested [] must be strict
-    (mu-defun foo (&rest args)
-      ([a [b c] d] (list a b c d))
-      ([a [b] c] (list a b c)))
-
-    (should (equal '(1 2 3 4) (foo 1 '(2 3) 4)))
-    (should (equal '(1 2 3) (foo 1 '(2) 3)))
-
-    ;; for non-strict destructuring seq
-    (should (equal '(1 2 nil) (mu--case seq [1 2]
-                                ([a b c] (list a b c))
-                                ([a b] 'nope))))
-
-    ;; ditto
-    (should (equal '(1 2 nil) (mu-let (([a b c] '(1 2)))
-                                (list a b c))))))
-
-
-;;** - mu-fun -------------------------------------------------- *;;
-
-
-(ert-deftest mu-test-defun ()
-  "Mu-fun should define a function"
-  (mu-test (foo-fun foo-macro)
-    (should
-     (equal '((:a :b 1 2)
-              (:a :b 1)
-              (:a :b)
-              (:a nil))
-
-            (progn
-              (mu-defun foo-fun (&optional a b &rest args)
-                :doc "string"
-                :sig (a b c d)
-                :interactive t
-                ((l x y)     (list a b x y))
-                ((l x)       (list a b x))
-                (otherwise (list a b)))
-
-              (list
-               (foo-fun :a :b 1 2)
-               (foo-fun :a :b 1)
-               (foo-fun :a :b 1 2 3)
-               (foo-fun :a)))))
-
-    (should
-     (equal '((:a :b 1 2)
-              (:a :b 1)
-              (:a :b))
-
-            (progn
-              (mu-defmacro foo-macro (a b &rest args)
-                :doc "string"
-                :sig (a x :in other)
-                :sigs t
-                :declare ((indent defun))
-                ((l x y)     `(list ,a ,b ,x ,y))
-                ((l x)       `(list ,a ,b ,x))
-                (otherwise `(list ,a ,b)))
-
-              (list
-               (foo-macro :a :b 1 2)
-               (foo-macro :a :b 1)
-               (foo-macro :a :b 1 2 3)))))))
 
 
 ;;* Perf ---------------------------------------------------------- *;;
