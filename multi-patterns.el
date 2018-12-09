@@ -10,10 +10,10 @@
 
 ;; TODO byte-compile and test for time
 
-;; NOTE Although `mu-case--init' and `mu-case--inside' are superficially the
+;; NOTE Although `mu--pat-unquoted' and `mu-case--inside' are superficially the
 ;; same we need both because `mu-case--inside' assumes to be inside backquoted
 ;; pattern e.g. `(,foo ,bar) in pcase syntax or [foo bar] in our dsl , while
-;; `mu-case--init' assumes to work either outside of a backquoted context or
+;; `mu--pat-unquoted' assumes to work either outside of a backquoted context or
 ;; inside of an unquoted pattern.
 
 
@@ -108,26 +108,30 @@ passing the rest of ARGS to the message.
     (signal 'mu-error (list (apply #'format-message args)))))
 
 
-;;* mu-case ------------------------------------------------------- *;;
+;;* mu-patterns --------------------------------------------------- *;;
 
 
-(defmacro mu-case (e &rest clauses)
-  "`pcase'-like matching and destructuring with less noise."
-  (declare (indent 1))
+(defmacro mu--case (seq-pat e &rest clauses)
+  "`pcase'-like matching and destructuring with [] seq-pattern,
+which maybe parameterized by setting SEQ to one of:
+
+  - 'lv for strict sequence matching,
+  - 'seq for non-strict sequence matching."
+  (declare (indent 2))
 
   ;; storage for patterns defined with `mu-defpattern'
-  (unless (get 'mu-case :mu-patterns)
+  (unless (get 'mu--case :mu-patterns)
     (define-symbol-prop 'mu-case :mu-patterns (ht)))
 
   ;; hack to propagate expansion time errors to runtime
   (condition-case err
       `(pcase ,e
-         ,@(mapcar #'mu-case--clause clauses))
+         ,@(mapcar (lambda (clause) (mu-case--clause seq-pat clause)) clauses))
     (mu-error `(mu-error ,(cadr err)))))
 
 
-(cl-defun mu-case--clause ((pat . body))
-  `(,(mu-case--init pat) ,@body))
+(cl-defun mu-case--clause (seq-pat (pat . body))
+  `(,(mu--pat-unquoted seq-pat pat) ,@body))
 
 
 (defun mu--rest? (item)
@@ -135,35 +139,29 @@ passing the rest of ARGS to the message.
   (memq item '(| & &rest)))
 
 
-(defun mu-case--init (pat)
+(defun mu--pat-unquoted (seq-pat pat)
   "Translate mu-pat into pcase-pat assuming in unquoted context"
   (pcase pat
     ('otherwise               pat)
     ((pred symbolp)           pat)
     ;; list pattern
-    (`(lst . ,_)              (list '\` (mu-case--inside pat)))
+    (`(lst . ,_)              (list '\` (mu--pat-backquoted seq-pat pat)))
     ;; vector pattern
-    (`(vec . ,_)              (list '\` (mu-case--inside pat)))
-
-    ;; TODO I can make [] to be strict or not in different contexts by
-    ;; parameterizing seq-pattern here and in `mu-case--inside', so seq = `seq'
-    ;; would be non-strict, while seq = `lv' would be strict, so say multi-head
-    ;; `mu-defun' and `mu-case' would use `lv', but `mu-let' would use `seq'.
-    ;;
-    ;; seq pattern
-    ((pred vectorp)           (mu-case--init `(seq ,@(seq-into pat 'list))))
+    (`(vec . ,_)              (list '\` (mu--pat-backquoted seq-pat pat)))
+    ;; [] pattern parameterized by the type of seq-pattern ('lv or 'seq)
+    ((pred vectorp)           (mu--pat-unquoted seq-pat `(,seq-pat ,@(seq-into pat 'list))))
     ;; standard pcase patterns
-    (`(or . ,pats)            (cons 'or (mapcar #'mu-case--init pats)))
-    (`(and . ,pats)           (cons 'and (mapcar #'mu-case--init pats)))
-    (`(app ,fun ,pat)         (list 'app fun (mu-case--init pat)))
-    (`(let ,pat ,exp)         (list 'let (mu-case--init pat) exp))
+    (`(or . ,pats)            (cons 'or (mapcar (lambda (p) (mu--pat-unquoted seq-pat p)) pats)))
+    (`(and . ,pats)           (cons 'and (mapcar (lambda (p) (mu--pat-unquoted seq-pat p)) pats)))
+    (`(app ,fun ,pat)         (list 'app fun (mu--pat-unquoted seq-pat pat)))
+    (`(let ,pat ,exp)         (list 'let (mu--pat-unquoted seq-pat pat) exp))
     ;; quoted symbol
     (`(quote ,(pred symbolp)) pat)
     ;; mu-defpatterns
     (`(,(and id (pred symbolp)) . ,pats)
-     (if-let ((macro (ht-get (get 'mu-case :mu-patterns) id)))
+     (if-let ((macro (ht-get (get 'mu--case :mu-patterns) id)))
          ;; registered pattern
-         (mu-case--init (apply macro pats))
+         (mu--pat-unquoted seq-pat (apply macro pats))
        ;; unknown pattern
        pat))
     ((pred listp)             pat)
@@ -171,7 +169,7 @@ passing the rest of ARGS to the message.
     (otherwise                (mu-error :pattern pat))))
 
 
-(defun mu-case--inside (pat)
+(defun mu--pat-backquoted (seq-pat pat)
   "Translate mu-pat into pcase-pat assuming in quoted context"
   (pcase pat
     ('()                      '())
@@ -183,19 +181,21 @@ passing the rest of ARGS to the message.
     (`(lst . ,pats)           (if (some #'mu--rest? pats)
                                   ;; TODO this check might be expensive, should we do it?
                                   (mu-error :lst-pattern pats)
-                                (mapcar #'mu-case--inside pats)))
+                                (mapcar (lambda (p) (mu--pat-backquoted seq-pat p)) pats)))
     ;; vector pattern
     (`(vec . ,pats)           (if (some #'mu--rest? pats)
                                   (mu-error :vec-pattern pats)
-                                (seq-into (mapcar #'mu-case--inside pats) 'vector)))
-    ;; seq pattern
-    ((pred vectorp)           (list '\, (mu-case--init `(seq ,@(seq-into pat 'list)))))
+                                (seq-into
+                                 (mapcar (lambda (p) (mu--pat-backquoted seq-pat p)) pats)
+                                 'vector)))
+    ;; [] pattern parameterized by the type of seq-pattern ('lv or 'seq)
+    ((pred vectorp)           (list '\, (mu--pat-unquoted seq-pat `(,seq-pat ,@(seq-into pat 'list)))))
     ;; quoted symbol
     (`(quote ,(pred symbolp)) (cadr pat))
     ((pred keywordp)          pat)
     ((pred symbolp)           (list '\, pat))
     ;; TODO do I need to check for an empty list here?
-    ((pred listp)             (list '\, (mu-case--init pat)))
+    ((pred listp)             (list '\, (mu--pat-unquoted seq-pat pat)))
     ((pred atom)              pat)
     (otherwise                (mu-error :pattern pat))))
 
@@ -229,8 +229,8 @@ macro code.
   (when docstring
     (unless (stringp docstring)
       (setq body (cons docstring body))))
-  (let ((mu-patterns `(or (get 'mu-case :mu-patterns)
-                          (put 'mu-case :mu-patterns (ht))))
+  (let ((mu-patterns `(or (get 'mu--case :mu-patterns)
+                          (put 'mu--case :mu-patterns (ht))))
         (pattern-macro `(lambda ,arglist ,@body)))
     `(setf (ht-get ,mu-patterns ',name) ,pattern-macro)))
 
@@ -383,8 +383,8 @@ supports the &rest pattern to match the remaining elements."
 ;; I actually think this latter case is unreasonable. Btw if I am to allow such
 ;; dispatch, I'd need all [] acting as strict seq-patterns, not just the outer
 ;; ones. This implies that [] needs to be dynamic somehow - parameterized by the
-;; type of seq-pattern I want it to become after the re-write in `mu-case--init'
-;; and `mu-case--inside'.
+;; type of seq-pattern I want it to become after the re-write in `mu--pat-unquoted'
+;; and `mu--pat-backquoted'.
 ;;
 ;; Curiously, same could be desired whenever we dispatch by matching a sequence
 ;; rathen than simply bind by destructuring: I doubt we ever want the very first
@@ -457,6 +457,18 @@ succeed."
     `(vec)))
 
 
+;;* mu-case ------------------------------------------------------- *;;
+
+
+(defmacro mu-case (e &rest clauses)
+  "`pcase'-like matching and destructuring with less noise.
+Sequence pattern [] is strict: must match the entire sequence to
+succeed."
+  (declare (indent 1))
+  ;; Overload [] seq-pattern to be strict: [] will use lv-pattern
+  `(mu--case lv ,e ,@clauses))
+
+
 ;;* mu-let -------------------------------------------------------- *;;
 
 
@@ -475,7 +487,7 @@ instead of ()."
     (cond
      (pair (unless (= 2 (length pair))
              (mu-error :let-malformed pair))
-           `(mu-case ,val
+           `(mu--case seq ,val
               (,pat ,(mu--let (cdr bindings) body))
               (otherwise ,(mu--let (cdr bindings) body))))
      (:else
@@ -489,7 +501,7 @@ instead of ()."
     (cond
      (pair (unless (= 2 (length pair))
              (mu-error :let-malformed pair))
-           `(mu-case ,val
+           `(mu--case seq ,val
               (,pat ,(mu--when-let (cdr bindings) body))))
      (:else
       `(progn ,@body)))))
@@ -502,7 +514,7 @@ instead of ()."
     (cond
      (pair (unless (= 2 (length pair))
              (mu-error :let-malformed pair))
-           `(mu-case ,val
+           `(mu--case seq ,val
               (,pat ,(mu--if-let (cdr bindings) then-body else-body))
               (otherwise (progn ,@else-body))))
      (:else
@@ -592,19 +604,10 @@ arglist and `mu-case' patterns in the BODY."
          (body (if docstring (cdr body) body)))
     `(defun ,name (&rest ,args)
        ,@docstring
-       (mu-case ,args
+       (mu--case seq ,args
          (,pattern ,@body)
          (otherwise
           (multi-error "in foo: arguments do not satisfy the arglist pattern %S" ,args))))))
-
-
-(example
- (mu-defun foobar [a b | tail]
-   "docstring"
-   (list a b tail))
- (foobar 1 2 3)
- ;; example
- )
 
 
 ;; TODO gv-setter

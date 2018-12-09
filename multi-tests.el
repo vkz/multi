@@ -507,7 +507,7 @@ message prefix matches PREFIX"
   (defmacro mu-case--clause-test (expr pat &rest body)
     (declare (indent 1))
     `(pcase ,expr
-       ,(mu-case--clause (cons pat body))
+       ,(mu-case--clause 'seq (cons pat body))
        (otherwise
         'no-match)))
 
@@ -773,14 +773,17 @@ message prefix matches PREFIX"
   ;; NOTE seq-pattern behaves exactly like Clojure's [pat ...] in destructuring
   ;; contexts
 
-  ;; matching a list with fewer elements than patterns, should set excessive
-  ;; pattern variables to nil
-  (should (equal '(1 2 nil) (mu-case `(1 2)
-                              ([x y z] (list x y z)))))
+  ;; since [] is strict in mu-case then
+  (should-not (mu-case `(1 2) ([x y z] (list x y z))))
 
-  ;; ditto when matching a vector
-  (should (equal '(1 2 nil) (mu-case [1 2]
-                              ([x y z] (list x y z)))))
+  ;; ditto for vectors
+  (should-not (mu-case [1 2] ([x y z] (list x y z))))
+
+  ;; but [] is not strict in mu-let, so
+  (should (equal '(1 2 nil) (mu-let (([x y z] '(1 2))) (list x y z))))
+
+  ;; ditto for vectors
+  (should (equal '(1 2 nil) (mu-let (([x y z] [1 2])) (list x y z))))
 
   ;; &rest pattern should work for sequences
   (should (equal '(1 (2)) (mu-case `(1 2)
@@ -794,13 +797,13 @@ message prefix matches PREFIX"
                           ([x &rest [tail]] (list x tail)))))
 
   ;; even if there're more patterns than seq elements
-  (should (equal '(1 2 nil nil) (mu-case `(1 2)
-                                  ([x y z &rest tail] (list x y z tail)))))
+  (should (equal '(1 2 nil nil) (mu-let (([x y z &rest tail] '(1 2)))
+                                  (list x y z tail))))
 
 
   ;; deeply nested seq patterns should work
-  (should (equal '(1 2 nil 3) (mu-case [[1 [2]] 3]
-                                ([[a [b c]] d] (list a b c d)))))
+  (should (equal '(1 2 nil 3) (mu-let (([[a [b c]] d] [[1 [2]] 3]))
+                                (list a b c d))))
 
   (should (equal '(1 2) (mu-case [[1 [2]]]
                           ([[a &rest [[b]]]] (list a b)))))
@@ -820,6 +823,41 @@ message prefix matches PREFIX"
     'lexical-scope))
   ;; comment
   )
+
+
+(ert-deftest mu-test-overloading-seq ()
+  "Overloading [] pattern should work"
+  (mu-test (foo)
+
+    ;; for strict seq
+    (should (equal '(1 2) (mu--case lv [1 2]
+                            ([a b c] 'skip)
+                            ([a b] (list a b)))))
+
+    ;; [] must be strict in a simple single-head mu-defun
+    (mu-defun foo (&rest args)
+      ([a b c] (list a b c))
+      ([a b] (list a b)))
+
+    (should (equal '(1 2) (foo 1 2)))
+    (should (equal '(1 2 3) (foo 1 2 3)))
+
+    ;; even the nested [] must be strict
+    (mu-defun foo (&rest args)
+      ([a [b c] d] (list a b c d))
+      ([a [b] c] (list a b c)))
+
+    (should (equal '(1 2 3 4) (foo 1 '(2 3) 4)))
+    (should (equal '(1 2 3) (foo 1 '(2) 3)))
+
+    ;; for non-strict destructuring seq
+    (should (equal '(1 2 nil) (mu--case seq [1 2]
+                                ([a b c] (list a b c))
+                                ([a b] 'nope))))
+
+    ;; ditto
+    (should (equal '(1 2 nil) (mu-let (([a b c] '(1 2)))
+                                (list a b c))))))
 
 
 ;;** - mu-fun -------------------------------------------------- *;;
