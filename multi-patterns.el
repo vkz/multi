@@ -311,13 +311,13 @@ variable bound to subsequence to be a list."
 
 
 (defun mu--seq-split-and-pad (seq pat-len)
-  (let* ((type (case (type-of seq)
-                 (cons 'list)
-                 (vector 'vector)
-                 ;; TODO we should never have gotten this error. It may only ever
-                 ;; happen if we attempt to match non-seq to a seq, but then the
-                 ;; pattern should just fail to match and move on to another case
-                 (otherwise (mu-error :seq-pattern (type-of seq)))))
+  (let* ((type (cond
+                ((listp seq) 'list)
+                ((vectorp seq) 'vector)
+                ;; TODO we should never have gotten this error. It may only ever
+                ;; happen if we attempt to match non-seq to a seq, but then the
+                ;; pattern should just fail to match and move on to another case
+                (:else (mu-error :seq-pattern (type-of seq)))))
          ;; TODO replace with loop that also counts elements?
          (subseq (seq-take seq pat-len))
          (took (length subseq))
