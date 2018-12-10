@@ -626,6 +626,12 @@ arglist and `mu-case' patterns in the BODY."
 ;;   (μ  [pat] body)
 
 
+;; TODO should I allow these signatures?
+;;   (mu-defun foo        "docstring" ([pat2] body2))
+;;   (mu-defun foo args   "docstring" ([pat1] body1))
+;;   (mu-defun foo (args) "docstring" ([pat1] body1))
+
+
 (defun mu--defun (fun-type name arglist body)
   (let ((docstring ""))
 
@@ -637,11 +643,12 @@ arglist and `mu-case' patterns in the BODY."
     ;; collect attributes
     (mu-let (((ht sig ret sigs debug test (:declare dspec) (:interactive ispec) body)
               (mu--defun-meta body))
-             (simple-fun?          (vectorp arglist))
-             (args                 (gensym "args"))
-             (pattern              arglist)
-             (arglist              (if simple-fun? `(&rest ,args) arglist))
-             (split-args           (mu--split-when #'mu--rest? arglist))
+             (simple-fun?            (vectorp arglist))
+             (args                   (gensym "args"))
+             (pattern                arglist)
+             (arglist                (if simple-fun? `(&rest ,args) arglist))
+             (body                   (if simple-fun? `((,pattern ,@body)) body))
+             (split-args             (mu--split-when #'mu--rest? arglist))
              ([head-args [rest-arg]] split-args))
 
       ;; TODO :debug and :test
@@ -651,25 +658,34 @@ arglist and `mu-case' patterns in the BODY."
         ,(mu--defun-sig split-args body docstring sig sigs)
         ,@(when dspec `((declare ,@dspec)))
         ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
-        ,(if simple-fun?
-
-             ;; re-write outermost []-pattern to be strict, so we catch arrity
-             ;; bugs, but treat any internal []-pattern as permissive `seq'
-             `(mu--case seq ,rest-arg
-                ((lv ,@(seq-into pattern 'list)) ,@body)
-                (otherwise
-                 (mu-error "no matching clause found for mu-defun call %s" ',name)))
-
-           ;; TODO shouldn't patterns here also be strict in the outermost but
-           ;; permissive for any internal [] pattern? This is how Clojure has it!
-
-           ;; (mu-defun foo (arglist) attrs (pat body) ...)
-           `(mu-case ,rest-arg
-              ,@body
-              ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
-                  (list
-                   `(otherwise
-                     (mu-error "no matching clause found for mu-defun call %s" ',name))))))))))
+        ;; TODO I am not sure having internal []-patterns as `seq' is worth it.
+        ;; Destructuring is nice, but `mu-defun' is about dispatch, so the
+        ;; following no longer makes sense:
+        ;;
+        ;;   (mu-defun foo (&rest args)
+        ;;     ([a [b c] d] (list a b c d))
+        ;;     ([a [b] c] (list a b c)))
+        ;;
+        ;; I need real-life cases to decide which option is better:
+        ;; - lv-pattern outside, seq-pattern inside or
+        ;; - lv-pattern everywhere
+        (mu--case seq ,rest-arg
+          ;; re-write outermost []-patterns to be strict, so we can dispatch on
+          ;; arrity, but treat any internal []-pattern as permissive `seq'
+          ,@(mapcar
+             (lambda (clause)
+               (mu-let (([pat | body] clause))
+                 (cond
+                  ((equal pat 'otherwise) clause)
+                  ((vectorp pat) `((lv ,@(seq-into pat 'list)) ,@body))
+                  (:else
+                   (mu-error "in mu-defun expected a []-pattern in clause %S" ',pat)))))
+             body)
+          ;; otherwise clause
+          ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
+              (list
+               `(otherwise
+                 (mu-error "no matching clause found for mu-defun call %s" ',name)))))))))
 
 
 (comment
