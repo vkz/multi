@@ -123,6 +123,15 @@ which maybe parameterized by setting SEQ to one of:
   (unless (get 'mu--case :mu-patterns)
     (define-symbol-prop 'mu-case :mu-patterns (ht)))
 
+  ;; TODO consider catching pcase errors, so that we can report in terms of
+  ;; mu-patterns, else all the guts get spilled and very difficult to debug.
+  ;; Sadly, `pcase' stupidly unimaginatively throws 'error, so I'll have to catch
+  ;; everything.
+
+  ;; TODO consider adding some use-context then re-throwing and catching in the
+  ;; user-facing API functions, which should also enrich context, so the error is
+  ;; meaningful to the user
+
   ;; hack to propagate expansion time errors to runtime
   (condition-case err
       `(pcase ,e
@@ -231,6 +240,8 @@ macro code.
       (setq body (cons docstring body))))
   (let ((mu-patterns `(or (get 'mu--case :mu-patterns)
                           (put 'mu--case :mu-patterns (ht))))
+        ;; TODO should I trap errors here to fascilitate debugging and better
+        ;; error reporting? I could wrap the body in condition-case
         (pattern-macro `(lambda ,arglist ,@body)))
     `(setf (ht-get ,mu-patterns ',name) ,pattern-macro)))
 
@@ -610,7 +621,6 @@ arglist and `mu-case' patterns in the BODY."
           (multi-error "in foo: arguments do not satisfy the arglist pattern %S" ,args))))))
 
 
-;; TODO gv-setter
 (defun mu--defun (fun-type name arglist body)
   (declare (indent defun))
   (if (vectorp arglist)
@@ -641,6 +651,52 @@ arglist and `mu-case' patterns in the BODY."
             ,@body))))))
 
 
+(comment
+ ;; TODO Idea for how mu-defun should really work
+ (mu-defun foo-fun [a b | args]
+   "This is a foo function that performs foo and returns something
+cool."
+   ;; initial a b args are in scope for the ret check
+   :ret (lambda (v) (and (pred #'some-struct?) etc))
+   :test ([1 2] => (struct2 1 2)
+          [1 2 3] => (lambda (v) do some checks)
+          [1 2 0] => #'predicate)
+   ;; enables ret check and test runs
+   :debug t
+   :interactive t
+   :declare ((indent 2) (debug t))
+   (some body here))
+ ;; => when :debug t
+ `(progn
+
+    (defun foo-fun-temp (&rest arglist)
+      (mu-case arglist
+        ([a b | argls] body)))
+
+    (defun foo-fun (&rest arglist)
+      (let ((ret? (lambda (v) (and (pred #'some-struct?) etc)))
+            (ret (apply #'foo-fun-temp arglist)))
+        (cond
+         ((functionp ret?) (funcall ret? ret))
+         (:mu-pattern (mu-case ret
+                        (ret? t)
+                        (otherwise (mu-error "in foo-fun return value %S failed the check %S" ret 'ret?)))))))
+
+    ;; also run tests
+    (ert-deftest foo-fun-test ()
+      "foo-fun must pass predefined tests"
+
+      (should (mu-case (foo-fun 1 2)
+                (some-pat t)
+                (otherwise (mu-error "foo-fun failed test ... "))))
+
+      (should (funcall #'predicate (foo-fun 1 2 3))))
+
+    (ert 'foo-fun-test))
+ ;; comment
+ )
+
+
 (defun mu--set-defun-docstring (fun-type)
   "Sets docstring for `mu-defun' or `mu-defmacro'"
   (put (sym "mu-" fun-type) 'function-documentation
@@ -658,7 +714,6 @@ expression pairs before the BODY:
     :sigs        extra-signatures
     :declare     dspec
     :interactive ispec
-    :gv-setter   gv-setter-body
     ([mu-case-args-pat1] body1)
     ([mu-case-args-pat2] body2)
       ... ...)
@@ -685,15 +740,6 @@ METADATA is optional and may include the following attributes:
 
   :interactive ispec - t or `interactive' ARG-DESCRIPTOR,
 
-  :gv-setter - Like gv-setter proprety, see Info
-               node `(elisp)Declare Form'. A symbol will will be
-               passed to `mu-defun-simple-gv-setter', while a
-               form `(lambda (ARG) BODY)' will have access to the
-               macro or function's arglist and will be passed to
-               `mu-defun-gv-setter'. Just like in `mu-defun' BODY
-               must consist of a set of `([pattern] body)'
-               clauses.
-
 \(fn NAME ARGLIST METADATA &rest BODY)"
         fun-type fun-type))
   nil)
@@ -709,20 +755,73 @@ METADATA is optional and may include the following attributes:
   (mu--defun 'defmacro name arglist body))
 
 
-(defmacro mu-defun-setter (name arglist &rest body)
-  `(gv-define-setter ,name ,arglist ,@body))
-
-
-(defmacro mu-defmacro-setter (name arglist &rest body)
-  `(gv-define-setter ,name ,arglist ,@body))
-
-
 ;; add docstring to `mu-defun'
 (mu--set-defun-docstring 'defun)
 
 
 ;; add docstring to `mu-defmacro'
 (mu--set-defun-docstring 'defmacro)
+
+
+;;** - setter ----------------------------------------------------- *;;
+
+
+(defmacro mu-defun-setter (call-pattern val &rest clauses)
+  (declare (indent 2))
+  (let* ((id          (car call-pattern))
+         (arglist     (cdr call-pattern))
+         (split-args  (mu--split-when #'mu--rest? arglist))
+         (head-args   (car split-args))
+         (rest-arg    (car (cadr split-args))))
+    `(gv-define-setter ,id (,val ,@arglist)
+       (mu-case ,rest-arg
+         ,@clauses))))
+
+
+(defalias 'mu-defmacro-setter 'mu-defun-setter)
+
+
+(comment
+ (mu-defun-setter (foo a b &rest args) val
+   ([c d] `(setf foo 1))
+   ([c] `(setf foo 2)))
+ ;; =>
+ (gv-define-setter foo (val a b &rest arglist)
+   (mu-case arglist
+     ([c d] body1)
+     ([c] body2)
+     (otherwise (multi-error "no setter for %S" arglist))))
+ ;; comment
+ )
+
+
+;;** - simple-setter ---------------------------------------------- *;;
+
+
+(defmacro mu-defun-simple-setter (call-pattern val &rest body)
+  (declare (indent 2))
+  (let* ((id          (car call-pattern))
+         (pattern     (cdr call-pattern))
+         (rest-arg (gensym "rest-arg")))
+    `(gv-define-setter ,id (,val &rest ,rest-arg)
+       (mu-case ,rest-arg
+         ([,@pattern] ,@body)))))
+
+
+(defalias 'mu-defmacro-simple-setter 'mu-defun-simple-setter)
+
+
+(comment
+ ;; arguments form an implicit [a b | args] pattern
+ (mu-defun-simple-setter (foo a b | args) val
+   `(setf (get foo ...) ,val))
+ ;; =>
+ (gv-define-setter foo (val &rest arglist)
+   (mu-case arglist
+     ([a b | args] body)
+     (otherwise (multi-error "no setter for %S" arglist))))
+ ;; comment
+ )
 
 
 ;;* Provide ------------------------------------------------------- *;;
