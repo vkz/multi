@@ -314,6 +314,9 @@ variable bound to subsequence to be a list."
   (let* ((type (case (type-of seq)
                  (cons 'list)
                  (vector 'vector)
+                 ;; TODO we should never have gotten this error. It may only ever
+                 ;; happen if we attempt to match non-seq to a seq, but then the
+                 ;; pattern should just fail to match and move on to another case
                  (otherwise (mu-error :seq-pattern (type-of seq)))))
          ;; TODO replace with loop that also counts elements?
          (subseq (seq-take seq pat-len))
@@ -344,16 +347,19 @@ supports the &rest pattern to match the remaining elements."
              (head (car split))
              (rest (cadr split))
              (rest? (when rest t))
-             (pat-len (length (if rest? head patterns))))
+             (pat-len (length (if rest? head patterns)))
+             (seqp `(pred (lambda (v) (or (listp v) (vectorp v))))))
         (when (> (length rest) 1)
           (mu-error :rest-pattern rest))
         (if rest?
             ;; match head and rest
-            `(app (lambda (seq) (mu--seq-split-and-pad seq ,pat-len))
-                  (lst (or (lst ,@head) (vec ,@head)) ,@rest))
+            `(and ,seqp
+                  (app (lambda (seq) (mu--seq-split-and-pad seq ,pat-len))
+                       (lst (or (lst ,@head) (vec ,@head)) ,@rest)))
           ;; match head only
-          `(app (lambda (seq) (car (mu--seq-split-and-pad seq ,pat-len)))
-                (or (lst ,@head) (vec ,@head)))))
+          `(and ,seqp
+                (app (lambda (seq) (car (mu--seq-split-and-pad seq ,pat-len)))
+                     (or (lst ,@head) (vec ,@head))))))
     ;; empty seq-pattern
     `(or (lst) (vec))))
 
@@ -412,13 +418,15 @@ succeed."
              (head (car split))
              (rest (cadr split))
              (rest? (when rest t))
-             (pat-len (length (if rest? head patterns))))
+             (pat-len (length (if rest? head patterns)))
+             (seqp `(pred (lambda (v) (or (listp v) (vectorp v))))))
         (when (> (length rest) 1)
           (mu-error :rest-pattern rest))
         (if rest?
             ;; match head and rest
-            `(app (lambda (seq) (mu--seq-split seq ,pat-len))
-                  (lst (or (lst ,@head) (vec ,@head)) ,@rest))
+            `(and ,seqp
+                  (app (lambda (seq) (mu--seq-split seq ,pat-len))
+                       (lst (or (lst ,@head) (vec ,@head)) ,@rest)))
           ;; match head only
           `(or (lst ,@head) (vec ,@head))))
     ;; empty seq-pattern
@@ -609,46 +617,54 @@ arglist and `mu-case' patterns in the BODY."
      (concat doc sig))))
 
 
-(defun mu--simple-defun (fun-type name pattern body)
-  (let* ((args (gensym "args"))
-         (docstring (when (stringp (car body)) (list (car body))))
-         (body (if docstring (cdr body) body)))
-    `(defun ,name (&rest ,args)
-       ,@docstring
-       (mu--case seq ,args
-         (,pattern ,@body)
-         (otherwise
-          (multi-error "in foo: arguments do not satisfy the arglist pattern %S" ,args))))))
-
-
 (defun mu--defun (fun-type name arglist body)
-  (declare (indent defun))
-  (if (vectorp arglist)
-      ;; (mu-defun foo [pat] "doc" body)
-      (mu--simple-defun fun-type name arglist body)
-    ;; (mu-defun foo (arglist) attrs (pat body) ...)
-    (let* ((meta           (mu--defun-meta body))
-           (split-args     (mu--split-when #'mu--rest? arglist))
-           (head-args      (car split-args))
-           (rest-arg       (car (cadr split-args)))
-           (body           (ht-get meta :body))
-           (doc            (ht-get meta :doc))
-           (sig            (ht-get meta :sig))
-           (sigs           (ht-get meta :sigs))
-           (dspec          (ht-get meta :declare))
-           (ispec          (ht-get meta :interactive)))
-      (if (or (not rest-arg) (not (symbolp rest-arg)))
-          `(mu-error :defun-malformed ',arglist)
-        `(,fun-type
-          ,name ,arglist
-          ,(mu--defun-sig split-args body doc sig sigs)
-          ,@(when dspec `((declare ,@dspec)))
-          ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
-          ;; TODO what if I wrap the body in condition-case so that any mu-error
-          ;; maybe reported in terms of current function e.g. mu-defun or
-          ;; mu-defmacro in this case? Wonder how big of an overhead it'd be.
-          (mu-case ,rest-arg
-            ,@body))))))
+  (let ((docstring ""))
+
+    ;; extract docstring if present
+    (when (stringp (car body))
+      (setq docstring (car body)
+            body (cdr body)))
+
+    ;; collect attributes
+    (mu-let (((ht sig ret sigs debug test (:declare dspec) (:interactive ispec) body)
+              (mu--defun-meta body))
+             (simple-fun?          (vectorp arglist))
+             (args                 (gensym "args"))
+             (pattern              arglist)
+             (arglist              (if simple-fun? `(&rest ,args) arglist))
+             (split-args           (mu--split-when #'mu--rest? arglist))
+             ([head-args [rest-arg]] split-args))
+
+      ;; TODO :debug and :test
+
+      `(,fun-type
+        ,name ,arglist
+        ,(mu--defun-sig split-args body docstring sig sigs)
+        ,@(when dspec `((declare ,@dspec)))
+        ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
+        ,(if simple-fun?
+
+             ;; TODO is permissive seq-pattern in simple-defun valuable? Beginning
+             ;; to think that the user would rather get an arrity error. Or
+             ;; perhaps better the outermost [] pattern should be strict, but
+             ;; internal patterns should be permissive? Try smth like this:
+             ;;
+             ;; `(mu--case seq ,rest-arg
+             ;;    ((lv ,@(seq-into pattern 'list)) ,@body))
+
+             ;; (mu-defun foo [pat] "doc" attrs body)
+             `(mu--case seq ,rest-arg
+                (,pattern ,@body)
+                (otherwise
+                 (mu-error "no matching clause found for mu-defun call %s" ',name)))
+
+           ;; (mu-defun foo (arglist) attrs (pat body) ...)
+           `(mu-case ,rest-arg
+              ,@body
+              ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
+                  (list
+                   `(otherwise
+                     (mu-error "no matching clause found for mu-defun call %s" ',name))))))))))
 
 
 (comment

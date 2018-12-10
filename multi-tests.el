@@ -477,47 +477,66 @@ message prefix matches PREFIX"
 
 (ert-deftest mu-test-mu-defun ()
   "single-head and multi-head `mu-defun' should work"
-  (mu-test (foo-fun foo-macro)
+  (mu-test (simple-foo foo-fun foo-macro)
+
+    (mu-defun simple-foo [a b &rest rest]
+      "docstring"
+      :sig (a b &rest tail)
+      :interactive "P"
+      (list* a b rest))
+
+    (should (equal '((:a :b 1 2)
+                     (:a :b)
+                     (:a nil))
+
+                   (list
+                    (simple-foo :a :b 1 2)
+                    (simple-foo :a :b)
+                    ;; TODO should it not match aka arrity error
+                    (simple-foo :a))))
+
+    (should (documentation 'simple-foo))
+
+    (mu-defun foo-fun (&optional a b &rest args)
+      :doc "string"
+      :sig (a b c d)
+      :interactive t
+      ([x y] (list a b x y))
+      ([x] (list a b x))
+      ([] (list a b)))
+
     (should
      (equal '((:a :b 1 2)
               (:a :b 1)
               (:a :b)
               (:a nil))
 
-            (progn
-              (mu-defun foo-fun (&optional a b &rest args)
-                :doc "string"
-                :sig (a b c d)
-                :interactive t
-                ((l x y)     (list a b x y))
-                ((l x)       (list a b x))
-                (otherwise (list a b)))
+            (list
+             (foo-fun :a :b 1 2)
+             (foo-fun :a :b 1)
+             (foo-fun :a :b)
+             (foo-fun :a))))
 
-              (list
-               (foo-fun :a :b 1 2)
-               (foo-fun :a :b 1)
-               (foo-fun :a :b 1 2 3)
-               (foo-fun :a)))))
+    (should (mu--error-match "no matching clause found" (foo-fun :a :b 1 2 3)))
+
+    (mu-defmacro foo-macro (a &rest args)
+      :doc "string"
+      :sig (a x :in other)
+      :sigs t
+      :declare ((indent defun))
+      ([x [1 y] | z] `(list ,a ,x ,y ',z))
+      ([x [y] | z] `(list ,a ,x ,y ',z))
+      (otherwise `(list ,a)))
 
     (should
-     (equal '((:a :b 1 2)
-              (:a :b 1)
-              (:a :b))
+     (equal '((:a :b :c (1 2))
+              (:a :b :c (1))
+              (:a))
 
-            (progn
-              (mu-defmacro foo-macro (a b &rest args)
-                :doc "string"
-                :sig (a x :in other)
-                :sigs t
-                :declare ((indent defun))
-                ((l x y)     `(list ,a ,b ,x ,y))
-                ((l x)       `(list ,a ,b ,x))
-                (otherwise `(list ,a ,b)))
-
-              (list
-               (foo-macro :a :b 1 2)
-               (foo-macro :a :b 1)
-               (foo-macro :a :b 1 2 3)))))))
+            (list
+             (foo-macro :a :b [1 :c] 1 2)
+             (foo-macro :a :b [:c] 1)
+             (foo-macro :a))))))
 
 
 ;;** - errors in patterns ----------------------------------------- *;;
