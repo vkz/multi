@@ -484,6 +484,10 @@ succeed."
 Sequence pattern [] is strict: must match the entire sequence to
 succeed."
   (declare (indent 1))
+
+  ;; TODO should I only treat the outer-most [] as lv-pattern, but have permissive
+  ;; [] in the internal patterns here?
+
   ;; Overload [] seq-pattern to be strict: [] will use lv-pattern
   `(mu--case lv ,e ,@clauses))
 
@@ -617,6 +621,11 @@ arglist and `mu-case' patterns in the BODY."
      (concat doc sig))))
 
 
+;; TODO lambda-counterpart - anonymous multi function:
+;;   (mu [pat] body)
+;;   (μ  [pat] body)
+
+
 (defun mu--defun (fun-type name arglist body)
   (let ((docstring ""))
 
@@ -644,19 +653,15 @@ arglist and `mu-case' patterns in the BODY."
         ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
         ,(if simple-fun?
 
-             ;; TODO is permissive seq-pattern in simple-defun valuable? Beginning
-             ;; to think that the user would rather get an arrity error. Or
-             ;; perhaps better the outermost [] pattern should be strict, but
-             ;; internal patterns should be permissive? Try smth like this:
-             ;;
-             ;; `(mu--case seq ,rest-arg
-             ;;    ((lv ,@(seq-into pattern 'list)) ,@body))
-
-             ;; (mu-defun foo [pat] "doc" attrs body)
+             ;; re-write outermost []-pattern to be strict, so we catch arrity
+             ;; bugs, but treat any internal []-pattern as permissive `seq'
              `(mu--case seq ,rest-arg
-                (,pattern ,@body)
+                ((lv ,@(seq-into pattern 'list)) ,@body)
                 (otherwise
                  (mu-error "no matching clause found for mu-defun call %s" ',name)))
+
+           ;; TODO shouldn't patterns here also be strict in the outermost but
+           ;; permissive for any internal [] pattern? This is how Clojure has it!
 
            ;; (mu-defun foo (arglist) attrs (pat body) ...)
            `(mu-case ,rest-arg

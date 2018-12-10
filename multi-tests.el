@@ -486,16 +486,26 @@ message prefix matches PREFIX"
       (list* a b rest))
 
     (should (equal '((:a :b 1 2)
-                     (:a :b)
-                     (:a nil))
+                     (:a :b))
 
                    (list
                     (simple-foo :a :b 1 2)
-                    (simple-foo :a :b)
-                    ;; TODO should it not match aka arrity error
-                    (simple-foo :a))))
+                    (simple-foo :a :b))))
+
+    (should (mu--error-match "no matching clause" (simple-foo :a)))
 
     (should (documentation 'simple-foo))
+
+
+    (mu-defun simple-foo [a [b [c]] &rest rest]
+      (list* a b c rest))
+
+    (should (mu--error-match "no matching clause" (simple-foo :a)))
+    (should (mu--error-match "no matching clause" (simple-foo :a :b)))
+
+    ;; internal []-patterns should be permissive
+    (should (equal '(:a :b nil) (simple-foo :a [:b])))
+
 
     (mu-defun foo-fun (&optional a b &rest args)
       :doc "string"
