@@ -621,9 +621,10 @@ arglist and `mu-case' patterns in the BODY."
      (concat doc sig))))
 
 
-;; TODO lambda-counterpart - anonymous multi function:
-;;   (mu [pat] body)
-;;   (μ  [pat] body)
+;; TODO should I allow these signatures?
+;;   (mu-defun foo        "docstring" ([pat2] body2))
+;;   (mu-defun foo args   "docstring" ([pat1] body1))
+;;   (mu-defun foo (args) "docstring" ([pat1] body1))
 
 
 (defun mu--defun (fun-type name arglist body)
@@ -651,6 +652,8 @@ arglist and `mu-case' patterns in the BODY."
         ,(mu--defun-sig split-args body docstring sig sigs)
         ,@(when dspec `((declare ,@dspec)))
         ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
+
+        ;; TODO decide whether I want permissive matching for internal []-patterns
         ,(if simple-fun?
 
              ;; re-write outermost []-pattern to be strict, so we catch arrity
@@ -660,16 +663,81 @@ arglist and `mu-case' patterns in the BODY."
                 (otherwise
                  (mu-error "no matching clause found for mu-defun call %s" ',name)))
 
-           ;; TODO shouldn't patterns here also be strict in the outermost but
-           ;; permissive for any internal [] pattern? This is how Clojure has it!
-
-           ;; (mu-defun foo (arglist) attrs (pat body) ...)
+           ;; all []-patterns are strict for multi-head defun, to fascilitate
+           ;; dispatch and delegation to self "pattern"
            `(mu-case ,rest-arg
               ,@body
               ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
                   (list
                    `(otherwise
                      (mu-error "no matching clause found for mu-defun call %s" ',name))))))))))
+
+
+
+(defun mu--single-head-lambda (patterns body)
+  (let ((args (gensym "args")))
+    `(lambda (&rest ,args)
+       (mu--case seq ,args
+         ((lv ,@patterns) ,@body)
+         (otherwise (mu-error "in mu-lambda call: no matching clause found"))))))
+
+
+(defun mu--multi-head-lambda (arglist rest-arg body)
+  `(lambda ,arglist
+     (mu-case ,rest-arg
+       ,@body
+       ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
+           (list
+            `(otherwise (mu-error "in mu-lambda call: no matching clause found")))))))
+
+
+(mu-defmacro mu (&rest args)
+  "Create a lambda-like anonymous function, but use an [pats]
+sequence PATTERN in place of an arglist to match and destructure
+the incomming argument list"
+  :declare ((indent 1))
+
+  ;; (mu [patterns] body)
+  ([(v &rest patterns) | body]
+   (mu--single-head-lambda (seq-into patterns 'list) body))
+
+  ;; (mu arglist clauses)
+  ([(and (pred symbolp) id) | clauses]
+   (mu--multi-head-lambda `(&rest ,id) id clauses))
+
+  ;; (mu (args) clauses)
+  ([(lst (and (pred symbolp) id)) | clauses]
+   (mu--multi-head-lambda `(&rest ,id) id clauses))
+
+  ;; (mu (&rest args) clauses)
+  ([(lst (pred mu--rest?) (and (pred symbolp) id)) | clauses]
+   (mu--multi-head-lambda `(&rest ,id) id clauses))
+
+  ;; (mu (a b &rest args) clauses)
+  ([(and (pred (lambda (arg) (some #'mu--rest? arg))) arglist) | clauses]
+   (mu-let ((split-args (mu--split-when #'mu--rest? arglist))
+            ([head-args [rest-arg]] split-args))
+     (mu--multi-head-lambda arglist rest-arg clauses))))
+
+
+;; TODO is this a good idea?
+(defalias 'μ 'mu)
+
+
+(comment
+ (funcall (mu [a b | args] (list* a b args)) 1 2 3 4)
+
+ (funcall (mu args
+            ([a b] (list a b))
+            ([a b c] (list a b c)))
+          1 2)
+
+ (funcall (mu args
+            ([a b] (list a b))
+            ([a b c] (list a b c)))
+          1 2 3)
+ ;; comment
+ )
 
 
 (comment
