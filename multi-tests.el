@@ -508,7 +508,7 @@ message prefix matches PREFIX"
 
 
     (mu-defun foo-fun (&optional a b &rest args)
-      :doc "string"
+      "docstring"
       :sig (a b c d)
       :interactive t
       ([x y] (list a b x y))
@@ -530,7 +530,7 @@ message prefix matches PREFIX"
     (should (mu--error-match "no matching clause found" (foo-fun :a :b 1 2 3)))
 
     (mu-defmacro foo-macro (a &rest args)
-      :doc "string"
+      "docstring"
       :sig (a x :in other)
       :sigs t
       :declare ((indent defun))

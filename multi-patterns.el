@@ -621,57 +621,70 @@ arglist and `mu-case' patterns in the BODY."
      (concat doc sig))))
 
 
-;; TODO should I allow these signatures?
-;;   (mu-defun foo        "docstring" ([pat2] body2))
-;;   (mu-defun foo args   "docstring" ([pat1] body1))
-;;   (mu-defun foo (args) "docstring" ([pat1] body1))
+(defun mu--defun (fun-type name arglist docstring attrs body)
 
-
-(defun mu--defun (fun-type name arglist body)
-  (let ((docstring ""))
-
-    ;; extract docstring if present
+  ;; extract docstring from body
+  (unless docstring
+    (setq docstring "")
     (when (stringp (car body))
       (setq docstring (car body)
-            body (cdr body)))
+            body (cdr body))))
 
-    ;; collect attributes
-    (mu-let (((ht sig ret sigs debug test (:declare dspec) (:interactive ispec) body)
-              (mu--defun-meta body))
-             (simple-fun?          (vectorp arglist))
-             (args                 (gensym "args"))
-             (pattern              arglist)
-             (arglist              (if simple-fun? `(&rest ,args) arglist))
-             (split-args           (mu--split-when #'mu--rest? arglist))
-             ([head-args [rest-arg]] split-args))
+  ;; extract attributes from body
+  (unless attrs
+    (let ((meta (mu--defun-meta body)))
+      (setq body (ht-get meta :body)
+            attrs meta)))
 
-      ;; TODO :debug and :test
+  ;; dispatch on the arglist
+  (mu-case arglist
 
-      `(,fun-type
-        ,name ,arglist
-        ,(mu--defun-sig split-args body docstring sig sigs)
-        ,@(when dspec `((declare ,@dspec)))
-        ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
+    ;; [patterns]
+    ((pred vectorp)
+     (let* ((args (gensym "args"))
+            (clauses `((,arglist ,@body))))
+       (mu--defun fun-type name `(&rest ,args) docstring attrs clauses)))
 
-        ;; TODO decide whether I want permissive matching for internal []-patterns
-        ,(if simple-fun?
+    ;; id or _
+    ((and (pred symbolp) id)
+     (when (equal id '_) (setq id (gensym "id")))
+     (mu--defun fun-type name `(&rest ,id) docstring attrs body))
 
-             ;; re-write outermost []-pattern to be strict, so we catch arrity
-             ;; bugs, but treat any internal []-pattern as permissive `seq'
-             `(mu--case seq ,rest-arg
-                ((lv ,@(seq-into pattern 'list)) ,@body)
-                (otherwise
-                 (mu-error "no matching clause found for mu-defun call %s" ',name)))
+    ;; (a b &rest args)
+    ;; TODO should I allow _ and replace them with random symbols?
+    ((and (pred (lambda (arg) (some #'mu--rest? arg))) arglist)
+     (mu-let (((ht sig ret sigs debug test (:declare dspec) (:interactive ispec))
+               attrs)
+              (split-args (mu--split-when #'mu--rest? arglist))
+              ([head-args [rest-arg]] split-args)
+              (single-clause? (= 1 (length body))))
 
-           ;; all []-patterns are strict for multi-head defun, to fascilitate
-           ;; dispatch and delegation to self "pattern"
-           `(mu-case ,rest-arg
-              ,@body
-              ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
-                  (list
-                   `(otherwise
-                     (mu-error "no matching clause found for mu-defun call %s" ',name))))))))))
+       ;; TODO :debug and :test
 
+       `(,fun-type
+         ,name ,arglist
+         ,(mu--defun-sig split-args body docstring sig sigs)
+         ,@(when dspec `((declare ,@dspec)))
+         ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
+
+         ;; TODO decide whether I want permissive matching for internal []-patterns
+         ,(if single-clause?
+
+              ;; re-write outermost []-pattern to be strict, so we catch arrity
+              ;; bugs, but treat any internal []-pattern as permissive `seq'
+              `(mu--case seq ,rest-arg
+                 ((lv ,@(seq-into (caar body) 'list)) ,@(cdr (car body)))
+                 (otherwise
+                  (mu-error "no matching clause found for mu-defun call %s" ',name)))
+
+            ;; all []-patterns are strict for multi-head defun, to fascilitate
+            ;; dispatch and delegation to self "pattern"
+            `(mu-case ,rest-arg
+               ,@body
+               ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
+                   (list
+                    `(otherwise
+                      (mu-error "no matching clause found for mu-defun call %s" ',name)))))))))))
 
 
 (defun mu--single-head-lambda (patterns body)
@@ -701,16 +714,9 @@ the incomming argument list"
   ([(v &rest patterns) | body]
    (mu--single-head-lambda (seq-into patterns 'list) body))
 
-  ;; (mu arglist clauses)
+  ;; (mu id clauses) or (mu _ clauses)
   ([(and (pred symbolp) id) | clauses]
-   (mu--multi-head-lambda `(&rest ,id) id clauses))
-
-  ;; (mu (args) clauses)
-  ([(lst (and (pred symbolp) id)) | clauses]
-   (mu--multi-head-lambda `(&rest ,id) id clauses))
-
-  ;; (mu (&rest args) clauses)
-  ([(lst (pred mu--rest?) (and (pred symbolp) id)) | clauses]
+   (when (equal id '_) (setq id (gensym "id")))
    (mu--multi-head-lambda `(&rest ,id) id clauses))
 
   ;; (mu (a b &rest args) clauses)
@@ -720,7 +726,7 @@ the incomming argument list"
      (mu--multi-head-lambda arglist rest-arg clauses))))
 
 
-;; TODO is this a good idea?
+
 (defalias 'μ 'mu)
 
 
@@ -736,6 +742,11 @@ the incomming argument list"
             ([a b] (list a b))
             ([a b c] (list a b c)))
           1 2 3)
+
+ (funcall (mu _
+            ([a b] (list a b))
+            ([a b c] (list a b c)))
+          1 2)
  ;; comment
  )
 
@@ -836,12 +847,12 @@ METADATA is optional and may include the following attributes:
 
 (defmacro mu-defun (name arglist &rest body)
   (declare (indent 2))
-  (mu--defun 'defun name arglist body))
+  (mu--defun 'defun name arglist nil nil body))
 
 
 (defmacro mu-defmacro (name arglist &rest body)
   (declare (indent 2))
-  (mu--defun 'defmacro name arglist body))
+  (mu--defun 'defmacro name arglist nil nil body))
 
 
 ;; add docstring to `mu-defun'
