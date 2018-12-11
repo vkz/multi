@@ -3,7 +3,6 @@
 
 (require 'cl)
 
-;; TODO (declare (debug ..))
 
 ;; TODO Should I alias mu-case as (mu ...)? Would make it occupy less space and
 ;; hopefully foster more frequent use?
@@ -483,7 +482,8 @@ succeed."
   "`pcase'-like matching and destructuring with less noise.
 Sequence pattern [] is strict: must match the entire sequence to
 succeed."
-  (declare (indent 1))
+  (declare (indent 1)
+           (debug (form &rest (sexp body))))
 
   ;; TODO should I only treat the outer-most [] as lv-pattern, but have permissive
   ;; [] in the internal patterns here?
@@ -553,7 +553,8 @@ instead of ()."
 
 (defmacro mu-let (bindings &rest body)
   "Like `let*' but allow mu-case patterns to bind variables"
-  (declare (indent 1))
+  (declare (indent 1)
+           (debug ((&rest (sexp form)) body)))
   (condition-case err
       (mu--let (mu--let-bindings bindings) body)
     (mu-error `(mu-error ,(cadr err)))))
@@ -561,7 +562,8 @@ instead of ()."
 
 (defmacro mu-when-let (bindings &rest body)
   "Like `when-let*' but allow mu-case patterns to bind variables"
-  (declare (indent 1))
+  (declare (indent 1)
+           (debug ((&rest (sexp form)) body)))
   (condition-case err
       (mu--when-let (mu--let-bindings bindings) body)
     (mu-error `(mu-error ,(cadr err)))))
@@ -569,7 +571,8 @@ instead of ()."
 
 (defmacro mu-if-let (bindings then-body &rest else-body)
   "Like `if-let*' but allow mu-case patterns to bind variables"
-  (declare (indent 2))
+  (declare (indent 2)
+           (debug ((&rest (sexp form)) form body)))
   (condition-case err
       (mu--if-let (mu--let-bindings bindings) then-body else-body)
     (mu-error `(mu-error ,(cadr err)))))
@@ -708,7 +711,8 @@ arglist and `mu-case' patterns in the BODY."
   "Create a lambda-like anonymous function, but use an [pats]
 sequence PATTERN in place of an arglist to match and destructure
 the incomming argument list"
-  :declare ((indent 1))
+  :declare ((indent 1)
+            (debug (&define mu-defun-arglist mu-defun-body)))
 
   ;; (mu [patterns] body)
   ([(v &rest patterns) | body]
@@ -845,13 +849,38 @@ METADATA is optional and may include the following attributes:
   nil)
 
 
+(def-edebug-spec mu-defun-arglist
+  (&or vectorp
+       symbolp
+       ([&rest arg]
+        [&optional ["&optional" arg &rest arg]]
+        &optional [[&or "&rest" "&" "|"] arg])))
+
+
+(def-edebug-spec mu-defun-body
+  (&or
+   ;; single-head defun body
+   [[&not ([&or "otherwise" vectorp] body)] def-body]
+   ;; multi-head defun clauses
+   [&rest ([&or "otherwise" vectorp] def-body)]))
+
+
+(def-edebug-spec mu-defun
+  (&define name mu-defun-arglist
+           [&optional stringp]
+           ;; TODO interactive, declare are psecial
+           [&rest [keywordp sexp]]
+           mu-defun-body))
+
+
 (defmacro mu-defun (name arglist &rest body)
   (declare (indent 2))
   (mu--defun 'defun name arglist nil nil body))
 
 
 (defmacro mu-defmacro (name arglist &rest body)
-  (declare (indent 2))
+  (declare (indent 2)
+           (debug mu-defun))
   (mu--defun 'defmacro name arglist nil nil body))
 
 
