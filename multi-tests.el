@@ -522,7 +522,27 @@ message prefix matches PREFIX"
 
 (ert-deftest mu-test-mu-defun ()
   "single-head and multi-head `mu-defun' should work"
-  (mu-test (simple-foo foo-fun foo-macro)
+  (mu-test (foo simple-foo foo-fun foo-macro)
+
+    (should (progn (mu-defun foo [] t) (foo)))
+    (should (progn (mu-defun foo [a] t) (foo 1)))
+
+    ;; with arglist ignored
+    (should (progn (mu-defun foo _ ([] t)) (foo)))
+
+    ;; with arglist bound
+    (should (progn (mu-defun foo args ([] t)) (foo)))
+
+    ;; with arglist
+    (should (progn (mu-defun foo (| args) ([] t)) (foo)))
+    (should (progn (mu-defun foo (a | args) ([] t)) (foo 1)))
+
+    ;; breaking calling conventions should error
+    (should (mu--error-match "in mu-defun malformed" (mu-defun foo t)))
+    (should (mu--error-match "in mu-defun malformed" (mu-defun foo _)))
+    (should (mu--error-match "in mu-defun malformed" (mu-defun foo _ t)))
+    (should (mu--error-match "in mu-defun malformed" (mu-defun foo () t)))
+    (should (mu--error-match "in mu-defun malformed" (mu-defun foo (a) t)))
 
     (mu-defun simple-foo [a b &rest rest]
       "docstring"
