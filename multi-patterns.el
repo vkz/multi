@@ -3,17 +3,7 @@
 
 (require 'cl)
 
-
-;; TODO Should I alias mu-case as (mu ...)? Would make it occupy less space and
-;; hopefully foster more frequent use?
-
 ;; TODO byte-compile and test for time
-
-;; NOTE Although `mu--pat-unquoted' and `mu-case--inside' are superficially the
-;; same we need both because `mu-case--inside' assumes to be inside backquoted
-;; pattern e.g. `(,foo ,bar) in pcase syntax or [foo bar] in our dsl , while
-;; `mu--pat-unquoted' assumes to work either outside of a backquoted context or
-;; inside of an unquoted pattern.
 
 
 ;;* Prelude ------------------------------------------------------- *;;
@@ -581,9 +571,6 @@ instead of ()."
 ;;* mu-defun ------------------------------------------------------ *;;
 
 
-;; TODO re-write `mu-defun' functions with `mu-let'
-
-
 (defun mu--defun-meta (body &optional map)
   "Return a hash-table of attributes parsed from `mu-defun' or
 `mu-defmacro' preamble"
@@ -624,7 +611,27 @@ arglist and `mu-case' patterns in the BODY."
      (concat doc sig))))
 
 
+(defun mu--defun-clause? (clause)
+  "Mu-clause is a `mu-case' clause: ([patterns] rest)"
+  (and (listp clause)
+       (not (null clause))
+       (or (vectorp (car clause))
+           (equal (car clause) 'otherwise))))
+
+
+(defun mu--defun-clauses? (body)
+  "Mu-clauses is just a list of `mu-case' clauses"
+  (and (listp body)
+       (not (null body))
+       (every #'mu--defun-clause? body)))
+
+
 (defun mu--defun (fun-type name arglist docstring attrs body)
+  "Does all the heavy lifting to process the code from mu-defun
+or mu-defmacro: extract metadata, normalize arglist and body and
+recursively call itself to generate actual defun or defmacro
+respectively. See `mu-defun' for what can appear in ARGLIST and
+ATTRS"
 
   ;; extract docstring from body
   (unless docstring
@@ -639,120 +646,184 @@ arglist and `mu-case' patterns in the BODY."
       (setq body (ht-get meta :body)
             attrs meta)))
 
-  ;; dispatch on the arglist
+  ;;  Now BODY is expected to be one of:
+  ;; - list of mu-clauses when expanding a multi-headed defun,
+  ;; - anything at all when expanding a single-headed defun.
+
+  ;; Decide how to proceed by dispatching on the ARGLIST that should match one the
+  ;; allowed calling conventions, modify arglist and body as needed and recurse so
+  ;; that the penultimate case can deal with now normalized arguments and generate
+  ;; the final function definition.
+
   (mu-case arglist
 
-    ;; [patterns]
+    ;; ARGLIST: [patterns]
     ((pred vectorp)
      (let* ((args (gensym "args"))
             (clauses `((,arglist ,@body))))
+       ;; arglist now (&rest random-id), single clause ([patterns] body), recurse
        (mu--defun fun-type name `(&rest ,args) docstring attrs clauses)))
 
-    ;; id or _
+    ;; ARGLIST: '() or nil
+    ('()
+     `(mu-error "in mu-defun malformed arglist"))
+
+    ;; ARGLIST: id or _
     ((and (pred symbolp) id)
-     (when (equal id '_) (setq id (gensym "id")))
+     ;; if asked to not bind all args, do it by generating some random id
+     (when (equal id '_)
+       (setq id (gensym "id")))
+     ;; arglist now (&rest ID), body must already be mu-clauses, recurse
      (mu--defun fun-type name `(&rest ,id) docstring attrs body))
 
-    ;; (a b &rest args)
+    ;; ARGLIST: (a b &rest args)
     ;; TODO should I allow _ and replace them with random symbols?
     ((and (pred (lambda (arg) (some #'mu--rest? arg))) arglist)
-     (mu-let (((ht sig ret sigs debug test (:declare dspec) (:interactive ispec))
-               attrs)
-              (split-args (mu--split-when #'mu--rest? arglist))
-              ([head-args [rest-arg]] split-args)
-              (single-clause? (= 1 (length body))))
+     (if (mu--defun-clauses? body)
+         ;; having verified that body consists of mu-clauses, pull any metadata
+         ;; supplied as :attributes before the actual body
+         (mu-let (((ht sig ret sigs debug test (:declare dspec) (:interactive ispec))
+                   attrs)
+                  (split-args (mu--split-when #'mu--rest? arglist))
+                  ;; split the arglist into positional head-args and the catch all
+                  ;; argument after &rest
+                  ([head-args [rest-arg]] split-args)
+                  ;; ensure the &rest delimiter is used
+                  (arglist (concatenate 'list head-args `(&rest ,rest-arg)))
+                  ;; are we dealing with a (mu-defun foo [patterns] body) call?
+                  (single-clause? (= 1 (length body))))
 
-       ;; TODO :debug and :test
+           ;; TODO :ret :test :debug
 
-       `(,fun-type
-         ,name ,arglist
-         ,(mu--defun-sig split-args body docstring sig sigs)
-         ,@(when dspec `((declare ,@dspec)))
-         ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
+           `(,fun-type
+             ,name ,arglist
+             ;; enrich the docstring with signatures if supplied
+             ,(mu--defun-sig split-args body docstring sig sigs)
+             ,@(when dspec `((declare ,@dspec)))
+             ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
 
-         ;; TODO decide whether I want permissive matching for internal []-patterns
-         ,(if single-clause?
+             ;; TODO decide whether I want to treat single-clause specially
+             ,(if single-clause?
 
-              ;; re-write outermost []-pattern to be strict, so we catch arrity
-              ;; bugs, but treat any internal []-pattern as permissive `seq'
-              `(mu--case seq ,rest-arg
-                 ((lv ,@(seq-into (caar body) 'list)) ,@(cdr (car body)))
-                 (otherwise
-                  (mu-error "no matching clause found for mu-defun call %s" ',name)))
+                  ;; re-write outermost []-pattern to be strict, so we catch
+                  ;; arrity bugs, but treat any internal []-pattern as permissive
+                  ;; `seq', single clause requires no dispatch, so we want to be
+                  ;; generous with destructuring not strict with dispatch like in
+                  ;; multi-head case below
+                  `(mu--case seq ,rest-arg
+                     ((lv ,@(seq-into (caar body) 'list)) ,@(cdr (car body)))
+                     ;; default otherwise clause
+                     (otherwise
+                      (mu-error "no matching clause found for mu-defun call %s" ',name)))
 
-            ;; all []-patterns are strict for multi-head defun, to fascilitate
-            ;; dispatch and delegation to self "pattern"
-            `(mu-case ,rest-arg
-               ,@body
-               ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
-                   (list
-                    `(otherwise
-                      (mu-error "no matching clause found for mu-defun call %s" ',name)))))))))))
+                ;; all []-patterns are strict for multi-head defun, to fascilitate
+                ;; dispatch and "delegate to another case by recursion" pattern
+                ;; i.e. favour dispatch over destructuring
+                `(mu-case ,rest-arg
+                   ,@body
+                   ;; default otherwise clause if not supplied by the user
+                   ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
+                       (list
+                        `(otherwise
+                          (mu-error "no matching clause found for mu-defun call %s" ',name))))))))
+       ;; expected body of mu-clauses
+       `(mu-error "in mu-defun malformed body: expected mu-clauses, got %S" ',body)))
 
-
-(defun mu--single-head-lambda (patterns body)
-  (let ((args (gensym "args")))
-    `(lambda (&rest ,args)
-       (mu--case seq ,args
-         ((lv ,@patterns) ,@body)
-         (otherwise (mu-error "in mu-lambda call: no matching clause found"))))))
-
-
-(defun mu--multi-head-lambda (arglist rest-arg body)
-  `(lambda ,arglist
-     (mu-case ,rest-arg
-       ,@body
-       ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
-           (list
-            `(otherwise (mu-error "in mu-lambda call: no matching clause found")))))))
-
-
-(mu-defmacro mu (&rest args)
-  "Create a lambda-like anonymous function, but use an [pats]
-sequence PATTERN in place of an arglist to match and destructure
-the incomming argument list"
-  :declare ((indent 1)
-            (debug (&define mu-defun-arglist mu-defun-body)))
-
-  ;; (mu [patterns] body)
-  ([(v &rest patterns) | body]
-   (mu--single-head-lambda (seq-into patterns 'list) body))
-
-  ;; (mu id clauses) or (mu _ clauses)
-  ([(and (pred symbolp) id) | clauses]
-   (when (equal id '_) (setq id (gensym "id")))
-   (mu--multi-head-lambda `(&rest ,id) id clauses))
-
-  ;; (mu (a b &rest args) clauses)
-  ([(and (pred (lambda (arg) (some #'mu--rest? arg))) arglist) | clauses]
-   (mu-let ((split-args (mu--split-when #'mu--rest? arglist))
-            ([head-args [rest-arg]] split-args))
-     (mu--multi-head-lambda arglist rest-arg clauses))))
+    ;; ARGLIST: unrecognized
+    (otherwise
+     `(mu-error "in mu-defun malformed arglist %S" ',arglist))))
 
 
+(defun mu--set-defun-docstring (fun-type)
+  "Set docstring for `mu-defun' or `mu-defmacro'"
+  (put (sym "mu-" fun-type) 'function-documentation
+       (format
+        "Like `%s' but with multiple clauses. Each clause
+specifies a `mu-case' pattern to match against the &rest part of
+the ARGLIST followed by the body to run if the match succeeds.
+Clauses are tried in order as if one had multiple definitions of
+the same function NAME. METADATA can be supplied as :attribute -
+expression pairs before the BODY:
 
-(defalias 'μ 'mu)
+  (mu-%s foo (arg &rest args)
+    \"docstring\"
+    :sig         signature
+    :sigs        extra-signatures
+    :declare     dspec
+    :interactive ispec
+    ([mu-case-args-pat1] body1)
+    ([mu-case-args-pat2] body2)
+      ... ...)
+
+In addition to any variable bound by the corresponding pattern
+every clause has the entire ARGLIST in scope.
+
+METADATA is optional and may include the following attributes:
+
+  :doc dostring - a docstring to attach to the NAME function,
+
+  :sig signature - an implicitly quoted arglist that showcases
+                   the most likely use of the function, will be
+                   stringified and added to the docstring,
+
+  :sigs signatures - extra calling conventions to add to the
+                     docstring: absent or `nil' - no extra
+                     signatures; `t' - combine head of the
+                     arglist and patterns in the clauses to
+                     generate signatures; explicit list of
+                     signatures.
+
+  :declare dspec - a list of `declare' SPECS,
+
+  :interactive ispec - t or `interactive' ARG-DESCRIPTOR,
+
+\(fn NAME ARGLIST METADATA &rest BODY)"
+        fun-type fun-type))
+  nil)
+
+;; TODO I wonder if I could could use this in the docstring and eldoc would be
+;; smart enough to infer and highlight the case as the user's typing?
+(def-edebug-spec mu-defun-arglist
+  (&or vectorp
+       symbolp
+       ([&rest arg]
+        [&optional ["&optional" arg &rest arg]]
+        &optional [[&or "&rest" "&" "|"] arg])))
 
 
-(comment
- (funcall (mu [a b | args] (list* a b args)) 1 2 3 4)
+(def-edebug-spec mu-defun-body
+  (&or
+   ;; single-head defun body
+   [[&not ([&or "otherwise" vectorp] body)] def-body]
+   ;; multi-head defun clauses
+   [&rest ([&or "otherwise" vectorp] def-body)]))
 
- (funcall (mu args
-            ([a b] (list a b))
-            ([a b c] (list a b c)))
-          1 2)
 
- (funcall (mu args
-            ([a b] (list a b))
-            ([a b c] (list a b c)))
-          1 2 3)
+(def-edebug-spec mu-defun
+  (&define name mu-defun-arglist
+           [&optional stringp]
+           ;; TODO interactive, declare are psecial
+           [&rest [keywordp sexp]]
+           mu-defun-body))
 
- (funcall (mu _
-            ([a b] (list a b))
-            ([a b c] (list a b c)))
-          1 2)
- ;; comment
- )
+
+(defmacro mu-defun (name arglist &rest body)
+  (declare (indent 2))
+  (mu--defun 'defun name arglist nil nil body))
+
+
+(defmacro mu-defmacro (name arglist &rest body)
+  (declare (indent 2)
+           (debug mu-defun))
+  (mu--defun 'defmacro name arglist nil nil body))
+
+
+;; add docstring to `mu-defun'
+(mu--set-defun-docstring 'defun)
+
+
+;; add docstring to `mu-defmacro'
+(mu--set-defun-docstring 'defmacro)
 
 
 (comment
@@ -799,97 +870,6 @@ cool."
     (ert 'foo-fun-test))
  ;; comment
  )
-
-
-(defun mu--set-defun-docstring (fun-type)
-  "Sets docstring for `mu-defun' or `mu-defmacro'"
-  (put (sym "mu-" fun-type) 'function-documentation
-       (format
-        "Like `%s' but with multiple clauses. Each clause
-specifies a `mu-case' pattern to match against the &rest part of
-the ARGLIST followed by the body to run if the match succeeds.
-Clauses are tried in order as if one had multiple definitions of
-the same function NAME. METADATA can be supplied as :attribute -
-expression pairs before the BODY:
-
-  (mu-%s foo (arg &rest args)
-    :doc         \"docstring\"
-    :sig         signature
-    :sigs        extra-signatures
-    :declare     dspec
-    :interactive ispec
-    ([mu-case-args-pat1] body1)
-    ([mu-case-args-pat2] body2)
-      ... ...)
-
-In addition to any variable bound by the corresponding pattern
-every clause has the entire ARGLIST in scope.
-
-METADATA is optional and may include the following attributes:
-
-  :doc dostring - a docstring to attach to the NAME function,
-
-  :sig signature - an implicitly quoted arglist that showcases
-                   the most likely use of the function, will be
-                   stringified and added to the docstring,
-
-  :sigs signatures - extra calling conventions to add to the
-                     docstring: absent or `nil' - no extra
-                     signatures; `t' - combine head of the
-                     arglist and patterns in the clauses to
-                     generate signatures; explicit list of
-                     signatures.
-
-  :declare dspec - a list of `declare' SPECS,
-
-  :interactive ispec - t or `interactive' ARG-DESCRIPTOR,
-
-\(fn NAME ARGLIST METADATA &rest BODY)"
-        fun-type fun-type))
-  nil)
-
-
-(def-edebug-spec mu-defun-arglist
-  (&or vectorp
-       symbolp
-       ([&rest arg]
-        [&optional ["&optional" arg &rest arg]]
-        &optional [[&or "&rest" "&" "|"] arg])))
-
-
-(def-edebug-spec mu-defun-body
-  (&or
-   ;; single-head defun body
-   [[&not ([&or "otherwise" vectorp] body)] def-body]
-   ;; multi-head defun clauses
-   [&rest ([&or "otherwise" vectorp] def-body)]))
-
-
-(def-edebug-spec mu-defun
-  (&define name mu-defun-arglist
-           [&optional stringp]
-           ;; TODO interactive, declare are psecial
-           [&rest [keywordp sexp]]
-           mu-defun-body))
-
-
-(defmacro mu-defun (name arglist &rest body)
-  (declare (indent 2))
-  (mu--defun 'defun name arglist nil nil body))
-
-
-(defmacro mu-defmacro (name arglist &rest body)
-  (declare (indent 2)
-           (debug mu-defun))
-  (mu--defun 'defmacro name arglist nil nil body))
-
-
-;; add docstring to `mu-defun'
-(mu--set-defun-docstring 'defun)
-
-
-;; add docstring to `mu-defmacro'
-(mu--set-defun-docstring 'defmacro)
 
 
 ;;** - setter ----------------------------------------------------- *;;
@@ -951,6 +931,79 @@ METADATA is optional and may include the following attributes:
      (otherwise (multi-error "no setter for %S" arglist))))
  ;; comment
  )
+
+
+;;** - mu-lambda -------------------------------------------------- *;;
+
+
+(defun mu--single-head-lambda (patterns body)
+  (let ((args (gensym "args")))
+    `(lambda (&rest ,args)
+       (mu--case seq ,args
+         ((lv ,@patterns) ,@body)
+         (otherwise (mu-error "in mu-lambda call: no matching clause found"))))))
+
+
+(defun mu--multi-head-lambda (arglist rest-arg body)
+  `(lambda ,arglist
+     (mu-case ,rest-arg
+       ,@body
+       ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
+           (list
+            `(otherwise (mu-error "in mu-lambda call: no matching clause found")))))))
+
+
+(mu-defmacro mu (&rest args)
+  "Create a lambda-like anonymous function but allow `mu-defun'
+style single-head destructuring or multi-head dispatching and
+destructuring:
+
+  (mu [patterns] body)
+  (mu arglist ([patterns] body) mu-clause...)
+
+\(fn [patterns] body)"
+
+  :declare ((indent 1)
+            (debug (&define mu-defun-arglist mu-defun-body)))
+
+  ;; Dispatch by pattern-matching ARGS:
+
+  ;; ARGS: (mu [patterns] body)
+  ([(v &rest patterns) | body]
+   ;; wrap in a lambda that destructures arguments according to [patterns]
+   (mu--single-head-lambda (seq-into patterns 'list) body))
+
+  ;; ARGS: (mu '() body) aka (mu nil body)
+  (['() | _]
+   `(mu-error "in mu-lambda malformed arglist"))
+
+  ;; ARGS: (mu id clauses) or (mu _ clauses)
+  ([(and (pred symbolp) id) | (and (pred mu--defun-clauses?) clauses)]
+   ;; if asked to not bind all args, do it by generating some random id
+   (when (equal id '_)
+     (setq id (gensym "id")))
+   ;; wrap in a lambda dispatching to clauses with mu-case
+   (mu--multi-head-lambda `(&rest ,id) id clauses))
+
+  ;; ARGS: (mu (a b &rest args) clauses)
+  ([(and (pred (lambda (arg) (some #'mu--rest? arg))) arglist) |
+    (and (pred mu--defun-clauses?) clauses)]
+   (mu-let ((split-args (mu--split-when #'mu--rest? arglist))
+            ;; split the arglist into positional head-args and the catch all
+            ;; argument after &rest
+            ([head-args [rest-arg]] split-args)
+            ;; ensure only the &rest delimiter is used
+            (arglist (concatenate 'list head-args `(&rest ,rest-arg))))
+     ;; wrap in a lambda that uses the supplied arglist and dispatches to clauses
+     ;; by mu-case matching the rest-arg
+     (mu--multi-head-lambda arglist rest-arg clauses)))
+
+  ;; ARGS: unrecogsized
+  (otherwise
+   `(mu-error "in mu-lambda malformed arglist or body")))
+
+
+(defalias 'μ 'mu)
 
 
 ;;* Provide ------------------------------------------------------- *;;
