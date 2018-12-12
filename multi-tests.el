@@ -475,6 +475,51 @@ message prefix matches PREFIX"
 ;;** - mu-defun  -------------------------------------------------- *;;
 
 
+(ert-deftest mu-test-mu-lambda ()
+  "anonymous mu-lambda should work"
+
+  ;; all calling conventions for mu-lambda should work:
+
+  ;; with no arglist
+  (should (funcall (mu [] t)))
+  (should (funcall (mu [a] t) 1))
+
+  ;; with arglist ignored
+  (should (funcall (mu _ ([] t))))
+
+  ;; with arglist bound
+  (should (funcall (mu args ([] t))))
+
+  ;; with arglist
+  (should (funcall (mu (| args) ([] t))))
+  (should (funcall (mu (a | args) ([] t)) 1))
+
+  ;; breaking calling conventions should error
+  (should (mu--error-match "in mu-lambda malformed" (funcall (mu))))
+  (should (mu--error-match "in mu-lambda malformed" (funcall (mu t))))
+  (should (mu--error-match "in mu-lambda malformed" (funcall (mu _))))
+  (should (mu--error-match "in mu-lambda malformed" (funcall (mu _ t))))
+  (should (mu--error-match "in mu-lambda malformed" (funcall (mu () t))))
+  (should (mu--error-match "in mu-lambda malformed" (funcall (mu (a) t))))
+
+  ;; single-head mu-lambda should work
+  (should (equal '(1 2 3 4) (funcall (mu [a b | args] (list* a b args)) 1 2 3 4)))
+
+  ;; multi-head mu-lambda should dispatch correctly
+  (let ((mu-lambda (mu _
+                     ([a b] (list a b))
+                     ([a b c] (list a b c)))))
+    (should (equal '(1 2) (funcall mu-lambda 1 2)))
+    (should (equal '(1 2 3) (funcall mu-lambda 1 2 3))))
+
+  (should (equal '((1 2) (1 2 3))
+                 (mapcar (mu _
+                           ([[a b]] (list a b))
+                           ([[a b c]] (list a b c)))
+                         '((1 2)
+                           (1 2 3))))))
+
+
 (ert-deftest mu-test-mu-defun ()
   "single-head and multi-head `mu-defun' should work"
   (mu-test (simple-foo foo-fun foo-macro)
