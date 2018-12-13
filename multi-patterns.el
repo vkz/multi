@@ -877,31 +877,21 @@ cool."
 
 (defmacro mu-defun-setter (call-pattern val &rest clauses)
   (declare (indent 2))
-  (let* ((id          (car call-pattern))
-         (arglist     (cdr call-pattern))
-         (split-args  (mu--split-when #'mu--rest? arglist))
-         (head-args   (car split-args))
-         (rest-arg    (car (cadr split-args))))
+  (let* ((id         (car call-pattern))
+         (arglist    (cdr call-pattern))
+         (split-args (mu--split-when #'mu--rest? arglist))
+         (head-args  (car split-args))
+         (rest-arg   (car (cadr split-args)))
+         (arglist    (concatenate 'list head-args `(&rest ,rest-arg))))
     `(gv-define-setter ,id (,val ,@arglist)
        (mu-case ,rest-arg
-         ,@clauses))))
+         ,@clauses
+         ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) clauses)
+             (list
+              `(mu-error "no setter matches a call to %s" ',id)))))))
 
 
 (defalias 'mu-defmacro-setter 'mu-defun-setter)
-
-
-(comment
- (mu-defun-setter (foo a b &rest args) val
-   ([c d] `(setf foo 1))
-   ([c] `(setf foo 2)))
- ;; =>
- (gv-define-setter foo (val a b &rest arglist)
-   (mu-case arglist
-     ([c d] body1)
-     ([c] body2)
-     (otherwise (multi-error "no setter for %S" arglist))))
- ;; comment
- )
 
 
 ;;** - simple-setter ---------------------------------------------- *;;
@@ -914,23 +904,81 @@ cool."
          (rest-arg (gensym "rest-arg")))
     `(gv-define-setter ,id (,val &rest ,rest-arg)
        (mu-case ,rest-arg
-         ([,@pattern] ,@body)))))
+         ([,@pattern] ,@body)
+         (otherwise
+          (mu-error "no setter matches a call to %s" ',id))))))
 
 
 (defalias 'mu-defmacro-simple-setter 'mu-defun-simple-setter)
 
 
+(example
+
+ ;; define a getter
+ (mu-defun foo [table [level-1-key level-2-key]]
+   (ht-get* table :cache level-1-key level-2-key))
+
+ ;; first try with just the simple setter, which should work for the first case of
+ ;; setting :foo below, but should fail to set :updated-foo
+ (mu-defun-simple-setter (foo table [level-1-key level-2-key]) val
+   `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
+
+ ;; now we fix it for both cases by switching to a multi-head setter
+ (mu-defun-setter (foo | args) val
+   ([table ['quote [level-1-key level-2-key]]]
+    `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
+   ([table [level-1-key level-2-key]]
+    `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val)))
+
+ ;; and now both setf's should work
+ (let ((table (ht)))
+
+   (list (progn
+           (setf (foo table [:a :b]) :foo)
+           (foo table [:a :b]))
+
+         (progn
+           (setf (foo table '(:a :b)) :updated-foo)
+           (foo table '(:a :b))))))
+
+
 (comment
- ;; arguments form an implicit [a b | args] pattern
- (mu-defun-simple-setter (foo a b | args) val
-   `(setf (get foo ...) ,val))
- ;; =>
- (gv-define-setter foo (val &rest arglist)
-   (mu-case arglist
-     ([a b | args] body)
-     (otherwise (multi-error "no setter for %S" arglist))))
- ;; comment
- )
+ ;; TODO Idea for how to instrument mu-defun setters for Edebug.
+
+
+ (mu-defun-simple-setter (foo table [level-1-key level-2-key]) val
+   `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
+
+ ;; translate into an explicit settur function =>
+
+ (defun foo-setter (val &rest rest-arg25368)
+   (mu-case rest-arg25368
+     ([table
+       [level-1-key level-2-key]]
+      `(setf
+        (ht-get* ,table :cache ,level-1-key ,level-2-key)
+        ,val))
+     (otherwise
+      (mu-error "no setter matches a call to %s" 'foo))))
+
+ ;; and a put
+ (function-put 'foo 'gv-expander
+               (lambda
+                 (do &rest args)
+                 (gv--defsetter 'foo
+                                #'foo-setter
+                                do args)))
+
+ ;; define a function `mu-edebug-mu-defun-setter' that copies the setter into a
+ ;; temp buffer, expands and eval the buffer, then instruments the setter
+ ;; function. Show that buffer side by side to the user, so that
+ (edebug-instrument-function #'foo-setter)
+
+ ;; when they execute this, Edebug starts stepping through the function in the
+ ;; temp buffer
+ (let ((table (ht)))
+   (setf (foo table [:a :b]) :foo)
+   (foo table [:a :b])))
 
 
 ;;** - mu-lambda -------------------------------------------------- *;;
