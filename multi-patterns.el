@@ -908,28 +908,12 @@ cool."
 
 (defmacro mu-defun-simple-setter (call-pattern val &rest body)
   (declare (indent 2))
-  (let* ((id        (car call-pattern))
-         (pattern   (cdr call-pattern))
-         (rest-arg  (gensym "rest-arg"))
-         (setter-id (sym id (gensym "--mu-setter")))
-         (setter-defun
-          `(mu-defun ,setter-id (,val &rest ,rest-arg)
-             ([,@pattern] ,@body)
-             (otherwise
-              (mu-error "no setter matches a call to %s" ',id)))))
-    `(progn
-       ;; function definition
-       ,setter-defun
-       ;; store function symbol (for `mu-debug-setter')
-       (function-put ',id 'mu-setter #',setter-id)
-       ;; store function source as a string (for `mu-debug-setter')
-       (function-put ',id 'mu-setter-src ,(pp-to-string setter-defun))
-       ;; store the setter function itself
-       (function-put ',id 'gv-expander
-                     (lambda (do &rest args)
-                       (gv--defsetter ',id
-                                      #',setter-id
-                                      do args))))))
+  (mu-case call-pattern
+    ([(and (pred symbolp) id) | pattern]
+     `(mu-defun-setter (,id &rest ,(gensym "rest-arg")) ,val
+        ([,@pattern] ,@body)))
+    (otherwise
+     `(mu-error "in mu-defun-simple-setter malformed getter pattern %S" ',call-pattern))))
 
 
 (defalias 'mu-defmacro-setter 'mu-defun-setter)
