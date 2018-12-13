@@ -13,8 +13,6 @@
 (require 'multi-patterns)
 (require 'multi-methods)
 
-;; TODO Cache
-
 ;; TODO Would implementing expect macro as per examples below be worth it?
 
 
@@ -399,8 +397,13 @@ message prefix matches PREFIX"
                                 ((v (v a &rest (v (v b c))) &rest d) (list a b c d)))))
 
 
-  ;; TODO contrived pattern, but probably shouldn't fail
-  (comment (should (equal '(1 2) (mu-case '(1 2) ((l &rest tail) tail))))))
+  ;; somewhat contrived pattern that still shouldn't fail
+  (should (equal '((1 2) [1 2])
+                 (mapcar
+                  (lambda (arg)
+                    (mu-case arg
+                      ([&rest tail] tail)))
+                  '((1 2) [1 2])))))
 
 
 ;;** - mu-let  ---------------------------------------------------- *;;
@@ -1133,6 +1136,54 @@ message prefix matches PREFIX"
 ;; Despite the significant right drift and the need for wide screen?
 
 (comment
+
+ (ert-deftest mu-test-list-patterns ()
+   "list patterns `lst' and `l' should work"
+
+   (expect   'match     equal    (mu-case '(a)
+                                   (_ 'match)))
+
+   (expect   '(a)       equal    (mu-case '(a)
+                                   (lst lst)))
+
+   (expect   '(a)       equal    (mu-case '(a)
+                                   ((l x y) (list x y))
+                                   ((l x) (list x))))
+
+   (expect   'empty     equal    (mu-case '()
+                                   ((l x) x)
+                                   (otherwise 'empty)))
+
+   (expect   'match     equal    (mu-case '(a b c)
+                                   ((l 'a _ 'c) 'match)))
+
+   (expect   '(2 3)     equal    (mu-case '(1 (2 3))
+                                   ((l _ (l a b)) (list a b))))
+
+   (expect   'match     equal    (mu-case '((1 2))
+                                   ((l (l 1 &rest (l (pred numberp)))) 'match)))
+
+   (expect   '(1 2 3 4) equal    (mu-case '((1 2) (3 4))
+                                   ((l (l (and (pred numberp) a) &rest (l b))
+                                       (l (and (pred numberp) c) &rest (l d)))
+                                    (list a b c d)))))
+
+ (mu-test ()
+   ;; TODO single expect should allow multiple tests in a `setq' like manner
+
+   (expect '(1 2)       equal    (foo 1 2)
+           '(1 2 3)     equal    (foo 1 2 3)
+
+           :after (mu-defun foo (&rest args)
+                    ([a b c] (list a b c))
+                    ([a b] (list a b))))
+
+   (expect  '(1 2 3 4)  equal    (foo 1 '(2 3) 4)
+            '(1 2 3)    equal    (foo 1 '(2) 3)
+
+            :after (mu-defun foo (&rest args)
+                     ([a [b c] d] (list a b c d))
+                     ([a [b] c] (list a b c)))))
 
 
  (ert-deftest mu-test-rel ()
