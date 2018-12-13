@@ -875,6 +875,9 @@ cool."
 ;;** - setter ----------------------------------------------------- *;;
 
 
+;; TODO Re-implement with Edebug in mind (see simple setter)
+
+
 (defmacro mu-defun-setter (call-pattern val &rest clauses)
   (declare (indent 2))
   (let* ((id         (car call-pattern))
@@ -899,20 +902,72 @@ cool."
 
 (defmacro mu-defun-simple-setter (call-pattern val &rest body)
   (declare (indent 2))
-  (let* ((id          (car call-pattern))
-         (pattern     (cdr call-pattern))
-         (rest-arg (gensym "rest-arg")))
-    `(gv-define-setter ,id (,val &rest ,rest-arg)
-       (mu-case ,rest-arg
-         ([,@pattern] ,@body)
-         (otherwise
-          (mu-error "no setter matches a call to %s" ',id))))))
+  (let* ((id        (car call-pattern))
+         (pattern   (cdr call-pattern))
+         (rest-arg  (gensym "rest-arg"))
+         (setter-id (sym id (gensym "--mu-setter")))
+         (setter-defun
+          `(mu-defun ,setter-id (,val &rest ,rest-arg)
+             ([,@pattern] ,@body)
+             (otherwise
+              (mu-error "no setter matches a call to %s" ',id)))))
+    `(progn
+
+       ,setter-defun
+
+       (function-put ',id 'gv-expander
+                     (lambda (do &rest args)
+                       (gv--defsetter ',id
+                                      #',setter-id
+                                      do args)))
+
+       (function-put ',id 'mu-setter #',setter-id)
+
+       (function-put ',id 'mu-setter-src
+                     ,(pp-to-string setter-defun)))))
 
 
 (defalias 'mu-defmacro-simple-setter 'mu-defun-simple-setter)
 
 
+(define-minor-mode mu-debug-mode "Minor mode" nil " μ-debug" (make-sparse-keymap))
+
+
+(defmacro mu-debug-setter (name &rest body)
+  (declare (indent 1))
+  (let ((buffer (gensym "buffer")))
+    `(progn
+       (let ((,buffer (get-buffer-create "*mu-debug*")))
+         (with-current-buffer ,buffer
+           (erase-buffer)
+           (emacs-lisp-mode)
+           (mu-debug-mode 1)
+           (insert (function-get ,name 'mu-setter-src))
+           (eval-buffer))
+         (edebug-instrument-function (function-get ',name 'mu-setter))
+         (pop-to-buffer ,buffer))
+       ,@body)))
+
+
 (example
+ ;; Step debug a simple setter
+
+ (mu-defun foo [table [level-1-key level-2-key]]
+   (ht-get* table :cache level-1-key level-2-key))
+
+ (mu-defun-simple-setter (foo table [level-1-key level-2-key]) val
+   `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
+
+ (mu-debug-setter foo
+   (let ((table (ht)))
+     (setf (foo table [:a :b]) :foo)
+     (foo table [:a :b])))
+ ;; example
+ )
+
+
+(example
+ ;; Define setters
 
  ;; define a getter
  (mu-defun foo [table [level-1-key level-2-key]]
@@ -940,45 +995,6 @@ cool."
          (progn
            (setf (foo table '(:a :b)) :updated-foo)
            (foo table '(:a :b))))))
-
-
-(comment
- ;; TODO Idea for how to instrument mu-defun setters for Edebug.
-
-
- (mu-defun-simple-setter (foo table [level-1-key level-2-key]) val
-   `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
-
- ;; translate into an explicit settur function =>
-
- (defun foo-setter (val &rest rest-arg25368)
-   (mu-case rest-arg25368
-     ([table
-       [level-1-key level-2-key]]
-      `(setf
-        (ht-get* ,table :cache ,level-1-key ,level-2-key)
-        ,val))
-     (otherwise
-      (mu-error "no setter matches a call to %s" 'foo))))
-
- ;; and a put
- (function-put 'foo 'gv-expander
-               (lambda
-                 (do &rest args)
-                 (gv--defsetter 'foo
-                                #'foo-setter
-                                do args)))
-
- ;; define a function `mu-edebug-mu-defun-setter' that copies the setter into a
- ;; temp buffer, expands and eval the buffer, then instruments the setter
- ;; function. Show that buffer side by side to the user, so that
- (edebug-instrument-function #'foo-setter)
-
- ;; when they execute this, Edebug starts stepping through the function in the
- ;; temp buffer
- (let ((table (ht)))
-   (setf (foo table [:a :b]) :foo)
-   (foo table [:a :b])))
 
 
 ;;** - mu-lambda -------------------------------------------------- *;;
