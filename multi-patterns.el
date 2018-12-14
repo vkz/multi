@@ -3,7 +3,20 @@
 
 (require 'cl)
 
-;; TODO byte-compile and test for time
+
+;; TODO define custom mu-patterns to clarify hairy pattern-matching!
+;; - (id foo) => (and (pred symbolp) foo)
+;; - (mu-arglist head-args rest-arg) => (app mu--split-at-rest [head-args [rest-arg]])
+
+;; TODO with the above in mind I may want to have a mechanism to namespace
+;; user-defined patterns lest they start to clash with each other
+
+;; TODO Perfwise byte-compilation should work. Also consider byte-compiling
+;; generated functions, or maybe even generate an actual named function instead of
+;; a lambda so that we can byte-compile it, e.g. for custom patterns? Also see
+;; opportunities for inlining, where an actual function call can be avoided.
+;; Before any of this perf-tuning I'd need a whole bunch of cases to time as make
+;; changes.
 
 
 ;;* Prelude ------------------------------------------------------- *;;
@@ -875,6 +888,9 @@ cool."
 ;;** - setters ---------------------------------------------------- *;;
 
 
+;;*** -- (v1) mu-defun-setter ------------------------------------- *;;
+
+
 (defmacro mu-defun-setter (call-pattern val &rest clauses)
   (declare (indent 2))
   ;; TODO check that I cover all calling conventions
@@ -920,37 +936,10 @@ cool."
 (defalias 'mu-defmacro-simple-setter 'mu-defun-simple-setter)
 
 
-;; Debugging setters
-
-
-(defun mu-debug-quit ()
-  (interactive)
-  (kill-buffer "*mu-debug*")
-  (edebug-top-level-nonstop))
-
-
-(define-minor-mode mu-debug-mode "Minor mode" nil " μ-debug" (make-sparse-keymap))
-(define-key mu-debug-mode-map (kbd "q") #'mu-debug-quit)
-
-
-(defmacro mu-debug-setter (name &rest body)
-  (declare (indent 1))
-  (let ((buffer (gensym "buffer")))
-    `(progn
-       (let ((,buffer (get-buffer-create "*mu-debug*")))
-         (with-current-buffer ,buffer
-           (erase-buffer)
-           (emacs-lisp-mode)
-           (mu-debug-mode 1)
-           (insert (function-get ,name 'mu-setter-src))
-           (eval-buffer))
-         (edebug-instrument-function (function-get ',name 'mu-setter))
-         (pop-to-buffer ,buffer))
-       ,@body)))
-
-
 (example
- ;; Define setters
+
+ ;; TODO observe that the single-head is roughly 4-5x faster, than the multi-head
+ ;; below. Re-arranging branches can also wildly effect performance. Ugh
 
  ;; define a getter
  (mu-defun foo [table [level-1-key level-2-key]]
@@ -961,6 +950,12 @@ cool."
  (mu-defun-simple-setter (foo table [level-1-key level-2-key]) val
    `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
 
+ ;; now this case should work, but passing a '(:a :b) as keys won't
+ (mu-test-time
+   (let ((table (ht)))
+     (setf (foo table [:a :b]) :foo)
+     (foo table [:a :b])))
+
  ;; now we fix it for both cases by switching to a multi-head setter
  (mu-defun-setter (foo | args) val
    ([table ['quote [level-1-key level-2-key]]]
@@ -970,15 +965,188 @@ cool."
 
  ;; and now both setf's should work
  (mu-debug-setter foo
+   (mu-test-time
+     (let ((table (ht)))
+
+       (list (progn
+               (setf (foo table [:a :b]) :foo)
+               (foo table [:a :b]))
+
+             (progn
+               (setf (foo table '(:a :b)) :updated-foo)
+               (foo table '(:a :b))))))))
+
+
+;;*** -- (v2) mu-defsetter ---------------------------------------- *;;
+
+
+(defun mu--split-at-rest (arglist)
+  (when (or (listp arglist) (vectorp arglist))
+    (mu--split-when #'mu--rest? arglist)))
+
+
+(defun mu--otherwise-clause? (clause)
+  (mu-case clause
+    ((l 'otherwise | _) t)
+    (otherwise nil)))
+
+
+(defun mu--defsetter (val-id id head-args rest-arg clauses)
+  (cond
+   ((mu--defun-clauses? clauses)
+    (let* ((arglist (concatenate 'list head-args `(&rest ,rest-arg)))
+           (setter-id (sym id (gensym "--mu-setter")))
+           (setter-defun `(mu-defun ,setter-id (,val-id ,@arglist)
+                            ,@clauses
+                            ,@(unless (some #'mu--otherwise-clause? clauses)
+                                (list
+                                 `(otherwise
+                                   (mu-error "no setter matches a call to %s" ',id)))))))
+      `(progn
+         ;; function definition
+         ,setter-defun
+
+         ;; TODO byte-compiling generated defuns gives a massive speedup in how
+         ;; the setter executes, so we may really want to do that especially since
+         ;; the setter function is actually opaque to the user
+         ;; (byte-compile #',setter-id)
+
+         ;; store function symbol (for `mu-debug-setter')
+         (function-put ',id 'mu-setter #',setter-id)
+         ;; store function source as a string (for `mu-debug-setter')
+         (function-put ',id 'mu-setter-src ,(pp-to-string setter-defun))
+         ;; store the setter function itself
+         (function-put ',id 'gv-expander
+                       (lambda (do &rest args)
+                         (gv--defsetter ',id
+                                        #',setter-id
+                                        do args))))))
+   (:malformed-body
+    `(mu-error "in mu-defsetter malformed body: expected mu-clauses, got %S" ',clauses))))
+
+
+;; TODO Even with the main case extracted into an external helper-function and
+;; therefore no recursion this brings `byte-compile' to its knees. I'd like to
+;; find out why, but meanwhile we could just byte-compile the `mu--defsetter'.
+;; Compiling `mu--split-*' functions makes the biggest difference anyway.
+(mu-defmacro mu-defsetter (id | args)
+  :declare ((indent 2))
+
+  ;; ARGS: ([pattern] body)
+  ([(v (and (pred symbolp) val-id) | pattern) | body]
+   (mu--defsetter val-id id '() (gensym "rest-arg") `(([,@pattern] ,@body))))
+
+  ;; ARGS: mu-lambda or a function
+  ([(and (or (l 'mu | _) (pred functionp)) fun)]
+   `(progn
+      (function-put ',id 'mu-setter ,fun)
+      (function-put ',id 'gv-expander
+                    (lambda (do &rest args)
+                      (gv--defsetter ',id
+                                     ,fun
+                                     do args)))))
+
+  ;; ARGS: (arglist mu-clauses)
+  ;; TODO Unless we byte-compile `mu--split-when' and `mu--split-at-rest' the
+  ;; app-pattern here is butt-slow. Something to mention in the docs?
+  ([[val-id | (app mu--split-at-rest [head-args [rest-arg]])] | clauses]
+   (mu--defsetter val-id id head-args rest-arg clauses))
+
+  (otherwise
+   `(mu-error "in mu-defsetter malformed arglist or body")))
+
+
+(example
+
+ ;; simple single-head setter
+ (mu-defsetter foo [val table [level-1-key level-2-key]]
+   `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
+
+ ;; now only this case should work
+ (mu-test-time
    (let ((table (ht)))
+     (setf (foo table [:a :b]) :foo)
+     (foo table [:a :b])))
 
-     (list (progn
-             (setf (foo table [:a :b]) :foo)
-             (foo table [:a :b]))
+ ;; multi-head setter
+ (mu-defsetter foo (val | args)
+   ([table ['quote [level-1-key level-2-key]]]
+    `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
+   ([table [level-1-key level-2-key]]
+    `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val)))
 
-           (progn
-             (setf (foo table '(:a :b)) :updated-foo)
-             (foo table '(:a :b)))))))
+ ;; multi-headed setter as mu-lambda
+ (mu-defsetter foo
+     (mu (val | args)
+       ([table ['quote [level-1-key level-2-key]]]
+        `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
+       ([table [level-1-key level-2-key]]
+        `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))))
+
+ (mu-debug-setter foo
+   (mu-test-time
+     (let ((table (ht)))
+
+       (list (progn
+               (setf (foo table [:a :b]) :foo)
+               (foo table [:a :b]))
+
+             (progn
+               (setf (foo table '(:a :b)) :updated-foo)
+               (foo table '(:a :b)))))))
+ ;; example
+ )
+
+
+;;*** -- mu-debug-setter ------------------------------------------ *;;
+
+
+;; HACK to debug setters. Interplay with Edebug is intricate and this can have
+;; unexpected behavior if the user does something out of the ordinary. Guess it's
+;; fine for now
+
+
+(defun mu-debug-quit ()
+  (interactive)
+  (edebug-stop)
+  ;; TODO hacky way to remove instrumentation, is there a better way? A
+  ;; counterpart to `edebug-instrument-function'?
+  (eval
+   ;; eval to remove Edebug instrumentatino
+   (car
+    (read-from-string
+     ;; get its source-code string
+     (function-get
+      ;; get instrumented symbol name
+      (get 'mu-debug-setter 'mu-setter)
+      'mu-setter-src)))
+   'lexical)
+  (kill-buffer "*mu-debug*"))
+
+
+(define-minor-mode mu-debug-mode "Minor mode" nil " μ-debug" (make-sparse-keymap))
+(define-key mu-debug-mode-map (kbd "q") #'mu-debug-quit)
+
+(defmacro mu-debug-setter (name &rest body)
+  (declare (indent 1))
+  (let ((buffer (gensym "buffer"))
+        (src (function-get name 'mu-setter-src)))
+    (if (symbolp (function-get name 'mu-setter))
+        `(progn
+           ;; store instrumented function name, so we can uninstrument it on quit
+           (put 'mu-debug-setter 'mu-setter ,name)
+           (let ((,buffer (get-buffer-create "*mu-debug*")))
+             (with-current-buffer ,buffer
+               (erase-buffer)
+               (unless (equal major-mode 'emacs-lisp-mode)
+                 (emacs-lisp-mode))
+               (mu-debug-mode 1)
+               (insert ,src)
+               (eval-buffer))
+             (edebug-instrument-function (function-get ',name 'mu-setter))
+             (pop-to-buffer ,buffer))
+           ,@body)
+      `(mu-error "no source available for the setter %S" ,name))))
 
 
 ;;** - mu-lambda -------------------------------------------------- *;;
