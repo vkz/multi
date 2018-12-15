@@ -19,7 +19,7 @@
 ;; changes.
 
 
-;;* Prelude ------------------------------------------------------- *;;
+;;* prelude ------------------------------------------------------ *;;
 
 
 ;; TODO (ht), other prelude.el that's used
@@ -74,7 +74,7 @@ partitions."
  )
 
 
-;;* mu-error ------------------------------------------------------ *;;
+;;* mu-error ----------------------------------------------------- *;;
 
 
 (define-error 'mu-error "mu-error")
@@ -110,7 +110,7 @@ passing the rest of ARGS to the message.
     (signal 'mu-error (list (apply #'format-message args)))))
 
 
-;;* mu-patterns --------------------------------------------------- *;;
+;;* mu-patterns -------------------------------------------------- *;;
 
 
 (defmacro mu--case (seq-pat e &rest clauses)
@@ -211,7 +211,7 @@ which maybe parameterized by setting SEQ to one of:
     (otherwise                (mu-error :pattern pat))))
 
 
-;;* mu-defpattern ------------------------------------------------- *;;
+;;* mu-defpattern ------------------------------------------------ *;;
 
 
 ;; NOTE All we do here is wrap user "macro" into a (lambda (ARGLIST) BODY) and
@@ -478,7 +478,7 @@ succeed."
     `(vec)))
 
 
-;;* mu-case ------------------------------------------------------- *;;
+;;* mu-case ------------------------------------------------------ *;;
 
 
 (defmacro mu-case (e &rest clauses)
@@ -495,7 +495,7 @@ succeed."
   `(mu--case lv ,e ,@clauses))
 
 
-;;* mu-let -------------------------------------------------------- *;;
+;;* mu-let ------------------------------------------------------- *;;
 
 
 (defcustom mu-let-parens 'yes
@@ -581,7 +581,7 @@ instead of ()."
     (mu-error `(mu-error ,(cadr err)))))
 
 
-;;* mu-defun ------------------------------------------------------ *;;
+;;* mu-defun ----------------------------------------------------- *;;
 
 
 (defun mu--defun-meta (body &optional map)
@@ -885,10 +885,10 @@ cool."
  )
 
 
-;;** - setters ---------------------------------------------------- *;;
+;;* mu-setters --------------------------------------------------- *;;
 
 
-;;*** -- (v1) mu-defun-setter ------------------------------------- *;;
+;;** - (v1) mu-defun-setter -------------------------------------- *;;
 
 
 (defmacro mu-defun-setter (call-pattern val &rest clauses)
@@ -977,7 +977,7 @@ cool."
                (foo table '(:a :b))))))))
 
 
-;;*** -- (v2) mu-defsetter ---------------------------------------- *;;
+;;** - (v2) mu-defsetter ----------------------------------------- *;;
 
 
 (defun mu--split-at-rest (arglist)
@@ -1029,6 +1029,21 @@ cool."
 ;; therefore no recursion this brings `byte-compile' to its knees. I'd like to
 ;; find out why, but meanwhile we could just byte-compile the `mu--defsetter'.
 ;; Compiling `mu--split-*' functions makes the biggest difference anyway.
+;;
+;; OMG Mx pp-macroexpand-all-last-sexp produces 160K loc! That would explain why
+;; the compiler runs for 10min ending in bytecode overflow.
+;;
+;; Current hypothesis: I'm matching on seq, which introduces branching for lists
+;; and vectors, and my guess is the pcase simply generates all permutations. Of
+;; course the full expansion turns scary very quickly. Eval however runs fine,
+;; simply because the interpeter quickly converges on the matching branch and
+;; "branches not taken" simply never get to exist. This is fascinating.
+;;
+;; What to do? Well, either ditch the seq-pattern or find a way to avoid
+;; branching. Maybe generate branches explicitly instead of generating or-pattern
+;; like (or list-pat vector-pat). Latter would only work if my hypothesis is
+;; correct. If it isn't just or-pattern but also the number of pcase-clauses then
+;; the latter solution wouldn't make a difference.
 (mu-defmacro mu-defsetter (id | args)
   :declare ((indent 2))
 
@@ -1049,7 +1064,8 @@ cool."
   ;; ARGS: (arglist mu-clauses)
   ;; TODO Unless we byte-compile `mu--split-when' and `mu--split-at-rest' the
   ;; app-pattern here is butt-slow. Something to mention in the docs?
-  ([[val-id | (app mu--split-at-rest [head-args [rest-arg]])] | clauses]
+  ([[val-id | (app mu--split-at-rest [head-args [rest-arg]])] |
+    (and (pred mu--defun-clauses?) clauses)]
    (mu--defsetter val-id id head-args rest-arg clauses))
 
   (otherwise
@@ -1098,7 +1114,7 @@ cool."
  )
 
 
-;;*** -- mu-debug-setter ------------------------------------------ *;;
+;;** - mu-debug-setter ------------------------------------------- *;;
 
 
 ;; HACK to debug setters. Interplay with Edebug is intricate and this can have
@@ -1149,7 +1165,7 @@ cool."
       `(mu-error "no source available for the setter %S" ,name))))
 
 
-;;** - mu-lambda -------------------------------------------------- *;;
+;;* mu-lambda ---------------------------------------------------- *;;
 
 
 (defun mu--single-head-lambda (patterns body)
@@ -1222,7 +1238,7 @@ destructuring:
 (defalias 'μ 'mu)
 
 
-;;* Provide ------------------------------------------------------- *;;
+;;* provide ------------------------------------------------------ *;;
 
 
 (provide 'multi-patterns)
