@@ -1044,6 +1044,51 @@ cool."
 ;; like (or list-pat vector-pat). Latter would only work if my hypothesis is
 ;; correct. If it isn't just or-pattern but also the number of pcase-clauses then
 ;; the latter solution wouldn't make a difference.
+;;
+;; Ok, blaming branching on (or .. ..) was wrong:
+;;
+;; 121 loc
+;;   (mu-case e
+;;     ((lst a (or [0] (pred numberp))) a))
+;;   =>
+;;   (pcase e
+;;     (`(,a ,(or (or `(0) `[0]) 42)) a))
+;;
+;; 121 loc even if  i rewrite all or-patterns into explicit clauses
+;;   (mu-case e
+;;     ((lst a (lst 0)) a)
+;;     ((lst a (vec 0)) a)
+;;     ((lst a 42) a))
+;;   =>
+;;   (pcase e
+;;     (`(,a (0)) a)
+;;     (`(,a [0]) a)
+;;     (`(,a 42) a))
+;;
+;; Also see my question on SE:
+;; https://emacs.stackexchange.com/questions/46622/byte-compiling-in-presence-of-pcase-patterns
+;;
+;; TODO I think I came up with a better idea, which I feel should've been part of
+;; `pcase` core to begin with. It may have perf implications I don't realise of
+;; course:
+;;
+;;   (mu-case e
+;;     ([pat1] body1)
+;;     ([pat2] body2)
+;;     ([pat3] body3)
+;;     (otherwise body))
+;;   =>
+;;   (mu-case e
+;;     ([pat1] body1)
+;;     (otherwise (mu-case e
+;;                  ([pat2] body2)
+;;                  (otherwise (mu-case e
+;;                               ([pat3] body3)
+;;                               (otherwise body))))))
+;;
+;; Rewriting it this way collapses the expansion of `mu-defsetter' from 169K loc,
+;; to mere 1500 loc!
+
 (mu-defmacro mu-defsetter (id | args)
   :declare ((indent 2))
 
