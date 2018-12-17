@@ -51,6 +51,35 @@
 ;;* prelude ------------------------------------------------------ *;;
 
 
+(defmacro eval-when-compile-let (bindings &rest body)
+  "Like `let' but only install BINDINGS for the duration of BODY
+when compiling"
+  (declare (indent 1))
+  (let* ((table (gensym "old-values"))
+         (unbound (gensym "unbound"))
+         (syms (mapcar #'car bindings)))
+    `(progn
+
+       (eval-when-compile
+         ;; collect unbound symbols
+         (setq ,unbound (seq-remove #'boundp '(,@syms)))
+         ;; bind unbound symbols to nil
+         (dolist (unbound-sym ,unbound) (set unbound-sym nil))
+         ;; store old values for all symbols in a vector
+         (setq ,table (vector ,@syms))
+         ;; bind symbols to new values
+         (setq ,@(apply #'append bindings)))
+
+       ,@body
+
+       (eval-when-compile
+         ;; restore symbols to old-values
+         (setq ,@(apply #'append (seq-map-indexed (lambda (s i) `(,s (aref ,table ,i))) syms)))
+         ;; unbind symbols that were unbound before
+         (dolist (unbound-sym ,unbound) (makunbound unbound-sym))
+         ;; unbind temporaries
+         (makunbound ',table)
+         (makunbound ',unbound)))))
 
 
 (defun mu--split-when (pred lst)
@@ -240,38 +269,41 @@ passing the rest of ARGS to the message.
  (mu--pcase-nest 'expr '((otherwise body1 body2))))
 
 
-(defmacro mu--case (seq-pat e &rest clauses)
-  "`pcase'-like matching and destructuring with [] seq-pattern,
-which maybe parameterized by setting SEQ to one of:
+(defvar mu-prefer-nested-pcase nil
+  "`pcase' expander may on occasion produce pathological
+expansions, where a reasonable 4-clause matcher expands into over
+160K lines of code. Toggling this parameter where this happens
+will force `mu--case' to convert generated pcase-clauses into a
+tree of nested `pcase' calls before handing it over to `pcase'.
+This shrinks the expansion by orders of magnitude but may defeat
+some optimizations `pcase' may have undertaken had it known of
+all the clauses (speculation that may not even be true).")
 
-  - 'lv for strict sequence matching,
-  - 'seq for non-strict sequence matching."
+
+(defmacro mu--case (seq-pat e &rest clauses)
+  "`pcase'-like matching and destructuring. SEQ-PAT parameterizes
+[] seq-pattern to be one of: `lv' for strict and `seq' for
+permissive sequence matching."
   (declare (indent 2))
 
-  ;; storage for patterns defined with `mu-defpattern'
+  ;; initialize storage for `mu-defpattern' defined patterns
   (unless (get 'mu--case :mu-patterns)
     (define-symbol-prop 'mu-case :mu-patterns (ht)))
 
-  ;; TODO consider catching pcase errors, so that we can report in terms of
-  ;; mu-patterns, else all the guts get spilled and very difficult to debug.
-  ;; Sadly, `pcase' stupidly unimaginatively throws 'error, so I'll have to catch
-  ;; everything.
-
-  ;; TODO consider adding some use-context then re-throwing and catching in the
-  ;; user-facing API functions, which should also enrich context, so the error is
-  ;; meaningful to the user
-
-  ;; hack to propagate expansion time errors to runtime
   (condition-case err
       ;; TODO nesting `pcase' or not should be optional, IMO we should let the
       ;; user decide e.g. based on the code the see generated. With default
       ;; nesting we maybe throwing away some optimisations `pcase' has. But I
       ;; really don't know
-      (let ((pcase-clauses (mapcar
-                            (lambda (clause) (mu-case--clause seq-pat clause))
-                            clauses)))
-        (mu--pcase-nest e pcase-clauses))
+
+      (let ((pcase-clauses
+             (mapcar (lambda (clause) (mu-case--clause seq-pat clause)) clauses)))
+        (if mu-prefer-nested-pcase
+            (mu--pcase-nest e pcase-clauses)
+          `(pcase ,e
+             ,@pcase-clauses)))
     (mu-error `(mu-error ,(cadr err)))))
+
 
 (cl-defun mu-case--clause (seq-pat (pat . body))
   `(,(mu--pat-unquoted seq-pat pat) ,@body))
@@ -1151,94 +1183,35 @@ cool."
     `(mu-error "in mu-defsetter malformed body: expected mu-clauses, got %S" ',clauses))))
 
 
-;; TODO Even with the main case extracted into an external helper-function and
-;; therefore no recursion this brings `byte-compile' to its knees. I'd like to
-;; find out why, but meanwhile we could just byte-compile the `mu--defsetter'.
-;; Compiling `mu--split-*' functions makes the biggest difference anyway.
-;;
-;; OMG Mx pp-macroexpand-all-last-sexp produces 160K loc! That would explain why
-;; the compiler runs for 10min ending in bytecode overflow.
-;;
-;; Current hypothesis: I'm matching on seq, which introduces branching for lists
-;; and vectors, and my guess is the pcase simply generates all permutations. Of
-;; course the full expansion turns scary very quickly. Eval however runs fine,
-;; simply because the interpeter quickly converges on the matching branch and
-;; "branches not taken" simply never get to exist. This is fascinating.
-;;
-;; What to do? Well, either ditch the seq-pattern or find a way to avoid
-;; branching. Maybe generate branches explicitly instead of generating or-pattern
-;; like (or list-pat vector-pat). Latter would only work if my hypothesis is
-;; correct. If it isn't just or-pattern but also the number of pcase-clauses then
-;; the latter solution wouldn't make a difference.
-;;
-;; Ok, blaming branching on (or .. ..) was wrong:
-;;
-;; 121 loc
-;;   (mu-case e
-;;     ((lst a (or [0] (pred numberp))) a))
-;;   =>
-;;   (pcase e
-;;     (`(,a ,(or (or `(0) `[0]) 42)) a))
-;;
-;; 121 loc even if  i rewrite all or-patterns into explicit clauses
-;;   (mu-case e
-;;     ((lst a (lst 0)) a)
-;;     ((lst a (vec 0)) a)
-;;     ((lst a 42) a))
-;;   =>
-;;   (pcase e
-;;     (`(,a (0)) a)
-;;     (`(,a [0]) a)
-;;     (`(,a 42) a))
-;;
-;; Also see my question on SE:
-;; https://emacs.stackexchange.com/questions/46622/byte-compiling-in-presence-of-pcase-patterns
-;;
-;; TODO I think I came up with a better idea, which I feel should've been part of
-;; `pcase` core to begin with. It may have perf implications I don't realise of
-;; course:
-;;
-;;   (mu-case e
-;;     ([pat1] body1)
-;;     ([pat2] body2)
-;;     ([pat3] body3)
-;;     (otherwise body))
-;;   =>
-;;   (mu-case e
-;;     ([pat1] body1)
-;;     (otherwise (mu-case e
-;;                  ([pat2] body2)
-;;                  (otherwise (mu-case e
-;;                               ([pat3] body3)
-;;                               (otherwise body))))))
-;;
-;; Rewriting it this way collapses the expansion of `mu-defsetter' from 169K loc,
-;; to mere 1500 loc!
+;; NOTE `pcase' expander generates 160K loc from just 4-clauses below, so the byte
+;; compiler eventually errors out with bytecode overflow. We avoid this by
+;; toggling `mu-prefer-nested-pcase' for compilation only, which shrinks expansion
+;; to just ~1500 loc. This doesn't effect loading.
+(eval-when-compile-let ((mu-prefer-nested-pcase t))
+  (mu-defmacro mu-defsetter (id | args)
+    :declare ((indent 2))
 
-(mu-defmacro mu-defsetter (id | args)
-  :declare ((indent 2))
+    ;; ARGS: ([pattern] body)
+    ([(v (and (pred symbolp) val-id) | pattern) | body]
+     (mu--defsetter val-id id '() (gensym "rest-arg") `(([,@pattern] ,@body))))
 
-  ;; ARGS: ([pattern] body)
-  ([(v (and (pred symbolp) val-id) | pattern) | body]
-   (mu--defsetter val-id id '() (gensym "rest-arg") `(([,@pattern] ,@body))))
+    ;; ARGS: mu-lambda or a function
+    ([(and (or (l 'mu | _) (pred functionp)) fun)]
+     `(progn
+        (function-put ',id 'mu-setter ,fun)
+        (function-put ',id 'gv-expander
+                      (lambda (do &rest args)
+                        (gv--defsetter ',id
+                                       ,fun
+                                       do args)))))
 
-  ;; ARGS: mu-lambda or a function
-  ([(and (or (l 'mu | _) (pred functionp)) fun)]
-   `(progn
-      (function-put ',id 'mu-setter ,fun)
-      (function-put ',id 'gv-expander
-                    (lambda (do &rest args)
-                      (gv--defsetter ',id
-                                     ,fun
-                                     do args)))))
+    ;; ARGS: (arglist mu-clauses)
+    ([[val-id | (app mu--split-at-rest [head-args [rest-arg]])] |
+      (and (pred mu--defun-clauses?) clauses)]
+     (mu--defsetter val-id id head-args rest-arg clauses))
 
-  ;; ARGS: (arglist mu-clauses)
-  ([[val-id | (app mu--split-at-rest [head-args [rest-arg]])] |
-    (and (pred mu--defun-clauses?) clauses)]
-   (mu--defsetter val-id id head-args rest-arg clauses))
-
-  (otherwise
-   `(mu-error "in mu-defsetter malformed arglist or body")))
+    (otherwise
+     `(mu-error "in mu-defsetter malformed arglist or body"))))
 
 
 (example
