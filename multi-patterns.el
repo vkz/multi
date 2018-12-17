@@ -4,6 +4,8 @@
 (require 'cl)
 
 
+;; TODO (ht), other prelude.el that's used
+
 ;; TODO replace (pred ..) pattern with a shorter (? ..) maybe, alternatively we
 ;; could just allow straight up #'functions or (lambda (a) ..) and treat them as
 ;; predicates, but this may obscure intent.
@@ -41,11 +43,14 @@
 ;; are to byte-compile everything then having lambda or an actual #'defun
 ;; shouldn't effect performance.
 
+;; TODO consider places where we could catch errors including `pcase' errors, so
+;; that we can report in terms of mu-patterns and propagate some context. Sadly,
+;; `pcase' unimaginatively throws 'error, ugh.
+
 
 ;;* prelude ------------------------------------------------------ *;;
 
 
-;; TODO (ht), other prelude.el that's used
 
 
 (defun mu--split-when (pred lst)
@@ -59,42 +64,6 @@ partitions."
            else
            collect item into partition
            finally return (nconc partitions (list partition))))
-
-(comment
-
- ;; NOTE Dash's `-split-when' may on occasion be a tiny bit faster, because it
- ;; uses a destructive `!cdr' to update the list in a while loop. If you
- ;; macro-expand my cl-loop above u'd see the body that's almost exactly like
- ;; -split-when and in fact I could re-write the above my loop to be 100% like the
- ;; -split-when except the !cdr part but it'd make it less readable.
-
- (byte-compile 'mu--split-when)
- (byte-compile '-split-when)
-
- (list
-  (mu-test-time
-    (dotimes (_ 1000)
-      (list
-       (mu--split-when #'mu--rest? '(a b &rest c d &rest e f))
-       (mu--split-when #'mu--rest? '(&rest c d &rest e f))
-       (mu--split-when #'mu--rest? '(a b &rest c d &rest))
-       (mu--split-when #'mu--rest? '())
-       (mu--split-when #'mu--rest? '(&rest))
-       (mu--split-when #'mu--rest? '(a b)))))
-
-
-  (mu-test-time
-    (dotimes (_ 1000)
-      (list
-       (-split-when #'mu--rest? '(a b &rest c d &rest e f))
-       (-split-when #'mu--rest? '(&rest c d &rest e f))
-       (-split-when #'mu--rest? '(a b &rest c d &rest))
-       (-split-when #'mu--rest? '())
-       (-split-when #'mu--rest? '(&rest))
-       (-split-when #'mu--rest? '(a b))))))
-
- ;; comment
- )
 
 
 ;;* edebug-specs ------------------------------------------------- *;;
@@ -1266,8 +1235,6 @@ cool."
                                      do args)))))
 
   ;; ARGS: (arglist mu-clauses)
-  ;; TODO Unless we byte-compile `mu--split-when' and `mu--split-at-rest' the
-  ;; app-pattern here is butt-slow. Something to mention in the docs?
   ([[val-id | (app mu--split-at-rest [head-args [rest-arg]])] |
     (and (pred mu--defun-clauses?) clauses)]
    (mu--defsetter val-id id head-args rest-arg clauses))

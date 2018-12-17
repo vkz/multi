@@ -544,3 +544,43 @@
 
   ;; TODO more tests
   )
+
+
+;;* perf --------------------------------------------------------- *;;
+
+
+(comment
+
+ ;; NOTE Dash's `-split-when' may on occasion be a tiny bit faster, because it
+ ;; uses a destructive `!cdr' to update the list in a while loop. If you
+ ;; macro-expand my cl-loop above u'd see the body that's almost exactly like
+ ;; -split-when and in fact I could re-write the above my loop to be 100% like the
+ ;; -split-when except the !cdr part but it'd make it less readable.
+
+ (byte-compile 'mu--split-when)
+ (byte-compile '-split-when)
+
+ (list
+  (mu-test-time
+    (dotimes (_ 1000)
+      (list
+       (mu--split-when #'mu--rest? '(a b &rest c d &rest e f))
+       (mu--split-when #'mu--rest? '(&rest c d &rest e f))
+       (mu--split-when #'mu--rest? '(a b &rest c d &rest))
+       (mu--split-when #'mu--rest? '())
+       (mu--split-when #'mu--rest? '(&rest))
+       (mu--split-when #'mu--rest? '(a b)))))
+
+
+  (mu-test-time
+    (dotimes (_ 1000)
+      (list
+       (-split-when #'mu--rest? '(a b &rest c d &rest e f))
+       (-split-when #'mu--rest? '(&rest c d &rest e f))
+       (-split-when #'mu--rest? '(a b &rest c d &rest))
+       (-split-when #'mu--rest? '())
+       (-split-when #'mu--rest? '(&rest))
+       (-split-when #'mu--rest? '(a b))))))
+
+ ;; comment
+ )
