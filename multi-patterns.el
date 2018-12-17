@@ -3,8 +3,6 @@
 
 (require 'cl)
 
-;; TODO `pcase' defines a bunch of clever edebug-specs, learn from what it does
-;; and maybe copy!
 
 ;; TODO replace (pred ..) pattern with a shorter (? ..) maybe, alternatively we
 ;; could just allow straight up #'functions or (lambda (a) ..) and treat them as
@@ -27,7 +25,10 @@
 ;; - (mu-arglist head-args rest-arg) => (app mu--split-at-rest [head-args [rest-arg]])
 
 ;; TODO with the above in mind I may want to have a mechanism to namespace
-;; user-defined patterns lest they start to clash with each other
+;; user-defined patterns lest they start to clash with each other. Would that be
+;; an overkill? I could also expand into an actual defun with randomly or
+;; systematically generated name, then the :mu-patterns table would map pattern
+;; NAME to that defun. I could also store edebug-specs on that defun's symbol.
 
 ;; TODO Perfwise byte-compilation should work. Also consider byte-compiling
 ;; generated functions, or maybe even generate an actual named function instead of
@@ -53,10 +54,10 @@ PRED. Do not include such items into partitions. Return a list of
 partitions."
   (cl-loop for item in lst
            if (funcall pred item)
-             collect partition into partitions
-             and do (setq partition '())
+           collect partition into partitions
+           and do (setq partition '())
            else
-             collect item into partition
+           collect item into partition
            finally return (nconc partitions (list partition))))
 
 (comment
@@ -94,6 +95,106 @@ partitions."
 
  ;; comment
  )
+
+
+;;* edebug-specs ------------------------------------------------- *;;
+
+
+;; NOTE I have no idea what I'm doing here. It works but I wish there were a way
+;; to inspect how Edebug performs matching. I roughly follow examples in the INFO
+;; and the specs I've seen in other people's code. Gives me grief but does the
+;; trick.
+
+
+;; make byte-compiler happy
+(declare-function edebug-match "edebug" (cursor specs))
+(declare-function get-edebug-spec "edebug" (symbol))
+
+
+;; main pattern spec:
+;; - standard `pcase' patterns,
+;; - built-in sequential patterns we add,
+;; - any custom patterns instroduced with `mu-defpattern'
+(def-edebug-spec mu-pat
+  ;; TODO Found a thread in emacs-devel that shows off how one might step-into
+  ;; symbol being bound by `pcase'. I don't think it made it into the codebase,
+  ;; but maybe smth helpful for us. IIUC the idea is to rewrite symbol pattern
+  ;; into an explicit let-pattern. I don't understand the edebug mechanics.
+  ;; https://lists.gnu.org/archive/html/emacs-devel/2015-10/msg02285.html
+  (&or symbolp
+       ("quote" symbolp)
+       ;; standard pcase patterns
+       ("or" &rest mu-pat)
+       ("and" &rest mu-pat)
+       ("guard" form)
+       ("let" mu-pat form)
+       ("pred" mu-fun-pat)
+       ("app" mu-fun mu-pat)
+       ;; built-in sequence patterns
+       mu-seq-pat
+       ;; custom patterns installed with `mu-defpattern'
+       mu-defpattern-pat
+       sexp))
+
+
+(def-edebug-spec mu-fun-pat
+  (&or lambda-expr
+       (functionp &rest form)
+       ;; TODO mu-lambda
+       sexp))
+
+
+(def-edebug-spec mu-seq-pat
+  (&or [&or "&rest" "&" "|"]
+       ("lst" &rest mu-pat)
+       ("vec" &rest mu-pat)
+       (vector &rest mu-pat)))
+
+
+;; NOTE IIUC this is more or less what `pcase' does. We store custom patterns
+;; differently and I'd like to namspace them eventually, so we can't blindly copy
+;; pcase solution, sigh
+(defun mu-pat--edebug-match (cursor)
+  "Edebug matcher for custom mu-patterns installed with
+`mu-defpattern'"
+  (let (specs)
+    (dolist (s (ht-keys (get 'mu--case :mu-patterns)))
+      (when-let ((spec (get-edebug-spec s)))
+        (push (cons (symbol-name s) spec) specs)))
+    (edebug-match cursor (cons '&or specs))))
+
+
+(def-edebug-spec mu-defpattern-pat
+  mu-pat--edebug-match)
+
+
+;; TODO I wonder if I could could use this in the docstring and eldoc would be
+;; smart enough to infer and highlight the case as the user's typing?
+(def-edebug-spec mu-defun-arglist
+  (&or (vector &rest mu-pat)
+       symbolp
+       ([&rest arg]
+        [&optional ["&optional" arg &rest arg]]
+        &optional [[&or "&rest" "&" "|"] arg])))
+
+
+(def-edebug-spec mu-defun-body
+  (&or
+   ;; multi-head defun clauses
+   [([&or (vector &rest mu-pat) "otherwise"] def-body)
+    &rest
+    ([&or (vector &rest mu-pat) "otherwise"] def-body)]
+   ;; single-head defun body
+   def-body))
+
+
+(def-edebug-spec mu-defun
+  (&define name mu-defun-arglist
+           [&optional stringp]
+           ;; TODO According to INFO interactive and declare are special somehow,
+           ;; but it never mentions how exactly. Can they have bodies to eval?
+           [&rest [keywordp sexp]]
+           mu-defun-body))
 
 
 ;;* mu-error ----------------------------------------------------- *;;
@@ -282,7 +383,7 @@ which maybe parameterized by setting SEQ to one of:
 ;; store it in the hash-table stored in mu-case's plist under :mu-patterns slot.
 ;; Whenever `mu-case' encounters a (NAME PATTERNS) pattern it looks up the NAME in
 ;; its :mu-patterns property and calls (apply (lambda (ARGLIST) BODY) PATTERNS)
-;; which must produce a valid mu-case pattern. So, techincally the user doesn't
+;; which must produce a valid mu-case pattern. So, technically the user doesn't
 ;; really define a macro so much as a function that takes patterns and must
 ;; generate a mu-case pattern, that is `mu-case' effectively plays the role of a
 ;; "macro expander" by simply invoking the function the user provided at compile
@@ -297,18 +398,33 @@ produce a valid `mu-case' pattern. The macro is allowed to throw
 `mu-error' to signal improper use of the pattern. This will be
 handled correctly to inform the user. Optional DOCSTRING maybe
 supplied for the convenience of other programmers reading your
-macro code.
+macro code. BODY may start with a :debug EDEBUG-SPEC attribute
+pair.
 
 \(fn NAME ARGLIST &optional DOCSTRING &rest BODY)"
-  (declare (doc-string 3) (indent 2))
+  (declare (doc-string 3) (indent 2) (debug defun))
+
+  ;; install edebug spec if present and remove it from the body
+  (when (eq :debug (car body))
+    ;; TODO This pollutes the symbol NAME! Since we don't actually establish it as
+    ;; a variable or a defun and only ever use it as a key in the table, we
+    ;; shouldn't be doing that or we could inadvertently overwrite somebody else's
+    ;; edebug-spec. Why not just store it in the :mu-pattern table alongside the
+    ;; relevant expander and collect it in `mu-pat--edebug-match' as needed?
+    (def-edebug-spec name (cadr body))
+    (setq body (cddr body)))
+
+  ;; cons the docstring onto the body if present
   (when docstring
     (unless (stringp docstring)
       (setq body (cons docstring body))))
+
   (let ((mu-patterns `(or (get 'mu--case :mu-patterns)
                           (put 'mu--case :mu-patterns (ht))))
         ;; TODO should I trap errors here to fascilitate debugging and better
         ;; error reporting? I could wrap the body in condition-case
         (pattern-macro `(lambda ,arglist ,@body)))
+    ;; add pattern to the mu-patterns table
     `(setf (ht-get ,mu-patterns ',name) ,pattern-macro)))
 
 
@@ -408,6 +524,7 @@ supports the &rest pattern to match the remaining elements."
   ;; taking as many elements from the original as there're patterns. If the
   ;; sequence has fewer elements than the patterns, simply fill with nils. Now
   ;; match patterns against that newly built seq.
+  :debug (&rest mu-pat)
   (if patterns
       (let* ((split (mu--split-when #'mu--rest? patterns))
              (head (car split))
@@ -479,6 +596,7 @@ supports the &rest pattern to match the remaining elements."
 seq-pattern [] it is strict and behaves like l-pattern for lists
 or v-pattern for vectors: must match the entire sequence to
 succeed."
+  :debug (&rest mu-pat)
   (if patterns
       (let* ((split (mu--split-when #'mu--rest? patterns))
              (head (car split))
@@ -503,6 +621,7 @@ succeed."
   "`mu-case' list-pattern that allows &rest matching"
   ;; Basic idea: keep splitting PATTERNS at &rest and recursing into chunks. Chunk
   ;; with no &rest should produce a lst-pattern to break recursion.
+  :debug (&rest mu-pat)
   (if patterns
       (let* ((split (mu--split-when #'mu--rest? patterns))
              (head (car split))
@@ -525,6 +644,7 @@ succeed."
 (mu-defpattern v (&rest patterns)
   "`mu-case' vector-pattern that allows &rest matching"
   ;; Basic idea: just like l-pattern
+  :debug (&rest mu-pat)
   (if patterns
       (let* ((split (mu--split-when #'mu--rest? patterns))
              (head (car split))
@@ -550,7 +670,7 @@ succeed."
 Sequence pattern [] is strict: must match the entire sequence to
 succeed."
   (declare (indent 1)
-           (debug (form &rest (sexp body))))
+           (debug (form &rest (mu-pat body))))
 
   ;; TODO should I only treat the outer-most [] as lv-pattern, but have permissive
   ;; [] in the internal patterns here?
@@ -857,31 +977,6 @@ METADATA is optional and may include the following attributes:
 \(fn NAME ARGLIST METADATA &rest BODY)"
         fun-type fun-type))
   nil)
-
-;; TODO I wonder if I could could use this in the docstring and eldoc would be
-;; smart enough to infer and highlight the case as the user's typing?
-(def-edebug-spec mu-defun-arglist
-  (&or vectorp
-       symbolp
-       ([&rest arg]
-        [&optional ["&optional" arg &rest arg]]
-        &optional [[&or "&rest" "&" "|"] arg])))
-
-
-(def-edebug-spec mu-defun-body
-  (&or
-   ;; single-head defun body
-   [[&not ([&or "otherwise" vectorp] body)] def-body]
-   ;; multi-head defun clauses
-   [&rest ([&or "otherwise" vectorp] def-body)]))
-
-
-(def-edebug-spec mu-defun
-  (&define name mu-defun-arglist
-           [&optional stringp]
-           ;; TODO interactive, declare are psecial
-           [&rest [keywordp sexp]]
-           mu-defun-body))
 
 
 (defmacro mu-defun (name arglist &rest body)
