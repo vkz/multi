@@ -195,11 +195,9 @@ ARG to lookup corresponding error-msg in the `mu--errors' table,
 passing the rest of ARGS to the message.
 
 \(fn string &rest args)"
-  (if-let ((msgs (ht-get mu--errors (car args))))
-      (signal 'mu-error (list (apply #'format-message
-                                     (string-join msgs "")
-                                     (cdr args))))
-    (signal 'mu-error (list (apply #'format-message args)))))
+  (let* ((mu-err (ht-get mu--errors (car args)))
+         (msg (if mu-err (list* (string-join mu-err "") (cdr args)) args)))
+    (signal 'mu-error (list (apply #'format-message msg)))))
 
 
 ;;* mu-patterns -------------------------------------------------- *;;
