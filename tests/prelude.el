@@ -11,9 +11,13 @@
 (require 'ert)
 (require 'cl-lib)
 
-(load-file "../multi-patterns.el")
-(load-file "../multi-methods.el")
+(defun multi--load-el-if-newer (file)
+  (let ((el file)
+        (elc (concat (file-name-sans-extension file) ".elc")))
+    (load-file (if (file-newer-than-file-p el elc) el elc))))
 
+(multi--load-el-if-newer "../multi-patterns.el")
+(multi--load-el-if-newer "../multi-methods.el")
 
 ;; TODO Would implementing expect macro as per examples below be worth it?
 

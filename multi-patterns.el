@@ -3,6 +3,24 @@
 
 (require 'cl)
 
+;; TODO `pcase' defines a bunch of clever edebug-specs, learn from what it does
+;; and maybe copy!
+
+;; TODO replace (pred ..) pattern with a shorter (? ..) maybe, alternatively we
+;; could just allow straight up #'functions or (lambda (a) ..) and treat them as
+;; predicates, but this may obscure intent.
+;;
+;; (mu-case e
+;;   [(and (? listp) (? rest-arglist?) arglist) |
+;;    (and (? mu--defun-clauses?) clauses)]
+;;   (body))
+;;
+;; or even cleaner:
+;;
+;; (mu-case e
+;;   [(and #'listp #'rest-arglist? arglist) |
+;;    (and #'mu--defun-clauses? clauses)]
+;;   (body))
 
 ;; TODO define custom mu-patterns to clarify hairy pattern-matching!
 ;; - (id foo) => (and (pred symbolp) foo)
@@ -17,6 +35,10 @@
 ;; opportunities for inlining, where an actual function call can be avoided.
 ;; Before any of this perf-tuning I'd need a whole bunch of cases to time as make
 ;; changes.
+
+;; TODO Replace lambdas with defuns where it would make code more readable. If we
+;; are to byte-compile everything then having lambda or an actual #'defun
+;; shouldn't effect performance.
 
 
 ;;* prelude ------------------------------------------------------ *;;
@@ -113,6 +135,43 @@ passing the rest of ARGS to the message.
 ;;* mu-patterns -------------------------------------------------- *;;
 
 
+(defun mu--pcase-nest (expr clauses)
+  "Generate a `pcase' matcher where each clause is itself a
+`pcase' expression. Every clause except the first becomes the
+'otherwise body of the preceding clause:
+
+  '((pat1 body1) (pat2 body2))
+   =>
+  (pcase expr
+    (pat1 body1)
+    (otherwise
+     (pcase expr
+       (pat2 body2))))"
+
+  ;; reverse clauses so that 'otherwise comes first if present
+  (loop for clause in (nreverse clauses)
+        with code = nil
+        if (eq 'otherwise (car clause))
+        do (setq code clause)
+        else
+        do (setq code `(otherwise (pcase ,expr
+                                    ,clause
+                                    ,@(when code (list code)))))
+        ;; remove extraneous outermost (otherwise ..)
+        finally return `(progn ,@(cdr code))))
+
+
+(comment
+ (mu--pcase-nest 'expr '())
+ (mu--pcase-nest 'expr '((pat1 body1)))
+ (mu--pcase-nest 'expr '((pat1 body1) (pat2 body2)))
+ (mu--pcase-nest 'expr '((pat1 body1) (pat2 body2) (otherwise body)))
+ ;; erroneousely placed otherwise simply cuts clauses short, imo reasonable
+ (mu--pcase-nest 'expr '((pat1 body1) (otherwise body) (pat2 body2)))
+ ;; lone otherwise simply returns its body, imo reasonable
+ (mu--pcase-nest 'expr '((otherwise body1 body2))))
+
+
 (defmacro mu--case (seq-pat e &rest clauses)
   "`pcase'-like matching and destructuring with [] seq-pattern,
 which maybe parameterized by setting SEQ to one of:
@@ -136,10 +195,15 @@ which maybe parameterized by setting SEQ to one of:
 
   ;; hack to propagate expansion time errors to runtime
   (condition-case err
-      `(pcase ,e
-         ,@(mapcar (lambda (clause) (mu-case--clause seq-pat clause)) clauses))
+      ;; TODO nesting `pcase' or not should be optional, IMO we should let the
+      ;; user decide e.g. based on the code the see generated. With default
+      ;; nesting we maybe throwing away some optimisations `pcase' has. But I
+      ;; really don't know
+      (let ((pcase-clauses (mapcar
+                            (lambda (clause) (mu-case--clause seq-pat clause))
+                            clauses)))
+        (mu--pcase-nest e pcase-clauses))
     (mu-error `(mu-error ,(cadr err)))))
-
 
 (cl-defun mu-case--clause (seq-pat (pat . body))
   `(,(mu--pat-unquoted seq-pat pat) ,@body))
@@ -374,7 +438,7 @@ supports the &rest pattern to match the remaining elements."
           (seq-subseq seq took))))
 
 
-;; TODO As I only just discovered seq patterns in Clojure's multi-head defn subtly
+;; NOTE As I only just discovered seq patterns in Clojure's multi-head defn subtly
 ;; differ from those say in let-context: in defn you often want to dispatch based
 ;; on the length of the sequence i.e. how many elements your []-pattern attempts
 ;; to match, so blindly using mu-pattern [] would almost always have the very
@@ -1263,7 +1327,7 @@ destructuring:
    (mu--multi-head-lambda `(&rest ,id) id clauses))
 
   ;; ARGS: (mu (a b &rest args) clauses)
-  ([(and (pred (lambda (arg) (some #'mu--rest? arg))) arglist) |
+  ([(and (pred listp) (pred (lambda (arg) (some #'mu--rest? arg))) arglist) |
     (and (pred mu--defun-clauses?) clauses)]
    (mu-let ((split-args (mu--split-when #'mu--rest? arglist))
             ;; split the arglist into positional head-args and the catch all
