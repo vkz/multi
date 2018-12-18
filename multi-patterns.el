@@ -209,17 +209,24 @@ of the preceding clause:
      (pcase expr
        (pat2 body2))))"
 
+  ;; NOTE there's some nasty bug in `ert' where as best I can guess it holds onto
+  ;; the arguments of functions being called between reruns, so if your function
+  ;; mutates them and you re-run the test it may get incorrect value as argument.
+  ;; It's as if arguments were passed as pointers, ugh. Introducing intermediate
+  ;; local REVERSED-CLAUSES was the only thing I could think up.
+
   ;; reverse clauses so that 'otherwise comes first if present
-  (loop for clause in (nreverse clauses)
-        with code = nil
-        if (eq 'otherwise (car clause))
-        do (setq code clause)
-        else
-        do (setq code `(otherwise (pcase ,expr
-                                    ,clause
-                                    ,@(when code (list code)))))
-        ;; remove extraneous outermost (otherwise ..)
-        finally return `(progn ,@(cdr code))))
+  (let ((reversed-clauses (reverse clauses)))
+    (loop for clause in reversed-clauses
+          with code
+          if (eq 'otherwise (car clause))
+          do (setq code clause)
+          else
+          do (setq code `(otherwise (pcase ,expr
+                                      ,clause
+                                      ,@(when code (list code)))))
+          ;; remove extraneous outermost (otherwise ..)
+          finally return `(progn ,@(cdr code)))))
 
 
 (defvar mu-prefer-nested-pcase nil

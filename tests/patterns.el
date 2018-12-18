@@ -546,6 +546,51 @@
   )
 
 
+;;* internals ---------------------------------------------------- *;;
+
+
+(ert-deftest mu-test-mu--pcase-nest ()
+  "Nesting pcase clauses should work"
+
+  (should (equal '(progn) (mu--pcase-nest 'expr '())))
+
+  (should (equal '(progn
+                    (pcase expr (pat1 body1)))
+                 (mu--pcase-nest 'expr '((pat1 body1)))))
+
+  (should (equal '(progn
+                    (pcase expr
+                      (pat1 body1)
+                      (otherwise (pcase expr
+                                   (pat2 body2)))))
+
+                 (mu--pcase-nest 'expr
+                                 '((pat1 body1) (pat2 body2)))))
+
+  (should (equal '(progn
+                    (pcase expr
+                      (pat1 body1)
+                      (otherwise (pcase expr
+                                   (pat2 body2)
+                                   (otherwise body)))))
+                 (mu--pcase-nest 'expr '((pat1 body1)
+                                         (pat2 body2)
+                                         (otherwise body)))))
+
+  ;; erroneousely placed otherwise simply cuts clauses short, imo reasonable
+  (should (equal '(progn
+                    (pcase expr
+                      (pat1 body1)
+                      (otherwise body)))
+                 (mu--pcase-nest 'expr '((pat1 body1)
+                                         (otherwise body)
+                                         (pat2 body2)))))
+
+  ;; lone otherwise simply returns its body, imo reasonable
+  (should (equal '(progn body1 body2)
+                 (mu--pcase-nest 'expr '((otherwise body1 body2))))))
+
+
 ;;* perf --------------------------------------------------------- *;;
 
 
