@@ -4,56 +4,16 @@
 (require 'cl)
 
 
-;; TODO (ht), other prelude.el that's used
-
-;; TODO replace (pred ..) pattern with a shorter (? ..) maybe, alternatively we
-;; could just allow straight up #'functions or (lambda (a) ..) and treat them as
-;; predicates, but this may obscure intent.
-;;
-;; (mu-case e
-;;   [(and (? listp) (? rest-arglist?) arglist) |
-;;    (and (? mu--defun-clauses?) clauses)]
-;;   (body))
-;;
-;; or even cleaner:
-;;
-;; (mu-case e
-;;   [(and #'listp #'rest-arglist? arglist) |
-;;    (and #'mu--defun-clauses? clauses)]
-;;   (body))
-
-;; TODO define custom mu-patterns to clarify hairy pattern-matching!
-;; - (id foo) => (and (pred symbolp) foo)
-;; - (mu-arglist head-args rest-arg) => (app mu--split-at-rest [head-args [rest-arg]])
-
-;; TODO with the above in mind I may want to have a mechanism to namespace
-;; user-defined patterns lest they start to clash with each other. Would that be
-;; an overkill? I could also expand into an actual defun with randomly or
-;; systematically generated name, then the :mu-patterns table would map pattern
-;; NAME to that defun. I could also store edebug-specs on that defun's symbol.
-
-;; TODO Perfwise byte-compilation should work. Also consider byte-compiling
-;; generated functions, or maybe even generate an actual named function instead of
-;; a lambda so that we can byte-compile it, e.g. for custom patterns? Also see
-;; opportunities for inlining, where an actual function call can be avoided.
-;; Before any of this perf-tuning I'd need a whole bunch of cases to time as make
-;; changes.
-
-;; TODO Replace lambdas with defuns where it would make code more readable. If we
-;; are to byte-compile everything then having lambda or an actual #'defun
-;; shouldn't effect performance.
-
-;; TODO consider places where we could catch errors including `pcase' errors, so
-;; that we can report in terms of mu-patterns and propagate some context. Sadly,
-;; `pcase' unimaginatively throws 'error, ugh.
-
-
 ;;* prelude ------------------------------------------------------ *;;
+
+
+;; Definitions that aren't multi-pattern specific and may as well belong in a
+;; separate helper module. Safe to skip on the first read.
 
 
 (defmacro eval-when-compile-let (bindings &rest body)
   "Like `let' but only install BINDINGS for the duration of BODY
-when compiling"
+when compiling. Revert or unbind as needed right after."
   (declare (indent 1))
   (let* ((table (gensym "old-values"))
          (unbound (gensym "unbound"))
@@ -98,27 +58,22 @@ partitions."
 ;;* edebug-specs ------------------------------------------------- *;;
 
 
-;; NOTE I have no idea what I'm doing here. It works but I wish there were a way
-;; to inspect how Edebug performs matching. I roughly follow examples in the INFO
-;; and the specs I've seen in other people's code. Gives me grief but does the
-;; trick.
+;; Offer a decent baseline debugging experience by annotating macros with
+;; edebug-specs. These can, no doubt, be improved upon and they will be, once I
+;; figure out a way to inspect how edebug matches a spec. I roughly follow
+;; examples in the INFO and the specs I've seen around. Gives me grief but does
+;; the trick.
 
 
-;; make byte-compiler happy
-(declare-function edebug-match "edebug" (cursor specs))
-(declare-function get-edebug-spec "edebug" (symbol))
+;; NOTE make byte-compiler happy
+(eval-when-compile
+  (declare-function edebug-match "edebug" (cursor specs))
+  (declare-function get-edebug-spec "edebug" (symbol)))
 
 
-;; main pattern spec:
-;; - standard `pcase' patterns,
-;; - built-in sequential patterns we add,
-;; - any custom patterns instroduced with `mu-defpattern'
+;; NOTE broadly mu-pattern is either a standard `pcase' pattern, a built-in
+;; sequential pattern or a custom pattern instroduced with `mu-defpattern'.
 (def-edebug-spec mu-pat
-  ;; TODO Found a thread in emacs-devel that shows off how one might step-into
-  ;; symbol being bound by `pcase'. I don't think it made it into the codebase,
-  ;; but maybe smth helpful for us. IIUC the idea is to rewrite symbol pattern
-  ;; into an explicit let-pattern. I don't understand the edebug mechanics.
-  ;; https://lists.gnu.org/archive/html/emacs-devel/2015-10/msg02285.html
   (&or symbolp
        ("quote" symbolp)
        ;; standard pcase patterns
@@ -150,8 +105,8 @@ partitions."
 
 
 ;; NOTE IIUC this is more or less what `pcase' does. We store custom patterns
-;; differently and I'd like to namspace them eventually, so we can't blindly copy
-;; pcase solution, sigh
+;; differently and I'd like to namespace them, so we can't blindly copy pcase
+;; solution, sigh.
 (defun mu-pat--edebug-match (cursor)
   "Edebug matcher for custom mu-patterns installed with
 `mu-defpattern'"
@@ -166,8 +121,6 @@ partitions."
   mu-pat--edebug-match)
 
 
-;; TODO I wonder if I could could use this in the docstring and eldoc would be
-;; smart enough to infer and highlight the case as the user's typing?
 (def-edebug-spec mu-defun-arglist
   (&or (vector &rest mu-pat)
        symbolp
@@ -198,6 +151,13 @@ partitions."
 ;;* mu-error ----------------------------------------------------- *;;
 
 
+;; Introduce a custom mu-error to differentiate signals specific to the multi
+;; feature. Consider raising mu-error whenever it relates to multi-pattern
+;; matching or multi-dispatch. `mu-error' function simplifies this by
+;; intentionally following the exact same calling convention as `error'. Please,
+;; use it.
+
+
 (define-error 'mu-error "mu-error")
 
 
@@ -213,17 +173,14 @@ partitions."
    (:rest-pattern    '("in mu-case malformed &rest pattern %S"))
    (:let-malformed   '("in mu-let malformed binding list in %S"))
    (:defun-malformed '("in mu-defun/macro malformed arglist has no"
-                       " &rest argument in %S"))))
+                       " &rest argument in %S")))
+  "Predefined error messages that can be used in `mu-error' by
+passing it an attribute as the first argument.")
 
 
 (defun mu-error (&rest args)
-  "Signals errors specific to `multi' library. Can be caught with
-'mu-error ERROR-SYMBOL in `condition-case', otherwise behaves
-exactly like `error'. Alternatively takes a keyword as the first
-ARG to lookup corresponding error-msg in the `mu--errors' table,
-passing the rest of ARGS to the message.
-
-\(fn string &rest args)"
+  "Like `error' but raise a custom `mu-error'. Alternatively
+take a keyword as the first ARG to use a predefined message."
   (let* ((mu-err (ht-get mu--errors (car args)))
          (msg (if mu-err (list* (string-join mu-err "") (cdr args)) args)))
     (signal 'mu-error (list (apply #'format-message msg)))))
@@ -232,12 +189,19 @@ passing the rest of ARGS to the message.
 ;;* mu-patterns -------------------------------------------------- *;;
 
 
-(defun mu--pcase-nest (expr clauses)
-  "Generate a `pcase' matcher where each clause is itself a
-`pcase' expression. Every clause except the first becomes the
-'otherwise body of the preceding clause:
+;; Internal machinery to fascilitate rewriting mu-patterns into pcase-patterns.
+;; These definitions are the core that makes the rest of the library possible.
+;; These should not be used directly lest you are prepared to suffer the
+;; implementation being altered right from under you without warning.
 
-  '((pat1 body1) (pat2 body2))
+
+(defun mu--pcase-nest (expr clauses)
+  "Turn pcase-clauses into a nested tree of `pcase' expressions,
+where every clause except the first becomes the 'otherwise body
+of the preceding clause:
+
+  ((pat1 body1)
+   (pat2 body2))
    =>
   (pcase expr
     (pat1 body1)
@@ -258,26 +222,26 @@ passing the rest of ARGS to the message.
         finally return `(progn ,@(cdr code))))
 
 
-(comment
- (mu--pcase-nest 'expr '())
- (mu--pcase-nest 'expr '((pat1 body1)))
- (mu--pcase-nest 'expr '((pat1 body1) (pat2 body2)))
- (mu--pcase-nest 'expr '((pat1 body1) (pat2 body2) (otherwise body)))
- ;; erroneousely placed otherwise simply cuts clauses short, imo reasonable
- (mu--pcase-nest 'expr '((pat1 body1) (otherwise body) (pat2 body2)))
- ;; lone otherwise simply returns its body, imo reasonable
- (mu--pcase-nest 'expr '((otherwise body1 body2))))
-
-
 (defvar mu-prefer-nested-pcase nil
   "`pcase' expander may on occasion produce pathological
 expansions, where a reasonable 4-clause matcher expands into over
 160K lines of code. Toggling this parameter where this happens
-will force `mu--case' to convert generated pcase-clauses into a
-tree of nested `pcase' calls before handing it over to `pcase'.
+will force `mu-case' to convert generated pcase-clauses into a
+tree of nested pcase-calls before handing it over to `pcase'.
 This shrinks the expansion by orders of magnitude but may defeat
-some optimizations `pcase' may have undertaken had it known of
-all the clauses (speculation that may not even be true).")
+some optimizations `pcase' could have undertaken had it known all
+the clauses (citation needed).")
+
+
+;; TODO rather than intermediating with mu--case, should I allow to parameterize
+;; mu-case directly. Might be cleaner. I hate function proliferation.
+;;
+;;   (mu-case expr
+;;     :seq  seq
+;;     :ns   custom-pat-namespace
+;;     :nest t
+;;     (pat1 body1)
+;;     (pat2 body2))
 
 
 (defmacro mu--case (seq-pat e &rest clauses)
@@ -290,12 +254,8 @@ permissive sequence matching."
   (unless (get 'mu--case :mu-patterns)
     (define-symbol-prop 'mu-case :mu-patterns (ht)))
 
+  ;; propagate compile-time errors to runtime (is that ok?)
   (condition-case err
-      ;; TODO nesting `pcase' or not should be optional, IMO we should let the
-      ;; user decide e.g. based on the code the see generated. With default
-      ;; nesting we maybe throwing away some optimisations `pcase' has. But I
-      ;; really don't know
-
       (let ((pcase-clauses
              (mapcar (lambda (clause) (mu-case--clause seq-pat clause)) clauses)))
         (if mu-prefer-nested-pcase
@@ -378,50 +338,49 @@ permissive sequence matching."
 ;;* mu-defpattern ------------------------------------------------ *;;
 
 
-;; NOTE All we do here is wrap user "macro" into a (lambda (ARGLIST) BODY) and
-;; store it in the hash-table stored in mu-case's plist under :mu-patterns slot.
-;; Whenever `mu-case' encounters a (NAME PATTERNS) pattern it looks up the NAME in
-;; its :mu-patterns property and calls (apply (lambda (ARGLIST) BODY) PATTERNS)
-;; which must produce a valid mu-case pattern. So, technically the user doesn't
-;; really define a macro so much as a function that takes patterns and must
-;; generate a mu-case pattern, that is `mu-case' effectively plays the role of a
-;; "macro expander" by simply invoking the function the user provided at compile
-;; time.
+;; Let the user create custom patterns of the form (name mu-pat...). Every such
+;; pattern is an expander - a function that takes mu-patterns as arguments and
+;; must produce a known mu-pattern. All patterns are kept in a table that maps
+;; NAME to an expander. NAME is but a key in that table and is global only in so
+;; much as the table is directly accessible by the user, which the user shouldn't
+;; really do. This means that while NAME doesn't make it into defun/defvar
+;; namespaces, clashes are possible. Should someone else define a mu-pattern with
+;; the same name, it would overwrite and thus shaddow the earlier pattern.
+;; Sometimes useful this should probably be an opt-in rather than the default
+;; behavior. To that end we are going to namespace patterns, so that the user can
+;; register a fresh namespace (a pattern table) and install any custom patterns
+;; there.
+;;
+;; Define several handy patterns: l-pattern to match lists; v-pattern to match
+;; vectors; ht-pattern to match hash-tables and alists; seq-pattern to match lists
+;; or vectors non-strictly - taking an open-world collection view; lv-pattern to
+;; match lists or vectors strictly - all items of a collection must match.
 
 
 (defmacro mu-defpattern (name arglist &optional docstring &rest body)
-  "Define a new kind of mu-case PATTERN. Patterns of the
-form (NAME &rest PATTERNS) will be expanded by this macro with
-PATTERS bound according to the ARGLIST. Macro expansion must
-produce a valid `mu-case' pattern. The macro is allowed to throw
-`mu-error' to signal improper use of the pattern. This will be
-handled correctly to inform the user. Optional DOCSTRING maybe
-supplied for the convenience of other programmers reading your
-macro code. BODY may start with a :debug EDEBUG-SPEC attribute
-pair.
+  "Define an expander for a custom mu-pattern of the form (NAME
+&rest patterns) where actual patterns will be bound in the
+expander according to the ARGLIST. Expander must produce a valid
+mu-pattern. NAME is only required to identify the pattern, the
+macro does not bind it. Optional DOCSTRING maybe supplied to
+improve readability of your code. BODY may start with a :debug
+EDEBUG-SPEC attribute pair.
 
 \(fn NAME ARGLIST &optional DOCSTRING &rest BODY)"
   (declare (doc-string 3) (indent 2) (debug defun))
 
   ;; install edebug spec if present and remove it from the body
   (when (eq :debug (car body))
-    ;; TODO This pollutes the symbol NAME! Since we don't actually establish it as
-    ;; a variable or a defun and only ever use it as a key in the table, we
-    ;; shouldn't be doing that or we could inadvertently overwrite somebody else's
-    ;; edebug-spec. Why not just store it in the :mu-pattern table alongside the
-    ;; relevant expander and collect it in `mu-pat--edebug-match' as needed?
     (def-edebug-spec name (cadr body))
     (setq body (cddr body)))
 
-  ;; cons the docstring onto the body if present
+  ;; just for consistency, when present, cons the docstring onto the body
   (when docstring
     (unless (stringp docstring)
       (setq body (cons docstring body))))
 
   (let ((mu-patterns `(or (get 'mu--case :mu-patterns)
                           (put 'mu--case :mu-patterns (ht))))
-        ;; TODO should I trap errors here to fascilitate debugging and better
-        ;; error reporting? I could wrap the body in condition-case
         (pattern-macro `(lambda ,arglist ,@body)))
     ;; add pattern to the mu-patterns table
     `(setf (ht-get ,mu-patterns ',name) ,pattern-macro)))
@@ -460,10 +419,8 @@ pair.
 
 
 (mu-defpattern ht (&rest patterns)
-  "`mu-case' pattern to match hash-tables and alists. ht expects
-to receive key-patterns that would be used to lookup and bind
-corresponding values in the hash-table or alist being matched.
-Possible key-PATTERNS are:
+  "mu-pattern to match hash-tables and alists with values bound
+according to the key PATTERNS that maybe one of:
 
   :a or a  - try keys in order :a, 'a and bind to a,
   'a       - try keys in order 'a, :a and bind to a,
@@ -481,13 +438,10 @@ Example:
          (and (pred listp) ,@alist-pats))))
 
 
-;; TODO force-list in seq-patterns
 (defcustom mu-seq-pattern-force-list nil
-  "Controls if seq `mu-case' pattern should always produce
-subsequences of type 'list even if they resulted from matching a
-subsequence of a vector. Set it to 'list if you don't care
-whether you're matching lists or vectors and want any pattern
-variable bound to subsequence to be a list."
+  "Force seq-pattern to always cast its &rest submatch to a list.
+Without this setting the &rest supattern match will preserve the
+type of the sequence being matched."
   :options '(list nil))
 
 
@@ -495,11 +449,9 @@ variable bound to subsequence to be a list."
   (let* ((type (cond
                 ((listp seq) 'list)
                 ((vectorp seq) 'vector)
-                ;; TODO we should never have gotten this error. It may only ever
-                ;; happen if we attempt to match non-seq to a seq, but then the
-                ;; pattern should just fail to match and move on to another case
+                ;; NOTE If ever signaled, then there must be a bug. Matching
+                ;; non-seq with a seq-pattern should simply fail, not raise.
                 (:else (mu-error :seq-pattern (type-of seq)))))
-         ;; TODO replace with loop that also counts elements?
          (subseq (seq-take seq pat-len))
          (took (length subseq))
          (less-by (- pat-len took)))
@@ -508,21 +460,20 @@ variable bound to subsequence to be a list."
               ;; pad head with nils
               (seq-concatenate type subseq (make-list less-by nil))
             subseq)
-          ;; rest: empty if seq was shorter than patterns
+          ;; rest is empty if seq was shorter than patterns
           (seq-subseq seq took))))
 
-
+;; NOTE basic idea for seq-pattern: instead of trying to match the sequence, build
+;; a new sequence by taking as many elements from the original as there are
+;; patterns. If the sequence has fewer elements than the patterns pad with nils.
+;; Now match patterns against that newly built sequence.
 (mu-defpattern seq (&rest patterns)
-  "`mu-case' pattern to match lists and vectors alike. Match as
-many patterns against the sequence as possible: fewer patterns
-than the sequence will simply match the head of the sequence;
-more patterns than the sequence will match available elements,
-then match any excessive patterns against that many nils. Also
-supports the &rest pattern to match the remaining elements."
-  ;; Basic idea: instead of trying to match the sequence, build a new sequence by
-  ;; taking as many elements from the original as there're patterns. If the
-  ;; sequence has fewer elements than the patterns, simply fill with nils. Now
-  ;; match patterns against that newly built seq.
+  "mu-pattern to match lists and vectors taking an open-world
+collection view: match as many PATTERNS as available. Fewer
+patterns than items in a sequence will simply match the head of
+the sequence; more patterns will match available items, then
+match any excessive patterns against that many nils. Supports
+&rest subpattern to match remaining items."
   :debug (&rest mu-pat)
   (if patterns
       (let* ((split (mu--split-when #'mu--rest? patterns))
@@ -550,50 +501,14 @@ supports the &rest pattern to match the remaining elements."
   (let* ((subseq (seq-take seq pat-len))
          (took (length subseq)))
     (list subseq
-          ;; rest: empty if seq was shorter than patterns
+          ;; rest is empty if seq was shorter than patterns
           (seq-subseq seq took))))
 
 
-;; NOTE As I only just discovered seq patterns in Clojure's multi-head defn subtly
-;; differ from those say in let-context: in defn you often want to dispatch based
-;; on the length of the sequence i.e. how many elements your []-pattern attempts
-;; to match, so blindly using mu-pattern [] would almost always have the very
-;; first pattern succeed. What we want in the `mu-defun' is to have a strict
-;; seq-pattern, where the pattern with the best matching arrity suceeds. One way
-;; to do it is to re-write [] in our defuns into a `lv' seq-pattern below. Another
-;; way is to re-write [] into (or (l pats) (v pats)). Computationally IMO `lv' has
-;; less overhead, since the (or .. ..) would have to expand two almost identical
-;; patterns. I think Clojure's defn is even more limiting. It is actually an fixed
-;; arrity function with optional &rest pattern but only where such pattern is of
-;; bigger arrity than every other fixed pattern:
-;;
-;;   (mu-defun foo (&rest args)
-;;     ([a b c] ...)
-;;     ;; is not allowed in Clojure: pat with &rest has to be of bigger arrity
-;;     ;; than every other dispatch pattern
-;;     ([a b &rest c] ...))
-;;
-;; neither is the following overloading of the same arrities is allowed:
-;;
-;;   (mu-defun foo (&rest args)
-;;     ([a [b c] d] (list a b c d))
-;;     ([a [b]   c] (list a b c)))
-;;
-;; I actually think this latter case is unreasonable. Btw if I am to allow such
-;; dispatch, I'd need all [] acting as strict seq-patterns, not just the outer
-;; ones. This implies that [] needs to be dynamic somehow - parameterized by the
-;; type of seq-pattern I want it to become after the re-write in `mu--pat-unquoted'
-;; and `mu--pat-backquoted'.
-;;
-;; Curiously, same could be desired whenever we dispatch by matching a sequence
-;; rathen than simply bind by destructuring: I doubt we ever want the very first
-;; pattern to shadow whatever follows, so similar semantics maybe prefered in
-;; `mu-case' but not in `mu-let' or the simple one-armed `mu-defun', where the
-;; latter two only destructure and bind, not choose a pattern to dispatch.
 (mu-defpattern lv (&rest patterns)
-  "`mu-case' pattern to match lists and vectors alike. Unlike
-seq-pattern [] it is strict and behaves like l-pattern for lists
-or v-pattern for vectors: must match the entire sequence to
+  "mu-pattern to match lists and vectors alike. Unlike
+seq-pattern it is strict and behaves like l-pattern for lists or
+v-pattern for vectors: must match the entire sequence to
 succeed."
   :debug (&rest mu-pat)
   (if patterns
@@ -616,10 +531,14 @@ succeed."
     `(or (lst) (vec))))
 
 
+;; NOTE basic idea for list and vector patterns: keep splitting PATTERNS at &rest
+;; and recursing into chunks. Chunk with no &rest should produce a built-in
+;; lst-pattern or vec-pattern to break recursion.
+
+
 (mu-defpattern l (&rest patterns)
-  "`mu-case' list-pattern that allows &rest matching"
-  ;; Basic idea: keep splitting PATTERNS at &rest and recursing into chunks. Chunk
-  ;; with no &rest should produce a lst-pattern to break recursion.
+  "mu-pattern to match lists. Unlike built-in lst-pattern allow a
+&rest subpattern to match remaining items."
   :debug (&rest mu-pat)
   (if patterns
       (let* ((split (mu--split-when #'mu--rest? patterns))
@@ -641,8 +560,8 @@ succeed."
 
 
 (mu-defpattern v (&rest patterns)
-  "`mu-case' vector-pattern that allows &rest matching"
-  ;; Basic idea: just like l-pattern
+  "mu-pattern to match vectors. Unlike built-in vec-pattern allow
+a &rest subpattern to match remaining items."
   :debug (&rest mu-pat)
   (if patterns
       (let* ((split (mu--split-when #'mu--rest? patterns))
@@ -664,28 +583,40 @@ succeed."
 ;;* mu-case ------------------------------------------------------ *;;
 
 
+;; Define `mu-case' - a counterpart to `pcase' choice expression that uses
+;; mu-patterns. By default any []-pattern is strict and must match the entire
+;; input sequence. This behavior can be controlled by setting an optional
+;; attribute :seq to a desired seq-pattern (defaults to `lv'). Optional attribute
+;; :nest controls clause rewriting (see `mu-prefer-nested-pcase'), attribute :ns
+;; allows to specify a user-defined pattern namespace to lookup custom patterns
+;; defined with `mu-defpattern'. Many features in multi.el simply re-write into
+;; some form of `mu-case', which makes it foundational to the library.
+
+
 (defmacro mu-case (e &rest clauses)
   "`pcase'-like matching and destructuring with less noise.
 Sequence pattern [] is strict: must match the entire sequence to
 succeed."
   (declare (indent 1)
            (debug (form &rest (mu-pat body))))
-
-  ;; TODO should I only treat the outer-most [] as lv-pattern, but have permissive
-  ;; [] in the internal patterns here?
-
-  ;; Overload [] seq-pattern to be strict: [] will use lv-pattern
+  ;; overload []-pattern to be strict by using lv-pattern
   `(mu--case lv ,e ,@clauses))
 
 
 ;;* mu-let ------------------------------------------------------- *;;
 
 
+;; Define `mu-let', `mu-when-let' and `mu-if-let'. Any []-pattern is non-strict
+;; and will likely bind as long as the input is a sequence. This makes binding
+;; behavior more permissive and hopefully better aligned with what a user may
+;; reasonably expect. In so doing it mimics the Clojure's let destructuring but
+;; with full expressiveness of mu-patterns.
+
+
 (defcustom mu-let-parens 'yes
-  "Controls if `mu-let' shoud have a set of parens around each
+  "Control if `mu-let' shoud have a set of parens around each
 binding clause like normal `let': 'yes (default), 'no, 'square -
-no extra parens, but the entire set of bindings must be inside []
-instead of ()."
+no extra parens, but the entire set of bindings must be inside []."
   :options '(yes no square))
 
 
@@ -738,7 +669,8 @@ instead of ()."
 
 
 (defmacro mu-let (bindings &rest body)
-  "Like `let*' but allow mu-case patterns to bind variables"
+  "Like `let*' but allow mu-patterns in place of bindings. Any
+[]-pattern is permissive and assumes open-world collections."
   (declare (indent 1)
            (debug ((&rest (sexp form)) body)))
   (condition-case err
@@ -747,7 +679,8 @@ instead of ()."
 
 
 (defmacro mu-when-let (bindings &rest body)
-  "Like `when-let*' but allow mu-case patterns to bind variables"
+  "Like `when-let*' but allow mu-patterns in place of bindings.
+Any []-pattern is permissive and assumes open-world collections."
   (declare (indent 1)
            (debug ((&rest (sexp form)) body)))
   (condition-case err
@@ -756,7 +689,8 @@ instead of ()."
 
 
 (defmacro mu-if-let (bindings then-body &rest else-body)
-  "Like `if-let*' but allow mu-case patterns to bind variables"
+  "Like `if-let*' but allow mu-patterns in place of bindings. Any
+[]-pattern is permissive and assumes open-world collections."
   (declare (indent 2)
            (debug ((&rest (sexp form)) form body)))
   (condition-case err
@@ -767,9 +701,53 @@ instead of ()."
 ;;* mu-defun ----------------------------------------------------- *;;
 
 
+;; Define `mu-defun' and `mu-defmacro' that allow pattern-matching and
+;; destructuring their arguments. Both have single-head and multi-head versions,
+;; where the former simply matches arguments against a []-pattern, while the
+;; latter allows multiple clauses each with its own []-pattern and body.
+;; Multi-head defun is not unlike and has been inspired by Clojure's multi-head
+;; defn, but should be more expressive thanks to the might of `pcase' and
+;; mu-patterns. Since mu-defun is about dispatching on arrity first and
+;; destructuring second its []-pattern necessitates subtle semantics. The
+;; outermost []-pattern is strict, that is it either matches the entire sequence
+;; or fails and the next clause is tried. In multi-head case all []-patterns even
+;; internal ones are strict, so that you can dispatch on the internal structure
+;; even if multiple clauses have the same arrity; in a single-head only the
+;; external []-pattern is strict, since you probably want to detect arrity errors,
+;; but the internal []-patterns are permissive to fascilitate destructuring. None
+;; of this is terribly important as long as it matches user expectation which I
+;; hope it does.
+
+
+;; NOTE Some observations re Clojure's defn and this implementation. Clojure's
+;; defn is nice but somewhat limiting. IIUC multi-head defn is an fixed arrity
+;; function that may allow an &rest pattern but only where such pattern is of
+;; bigger arrity than every other fixed pattern. So the following is not allowed
+;; in Clojure:
+;;
+;;   (mu-defun foo (&rest args)
+;;     ([a b c] ...)
+;;     ([a b &rest c] ...))
+;;
+;; nor can you dispatch on the same arrity
+;;
+;;   (mu-defun foo (&rest args)
+;;     ([a [b c] d] (list a b c d))
+;;     ([a [b]   c] (list a b c)))
+;;
+;; Why would you ever want that? Well, if you actually perform pattern-matching
+;; like we do with mu-patterns, then it is quite desirable to be able to dispatch
+;; not only on the arrity but on the internal structure as the above example
+;; shows. Far as I can surmount Clojure dispatch and destructure aren't
+;; pattern-based but rather much simpler. You can probably gain most or all of
+;; that by leveraging Clojure Spec and I bet someone will release just such
+;; library before soon. As it stands I see no reason for us to follow in Clojure
+;; footsteps and surrender expressiveness afforded by patterns.
+
+
 (defun mu--defun-meta (body &optional map)
-  "Return a hash-table of attributes parsed from `mu-defun' or
-`mu-defmacro' preamble"
+  "Return a hash-table of attribute value pairs from `mu-defun'
+preamble"
   (default map :to (ht))
   (cond
    ((keywordp (car body)) (ht-set map (pop body) (pop body)) (mu--defun-meta body map))
@@ -779,7 +757,7 @@ instead of ()."
 (defun mu--defun-sig (split-args body &optional doc sig sigs)
   "Create a docstring from DOC adding signature SIG if supplied
 and extra signatures either supplied or generated from the
-arglist and `mu-case' patterns in the BODY."
+arglist and mu-patterns in BODY clauses."
   (default doc :to "")
   (let* ((head (car split-args))
          (tail (cadr split-args))
@@ -808,7 +786,7 @@ arglist and `mu-case' patterns in the BODY."
 
 
 (defun mu--defun-clause? (clause)
-  "Mu-clause is a `mu-case' clause: ([patterns] rest)"
+  "Is CLAUSE a mu-clause ([pat...] body...)?"
   (and (listp clause)
        (not (null clause))
        (or (vectorp (car clause))
@@ -816,18 +794,18 @@ arglist and `mu-case' patterns in the BODY."
 
 
 (defun mu--defun-clauses? (body)
-  "Mu-clauses is just a list of `mu-case' clauses"
+  "Is BODY a list of mu-clauses?"
   (and (listp body)
        (not (null body))
        (every #'mu--defun-clause? body)))
 
 
 (defun mu--defun (fun-type name arglist docstring attrs body)
-  "Does all the heavy lifting to process the code from mu-defun
-or mu-defmacro: extract metadata, normalize arglist and body and
-recursively call itself to generate actual defun or defmacro
+  "Do all the heavy lifting to process the code from `mu-defun'
+or `mu-defmacro': extract metadata, normalize arglist and body
+and recursively call itself to generate actual defun or defmacro
 respectively. See `mu-defun' for what can appear in ARGLIST and
-ATTRS"
+ATTRS."
 
   ;; extract docstring from body
   (unless docstring
@@ -842,13 +820,11 @@ ATTRS"
       (setq body (ht-get meta :body)
             attrs meta)))
 
-  ;;  Now BODY is expected to be one of:
-  ;; - list of mu-clauses when expanding a multi-headed defun,
-  ;; - anything at all when expanding a single-headed defun.
-
-  ;; Decide how to proceed by dispatching on the ARGLIST that should match one the
-  ;; allowed calling conventions, modify arglist and body as needed and recurse so
-  ;; that the penultimate case can deal with now normalized arguments and generate
+  ;; BODY should now be either a list of mu-clauses (multi-head defun), or
+  ;; anything at all (single-head defun).
+  ;;
+  ;; Dispatch on the ARGLIST. Each clause matches some permitted calling
+  ;; convention and will either normalize arguments, body and recurse or generate
   ;; the final function definition.
 
   (mu-case arglist
@@ -912,9 +888,7 @@ ATTRS"
                      (otherwise
                       (mu-error "no matching clause found for mu-defun call %s" ',name)))
 
-                ;; all []-patterns are strict for multi-head defun, to fascilitate
-                ;; dispatch and "delegate to another case by recursion" pattern
-                ;; i.e. favour dispatch over destructuring
+                ;; all []-patterns are strict
                 `(mu-case ,rest-arg
                    ,@body
                    ;; default otherwise clause if not supplied by the user
@@ -925,7 +899,7 @@ ATTRS"
        ;; expected body of mu-clauses
        `(mu-error "in mu-defun malformed body: expected mu-clauses, got %S" ',body)))
 
-    ;; ARGLIST: unrecognized
+    ;; ARGLIST: unrecognized call-pattern
     (otherwise
      `(mu-error "in mu-defun malformed arglist %S" ',arglist))))
 
@@ -997,8 +971,8 @@ METADATA is optional and may include the following attributes:
 (mu--set-defun-docstring 'defmacro)
 
 
+;; TODO Idea for extra attributes :test, :ret, :debug
 (comment
- ;; TODO Idea for how mu-defun should really work
  (mu-defun foo-fun [a b | args]
    "This is a foo function that performs foo and returns something
 cool."
@@ -1044,6 +1018,18 @@ cool."
 
 
 ;;* mu-setters --------------------------------------------------- *;;
+
+
+;; We extend the power of multi-dispatch to gv-setters by providing
+;; `mu-defsetter'. Conceptually it is like `gv-define-setter' but with `mu-defun'
+;; like matching and multiple clauses. Native `gv-define-setter' will work just
+;; fine for anything you define with `mu-defun' or `mu-defmacro', this feature
+;; might just make your setters cleaner and easier to write. Despite the name
+;; neither gv-define-setter nor mu-defsetter really "define" anything, rather they
+;; register an expander that'll be called by the Emacs gv machinery whenever a
+;; generalized variable is being set. As such setters maybe tricky to instrument
+;; for debugging. To ease the process we also provide `mu-debug-setter' lets you
+;; run some code with a given setter instrumented for Edebug.
 
 
 ;;** - (v1) mu-defun-setter -------------------------------------- *;;
@@ -1093,7 +1079,6 @@ cool."
 (defalias 'mu-defmacro-setter 'mu-defun-setter)
 (defalias 'mu-defmacro-simple-setter 'mu-defun-simple-setter)
 
-
 (example
 
  ;; TODO observe that the single-head is roughly 4-5x faster, than the multi-head
@@ -1110,9 +1095,9 @@ cool."
 
  ;; now this case should work, but passing a '(:a :b) as keys won't
  (mu-test-time
-   (let ((table (ht)))
-     (setf (foo table [:a :b]) :foo)
-     (foo table [:a :b])))
+  (let ((table (ht)))
+    (setf (foo table [:a :b]) :foo)
+    (foo table [:a :b])))
 
  ;; now we fix it for both cases by switching to a multi-head setter
  (mu-defun-setter (foo | args) val
@@ -1124,15 +1109,15 @@ cool."
  ;; and now both setf's should work
  (mu-debug-setter foo
    (mu-test-time
-     (let ((table (ht)))
+    (let ((table (ht)))
 
-       (list (progn
-               (setf (foo table [:a :b]) :foo)
-               (foo table [:a :b]))
+      (list (progn
+              (setf (foo table [:a :b]) :foo)
+              (foo table [:a :b]))
 
-             (progn
-               (setf (foo table '(:a :b)) :updated-foo)
-               (foo table '(:a :b))))))))
+            (progn
+              (setf (foo table '(:a :b)) :updated-foo)
+              (foo table '(:a :b))))))))
 
 
 ;;** - (v2) mu-defsetter ----------------------------------------- *;;
@@ -1144,9 +1129,8 @@ cool."
 
 
 (defun mu--otherwise-clause? (clause)
-  (mu-case clause
-    ((l 'otherwise | _) t)
-    (otherwise nil)))
+  (and (listp clause)
+       (eq 'otherwise (car clause))))
 
 
 (defun mu--defsetter (val-id id head-args rest-arg clauses)
@@ -1259,9 +1243,9 @@ cool."
 ;;** - mu-debug-setter ------------------------------------------- *;;
 
 
-;; HACK to debug setters. Interplay with Edebug is intricate and this can have
-;; unexpected behavior if the user does something out of the ordinary. Guess it's
-;; fine for now
+;; NOTE While better than nothing I consider it a HACK to debug setters. Interplay
+;; with Edebug is intricate and this can have unexpected behavior if the user does
+;; something out of the ordinary.
 
 
 (defun mu-debug-quit ()
@@ -1308,6 +1292,14 @@ cool."
 
 
 ;;* mu-lambda ---------------------------------------------------- *;;
+
+
+;; Provide single-head and multi-head anonymous functions. These translate into
+;; simple lambdas, so should be fine to use in most places a lambda would work.
+;; However, it isn't unusual for a macro to introspect that something is a lambda
+;; e.g. with a `functionp' or by checking the car of a list etc. I know of no way
+;; to extend `functionp', so mu-lambdas won't be recognised as functions until
+;; evaluated. Exercise caution when passing mu-lambdas as arguments to macros.
 
 
 (defun mu--single-head-lambda (patterns body)
@@ -1372,12 +1364,72 @@ destructuring:
      ;; by mu-case matching the rest-arg
      (mu--multi-head-lambda arglist rest-arg clauses)))
 
-  ;; ARGS: unrecogsized
+  ;; ARGS: unrecogsized call-pattern
   (otherwise
    `(mu-error "in mu-lambda malformed arglist or body")))
 
 
 (defalias 'μ 'mu)
+
+
+;;* todo --------------------------------------------------------- *;;
+
+
+;; TODO (ht), other prelude.el that's used
+
+;; TODO replace (pred ..) pattern with a shorter (? ..) maybe, alternatively we
+;; could just allow straight up #'functions or (lambda (a) ..) and treat them as
+;; predicates, but this may obscure intent.
+;;
+;; (mu-case e
+;;   [(and (? listp) (? rest-arglist?) arglist) |
+;;    (and (? mu--defun-clauses?) clauses)]
+;;   (body))
+;;
+;; or even cleaner:
+;;
+;; (mu-case e
+;;   [(and #'listp #'rest-arglist? arglist) |
+;;    (and #'mu--defun-clauses? clauses)]
+;;   (body))
+
+;; TODO define custom mu-patterns to clarify hairy pattern-matching!
+;; - (id foo) => (and (pred symbolp) foo)
+;; - (mu-arglist head-args rest-arg) => (app mu--split-at-rest [head-args [rest-arg]])
+
+;; TODO with the above in mind I may want to have a mechanism to namespace
+;; user-defined patterns lest they start to clash with each other. Would that be
+;; an overkill? I could also expand into an actual defun with randomly or
+;; systematically generated name, then the :mu-patterns table would map pattern
+;; NAME to that defun. I could also store edebug-specs on that defun's symbol.
+
+;; TODO Perfwise byte-compilation should work. Also consider byte-compiling
+;; generated functions, or maybe even generate an actual named function instead of
+;; a lambda so that we can byte-compile it, e.g. for custom patterns? Also see
+;; opportunities for inlining, where an actual function call can be avoided.
+;; Before any of this perf-tuning I'd need a whole bunch of cases to time as make
+;; changes.
+
+;; TODO Replace lambdas with defuns where it would make code more readable. If we
+;; are to byte-compile everything then having lambda or an actual #'defun
+;; shouldn't effect performance.
+
+;; TODO consider places where we could catch errors including `pcase' errors, so
+;; that we can report in terms of mu-patterns and propagate some context. Sadly,
+;; `pcase' unimaginatively throws 'error, ugh.
+
+;; TODO Found a thread in emacs-devel that shows off how one might step-into
+;; symbol being bound by `pcase'. I don't think it made it into the codebase, but
+;; maybe smth helpful for us. IIUC the idea is to rewrite symbol pattern into an
+;; explicit let-pattern. I don't understand the edebug mechanics.
+;; https://lists.gnu.org/archive/html/emacs-devel/2015-10/msg02285.html
+
+;; TODO I wonder if edebug-specs could somehow be used to make `eldoc' smarter
+;; about highlighting arguments as you type?
+
+;; TODO Allow to force-list in seq-patterns. See `mu-seq-pattern-force-list'.
+
+;; TODO Allow mu-lambdas in standard patterns pred, app etc
 
 
 ;;* provide ------------------------------------------------------ *;;
