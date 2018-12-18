@@ -369,21 +369,28 @@ EDEBUG-SPEC attribute pair.
 \(fn NAME ARGLIST &optional DOCSTRING &rest BODY)"
   (declare (doc-string 3) (indent 2) (debug defun))
 
-  ;; install edebug spec if present and remove it from the body
-  (when (eq :debug (car body))
-    (def-edebug-spec name (cadr body))
-    (setq body (cddr body)))
+  (let (install-debug-spec)
 
-  ;; just for consistency, when present, cons the docstring onto the body
-  (when docstring
-    (unless (stringp docstring)
-      (setq body (cons docstring body))))
+    ;; extract edebug-spec if present
+    (when (eq :debug (car body))
+      ;; TODO this pollutes pattern symbol with edebug prop, I should store the
+      ;; spec in :mu-patterns table instead and have `mu-pat--edebug-match'
+      ;; extract them as needed
+      (setq install-debug-spec `((def-edebug-spec ,name ,(cadr body)))
+            body (cddr body)))
 
-  (let ((mu-patterns `(or (get 'mu--case :mu-patterns)
-                          (put 'mu--case :mu-patterns (ht))))
-        (pattern-macro `(lambda ,arglist ,@body)))
-    ;; add pattern to the mu-patterns table
-    `(setf (ht-get ,mu-patterns ',name) ,pattern-macro)))
+    ;; just for consistency, when present, cons the docstring onto the body
+    (when docstring
+      (unless (stringp docstring)
+        (setq body (cons docstring body))))
+
+    (let ((mu-patterns `(or (get 'mu--case :mu-patterns)
+                            (put 'mu--case :mu-patterns (ht))))
+          (pattern-macro `(lambda ,arglist ,@body)))
+      ;; add pattern to the mu-patterns table
+      `(progn
+         ,@install-debug-spec
+         (setf (ht-get ,mu-patterns ',name) ,pattern-macro)))))
 
 
 (defun mu--ht-pattern (patterns)
