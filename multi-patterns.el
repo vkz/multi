@@ -400,6 +400,166 @@ EDEBUG-SPEC attribute pair.
          (setf (ht-get ,mu-patterns ',name) ,pattern-macro)))))
 
 
+(defun mu--seq-split (seq pat-len)
+  (let* ((subseq (seq-take seq pat-len))
+         (took (length subseq)))
+    (list subseq
+          ;; rest is empty if seq was shorter than patterns
+          (seq-subseq seq took))))
+
+
+(defun mu--seq-split-and-pad (seq pat-len)
+  (let* ((type (cond
+                ((listp seq) 'list)
+                ((vectorp seq) 'vector)
+                ;; NOTE If ever signaled, then there must be a bug. Matching
+                ;; non-seq with a seq-pattern should simply fail, not raise.
+                (:else (mu-error :seq-pattern (type-of seq)))))
+         (subseq (seq-take seq pat-len))
+         (took (length subseq))
+         (less-by (- pat-len took)))
+    ;; return (list padded-head-seq rest-seq)
+    (list (if (< took pat-len)
+              ;; pad head with nils
+              (seq-concatenate type subseq (make-list less-by nil))
+            subseq)
+          ;; rest is empty if seq was shorter than patterns
+          (seq-subseq seq took))))
+
+
+;;** - l-pattern ------------------------------------------------- *;;
+
+
+;; NOTE basic idea for list and vector patterns: keep splitting PATTERNS at &rest
+;; and recursing into chunks. Chunk with no &rest should produce a built-in
+;; lst-pattern or vec-pattern to break recursion.
+
+
+(mu-defpattern l (&rest patterns)
+  "mu-pattern to match lists. Unlike built-in lst-pattern allow a
+&rest subpattern to match remaining items."
+  :debug (&rest mu-pat)
+  (if patterns
+      (let* ((split (mu--split-when #'mu--rest? patterns))
+             (head (car split))
+             (rest (cadr split))
+             (rest? (when rest t))
+             (pat-len (length (if rest? head patterns))))
+        (when (> (length rest) 1)
+          (mu-error :rest-pattern rest))
+        (if rest?
+            ;; match head and rest
+            `(and (pred listp)
+                  (app (lambda (l) (mu--seq-split l ,pat-len))
+                       (lst (lst ,@head) ,@rest)))
+          ;; match head only
+          `(and (pred listp)
+                (lst ,@head))))
+    `(lst)))
+
+
+;;** - v-pattern ------------------------------------------------- *;;
+
+
+(mu-defpattern v (&rest patterns)
+  "mu-pattern to match vectors. Unlike built-in vec-pattern allow
+a &rest subpattern to match remaining items."
+  :debug (&rest mu-pat)
+  (if patterns
+      (let* ((split (mu--split-when #'mu--rest? patterns))
+             (head (car split))
+             (rest (cadr split))
+             (rest? (when rest t))
+             (pat-len (length (if rest? head patterns))))
+        (when (> (length rest) 1)
+          (mu-error :rest-pattern rest))
+        (if rest?
+            `(and (pred vectorp)
+                  (app (lambda (v) (mu--seq-split v ,pat-len))
+                       (lst (vec ,@head) ,@rest)))
+          `(and (pred vectorp)
+                (vec ,@head))))
+    `(vec)))
+
+
+;;** - lv-pattern ------------------------------------------------ *;;
+
+
+(defcustom mu-seq-pattern-force-list nil
+  "Force seq-pattern to always cast its &rest submatch to a list.
+Without this setting the &rest supattern match will preserve the
+type of the sequence being matched."
+  :options '(list nil))
+
+
+(mu-defpattern lv (&rest patterns)
+  "mu-pattern to match lists and vectors alike. Unlike
+seq-pattern it is strict and behaves like l-pattern for lists or
+v-pattern for vectors: must match the entire sequence to
+succeed."
+  :debug (&rest mu-pat)
+  (if patterns
+      (let* ((split (mu--split-when #'mu--rest? patterns))
+             (head (car split))
+             (rest (cadr split))
+             (rest? (when rest t))
+             (pat-len (length (if rest? head patterns)))
+             (seqp `(pred (lambda (v) (or (listp v) (vectorp v))))))
+        (when (> (length rest) 1)
+          (mu-error :rest-pattern rest))
+        (if rest?
+            ;; match head and rest
+            `(and ,seqp
+                  (app (lambda (seq) (mu--seq-split seq ,pat-len))
+                       (lst (or (lst ,@head) (vec ,@head)) ,@rest)))
+          ;; match head only
+          `(or (lst ,@head) (vec ,@head))))
+    ;; empty seq-pattern
+    `(or (lst) (vec))))
+
+
+;;** - seq-pattern ----------------------------------------------- *;;
+
+
+;; NOTE basic idea for seq-pattern: instead of trying to match the sequence, build
+;; a new sequence by taking as many elements from the original as there are
+;; patterns. If the sequence has fewer elements than the patterns pad with nils.
+;; Now match patterns against that newly built sequence.
+
+
+(mu-defpattern seq (&rest patterns)
+  "mu-pattern to match lists and vectors taking an open-world
+collection view: match as many PATTERNS as available. Fewer
+patterns than items in a sequence will simply match the head of
+the sequence; more patterns will match available items, then
+match any excessive patterns against that many nils. Supports
+&rest subpattern to match remaining items."
+  :debug (&rest mu-pat)
+  (if patterns
+      (let* ((split (mu--split-when #'mu--rest? patterns))
+             (head (car split))
+             (rest (cadr split))
+             (rest? (when rest t))
+             (pat-len (length (if rest? head patterns)))
+             (seqp `(pred (lambda (v) (or (listp v) (vectorp v))))))
+        (when (> (length rest) 1)
+          (mu-error :rest-pattern rest))
+        (if rest?
+            ;; match head and rest
+            `(and ,seqp
+                  (app (lambda (seq) (mu--seq-split-and-pad seq ,pat-len))
+                       (lst (or (lst ,@head) (vec ,@head)) ,@rest)))
+          ;; match head only
+          `(and ,seqp
+                (app (lambda (seq) (car (mu--seq-split-and-pad seq ,pat-len)))
+                     (or (lst ,@head) (vec ,@head))))))
+    ;; empty seq-pattern
+    `(or (lst) (vec))))
+
+
+;;** - ht-pattern ------------------------------------------------ *;;
+
+
 (defun mu--ht-pattern (patterns)
   (mu-case patterns
     ((l) '())
@@ -450,148 +610,6 @@ Example:
          (alist-pats (mapcar #'cadr patterns)))
     `(or (and (pred ht-p) ,@ht-pats)
          (and (pred listp) ,@alist-pats))))
-
-
-(defcustom mu-seq-pattern-force-list nil
-  "Force seq-pattern to always cast its &rest submatch to a list.
-Without this setting the &rest supattern match will preserve the
-type of the sequence being matched."
-  :options '(list nil))
-
-
-(defun mu--seq-split-and-pad (seq pat-len)
-  (let* ((type (cond
-                ((listp seq) 'list)
-                ((vectorp seq) 'vector)
-                ;; NOTE If ever signaled, then there must be a bug. Matching
-                ;; non-seq with a seq-pattern should simply fail, not raise.
-                (:else (mu-error :seq-pattern (type-of seq)))))
-         (subseq (seq-take seq pat-len))
-         (took (length subseq))
-         (less-by (- pat-len took)))
-    ;; return (list padded-head-seq rest-seq)
-    (list (if (< took pat-len)
-              ;; pad head with nils
-              (seq-concatenate type subseq (make-list less-by nil))
-            subseq)
-          ;; rest is empty if seq was shorter than patterns
-          (seq-subseq seq took))))
-
-;; NOTE basic idea for seq-pattern: instead of trying to match the sequence, build
-;; a new sequence by taking as many elements from the original as there are
-;; patterns. If the sequence has fewer elements than the patterns pad with nils.
-;; Now match patterns against that newly built sequence.
-(mu-defpattern seq (&rest patterns)
-  "mu-pattern to match lists and vectors taking an open-world
-collection view: match as many PATTERNS as available. Fewer
-patterns than items in a sequence will simply match the head of
-the sequence; more patterns will match available items, then
-match any excessive patterns against that many nils. Supports
-&rest subpattern to match remaining items."
-  :debug (&rest mu-pat)
-  (if patterns
-      (let* ((split (mu--split-when #'mu--rest? patterns))
-             (head (car split))
-             (rest (cadr split))
-             (rest? (when rest t))
-             (pat-len (length (if rest? head patterns)))
-             (seqp `(pred (lambda (v) (or (listp v) (vectorp v))))))
-        (when (> (length rest) 1)
-          (mu-error :rest-pattern rest))
-        (if rest?
-            ;; match head and rest
-            `(and ,seqp
-                  (app (lambda (seq) (mu--seq-split-and-pad seq ,pat-len))
-                       (lst (or (lst ,@head) (vec ,@head)) ,@rest)))
-          ;; match head only
-          `(and ,seqp
-                (app (lambda (seq) (car (mu--seq-split-and-pad seq ,pat-len)))
-                     (or (lst ,@head) (vec ,@head))))))
-    ;; empty seq-pattern
-    `(or (lst) (vec))))
-
-
-(defun mu--seq-split (seq pat-len)
-  (let* ((subseq (seq-take seq pat-len))
-         (took (length subseq)))
-    (list subseq
-          ;; rest is empty if seq was shorter than patterns
-          (seq-subseq seq took))))
-
-
-(mu-defpattern lv (&rest patterns)
-  "mu-pattern to match lists and vectors alike. Unlike
-seq-pattern it is strict and behaves like l-pattern for lists or
-v-pattern for vectors: must match the entire sequence to
-succeed."
-  :debug (&rest mu-pat)
-  (if patterns
-      (let* ((split (mu--split-when #'mu--rest? patterns))
-             (head (car split))
-             (rest (cadr split))
-             (rest? (when rest t))
-             (pat-len (length (if rest? head patterns)))
-             (seqp `(pred (lambda (v) (or (listp v) (vectorp v))))))
-        (when (> (length rest) 1)
-          (mu-error :rest-pattern rest))
-        (if rest?
-            ;; match head and rest
-            `(and ,seqp
-                  (app (lambda (seq) (mu--seq-split seq ,pat-len))
-                       (lst (or (lst ,@head) (vec ,@head)) ,@rest)))
-          ;; match head only
-          `(or (lst ,@head) (vec ,@head))))
-    ;; empty seq-pattern
-    `(or (lst) (vec))))
-
-
-;; NOTE basic idea for list and vector patterns: keep splitting PATTERNS at &rest
-;; and recursing into chunks. Chunk with no &rest should produce a built-in
-;; lst-pattern or vec-pattern to break recursion.
-
-
-(mu-defpattern l (&rest patterns)
-  "mu-pattern to match lists. Unlike built-in lst-pattern allow a
-&rest subpattern to match remaining items."
-  :debug (&rest mu-pat)
-  (if patterns
-      (let* ((split (mu--split-when #'mu--rest? patterns))
-             (head (car split))
-             (rest (cadr split))
-             (rest? (when rest t))
-             (pat-len (length (if rest? head patterns))))
-        (when (> (length rest) 1)
-          (mu-error :rest-pattern rest))
-        (if rest?
-            ;; match head and rest
-            `(and (pred listp)
-                  (app (lambda (l) (mu--seq-split l ,pat-len))
-                       (lst (lst ,@head) ,@rest)))
-          ;; match head only
-          `(and (pred listp)
-                (lst ,@head))))
-    `(lst)))
-
-
-(mu-defpattern v (&rest patterns)
-  "mu-pattern to match vectors. Unlike built-in vec-pattern allow
-a &rest subpattern to match remaining items."
-  :debug (&rest mu-pat)
-  (if patterns
-      (let* ((split (mu--split-when #'mu--rest? patterns))
-             (head (car split))
-             (rest (cadr split))
-             (rest? (when rest t))
-             (pat-len (length (if rest? head patterns))))
-        (when (> (length rest) 1)
-          (mu-error :rest-pattern rest))
-        (if rest?
-            `(and (pred vectorp)
-                  (app (lambda (v) (mu--seq-split v ,pat-len))
-                       (lst (vec ,@head) ,@rest)))
-          `(and (pred vectorp)
-                (vec ,@head))))
-    `(vec)))
 
 
 ;;* mu-case ------------------------------------------------------ *;;
