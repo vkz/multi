@@ -931,10 +931,8 @@ ATTRS."
                 `(mu-case ,rest-arg
                    ,@body
                    ;; default otherwise clause if not supplied by the user
-                   ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
-                       (list
-                        `(otherwise
-                          (mu-error "no matching clause found for mu-defun call %s" ',name))))))))
+                   (otherwise
+                    (mu-error "no matching clause found for mu-defun call %s" ',name))))))
        ;; expected body of mu-clauses
        `(mu-error "in mu-defun malformed body: expected mu-clauses, got %S" ',body)))
 
@@ -1353,9 +1351,8 @@ cool."
   `(lambda ,arglist
      (mu-case ,rest-arg
        ,@body
-       ,@(unless (some (lambda (clause) (equal (car clause) 'otherwise)) body)
-           (list
-            `(otherwise (mu-error "in mu-lambda call: no matching clause found")))))))
+       (otherwise
+        (mu-error "in mu-lambda call: no matching clause found")))))
 
 
 (mu-defmacro mu (&rest args)
