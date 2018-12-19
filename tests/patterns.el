@@ -531,6 +531,42 @@
              (foo-macro :a))))))
 
 
+(ert-deftest mu-test-mu-defsetter ()
+  "mu-defsetter should work"
+  (mu-test (foo)
+
+    ;; define a getter
+    (mu-defun foo [table [level-1-key level-2-key]]
+      (ht-get* table :cache level-1-key level-2-key))
+
+    ;; simple single-head setter
+    (mu-defsetter foo [val table [level-1-key level-2-key]]
+      `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
+
+    ;; should work
+    (should (equal :foo
+                   (let ((table (ht)))
+                     (setf (foo table [:a :b]) :foo)
+                     (foo table [:a :b]))))
+
+    ;; multi-head setter
+    (mu-defsetter foo (val | args)
+      ([table ['quote [level-1-key level-2-key]]]
+       `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
+      ([table [level-1-key level-2-key]]
+       `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val)))
+
+    ;; should work
+    (should (equal '(:foo :updated-foo)
+                   (let ((table (ht)))
+                     (list (progn
+                             (setf (foo table [:a :b]) :foo)
+                             (foo table [:a :b]))
+                           (progn
+                             (setf (foo table '(:a :b)) :updated-foo)
+                             (foo table '(:a :b)))))))))
+
+
 ;;* errors ------------------------------------------------------- *;;
 
 
