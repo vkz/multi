@@ -82,7 +82,7 @@ partitions."
        ("guard" form)
        ("let" mu-pat form)
        ("pred" mu-fun-pat)
-       ("app" mu-fun mu-pat)
+       ("app" mu-fun-pat mu-pat)
        ;; built-in sequence patterns
        mu-seq-pat
        ;; custom patterns installed with `mu-defpattern'
@@ -120,13 +120,16 @@ partitions."
 (def-edebug-spec mu-defpattern-pat
   mu-pat--edebug-match)
 
+(def-edebug-spec mu-arglist-arg
+  (&or ["&optional" "&rest" "&" "|"] arg))
 
 (def-edebug-spec mu-defun-arglist
   (&or (vector &rest mu-pat)
        symbolp
-       ([&rest arg]
-        [&optional ["&optional" arg &rest arg]]
-        &optional [[&or "&rest" "&" "|"] arg])))
+       (&rest
+        [&or "&optional"
+             "&rest" "&" "|"
+             arg])))
 
 
 (def-edebug-spec mu-defun-body
@@ -146,6 +149,10 @@ partitions."
            ;; but it never mentions how exactly. Can they have bodies to eval?
            [&rest [keywordp sexp]]
            mu-defun-body))
+
+
+(def-edebug-spec mu
+  (&define mu-defun-arglist mu-defun-body))
 
 
 ;;* mu-error ----------------------------------------------------- *;;
@@ -1361,8 +1368,7 @@ destructuring:
 
 \(fn [patterns] body)"
 
-  :declare ((indent 1)
-            (debug (&define mu-defun-arglist mu-defun-body)))
+  :declare ((indent 1))
 
   ;; Dispatch by pattern-matching ARGS:
 
