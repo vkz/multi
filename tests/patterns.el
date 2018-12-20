@@ -1,3 +1,6 @@
+;; -*- lexical-binding: t; -*-
+
+
 (load-file "prelude.el")
 
 
@@ -529,38 +532,32 @@
 
 (ert-deftest mu-test-mu-defsetter ()
   "mu-defsetter should work"
+
+  ;; (skip-unless f)
+
+  ;; TODO This fails on the first run and I have to re-eval buffers and sometimes
+  ;; delete tests. Tried a ton of stuff, but can't figure if its my `mu-defsetter'
+  ;; or a bug in ERT. Skip if bothered
+
   (mu-test (foo)
 
-    ;; define a getter
+    ;; getter
     (mu-defun foo [table [level-1-key level-2-key]]
       (ht-get* table :cache level-1-key level-2-key))
 
-    ;; simple single-head setter
-    (mu-defsetter foo [val table [level-1-key level-2-key]]
-      `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
-
-    ;; should work
-    (should (equal :foo
-                   (let ((table (ht)))
-                     (setf (foo table [:a :b]) :foo)
-                     (foo table [:a :b]))))
-
-    ;; multi-head setter
+    ;; setter
     (mu-defsetter foo (val &rest args)
       ([_ table ['quote [level-1-key level-2-key]]]
        `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
       ([_ table [level-1-key level-2-key]]
        `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val)))
 
-    ;; should work
-    (should (equal '(:foo :updated-foo)
-                   (let ((table (ht)))
-                     (list (progn
-                             (setf (foo table [:a :b]) :foo)
-                             (foo table [:a :b]))
-                           (progn
-                             (setf (foo table '(:a :b)) :updated-foo)
-                             (foo table '(:a :b)))))))))
+    (let ((table (ht)))
+      (setf (foo table [:a :b]) :foo)
+      (should (equal :foo (foo table [:a :b])))
+
+      (setf (foo table '(:a :b)) :updated-foo)
+      (should (equal :updated-foo (foo table '(:a :b)))))))
 
 
 ;;* errors ------------------------------------------------------- *;;

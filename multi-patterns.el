@@ -7,6 +7,9 @@
 ;;* prelude ------------------------------------------------------ *;;
 
 
+;; TODO remove
+(load-file "~/Code/drill/prelude.el")
+
 ;; Definitions that aren't multi-pattern specific and may as well belong in a
 ;; separate helper module. Safe to skip on the first read.
 
@@ -1093,36 +1096,18 @@ destructuring:
 (defmacro mu-defsetter (id &rest body)
   (declare (indent 2)
            (debug (&or [&define name mu] mu-defun)))
-  (if (mu-function? (car body))
-      (let* ((gv-args (gensym "gv-args"))
-             (do      (gensym "do")))
-        `(function-put ',id 'gv-expander
-                       (lambda (,do &rest ,gv-args)
-                         (gv--defsetter ',id ,(car body)
-                                        ,do ,gv-args))))
-    `(mu-defsetter ,id (mu ,@body))))
-
-(comment
- (mu-defun foo [table [level-1-key level-2-key]]
-   (ht-get* table :cache level-1-key level-2-key))
-
- (mu-defsetter foo (val &rest args)
-   ([_ table ['quote [level-1-key level-2-key]]]
-    `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
-   ([_ table [level-1-key level-2-key]]
-    `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val)))
-
- ;; should work
- (equal '(:foo :updated-foo)
-        (let ((table (ht)))
-          (list (progn
-                  (setf (foo table [:a :b]) :foo)
-                  (foo table [:a :b]))
-                (progn
-                  (setf (foo table '(:a :b)) :updated-foo)
-                  (foo table '(:a :b))))))
- ;; comment
- )
+  (let* ((gv-args (gensym "gv-args"))
+         (do      (gensym "do"))
+         (setter  (gensym "setter"))
+         (handler (if (mu-function? (car body))
+                      (car body)
+                    `(mu ,@body))))
+    `(let ((,setter ,handler))
+       (function-put ',id 'gv-expander
+                     (lambda (,do &rest ,gv-args)
+                       (gv--defsetter ',id
+                                      ,setter
+                                      ,do ,gv-args))))))
 
 
 ;; TODO make this example work, but need to revisit API to mu-defun, I'm beginning
