@@ -408,16 +408,15 @@
   (should (funcall (mu args ([] t))))
 
   ;; with arglist
-  (should (funcall (mu (| args) ([] t))))
-  (should (funcall (mu (a | args) ([] t)) 1))
+  (should (funcall (mu (&rest args) ([] t))))
+  (should (funcall (mu (a &rest args) ([_] t)) 1))
 
   ;; breaking calling conventions should error
-  (should (mu--error-match "in mu-lambda malformed" (funcall (mu))))
-  (should (mu--error-match "in mu-lambda malformed" (funcall (mu t))))
-  (should (mu--error-match "in mu-lambda malformed" (funcall (mu _))))
-  (should (mu--error-match "in mu-lambda malformed" (funcall (mu _ t))))
-  (should (mu--error-match "in mu-lambda malformed" (funcall (mu () t))))
-  (should (mu--error-match "in mu-lambda malformed" (funcall (mu (a) t))))
+  (should (mu--error-match "in mu-defun malformed" (funcall (mu t))))
+  (should (mu--error-match "in mu-defun malformed" (funcall (mu _))))
+  (should (mu--error-match "in mu-defun malformed" (funcall (mu _ t))))
+  (should (mu--error-match "in mu-defun malformed" (funcall (mu () t))))
+  (should (mu--error-match "in mu-defun malformed" (funcall (mu (a) t))))
 
   ;; single-head mu-lambda should work
   (should (equal '(1 2 3 4) (funcall (mu [a b | args] (list* a b args)) 1 2 3 4)))
@@ -429,12 +428,11 @@
     (should (equal '(1 2) (funcall mu-lambda 1 2)))
     (should (equal '(1 2 3) (funcall mu-lambda 1 2 3))))
 
-  (should (equal '((1 2) (1 2 3))
-                 (mapcar (mu _
-                           ([[a b]] (list a b))
-                           ([[a b c]] (list a b c)))
-                         '((1 2)
-                           (1 2 3))))))
+  (let ((mu-lambda (mu (a &rest _)
+                     ([_ b] (list a b))
+                     ([_ b c] (list a b c)))))
+    (should (equal '(1 2) (funcall mu-lambda 1 2)))
+    (should (equal '(1 2 3) (funcall mu-lambda 1 2 3)))))
 
 
 (ert-deftest mu-test-mu-defun ()
@@ -451,8 +449,8 @@
     (should (progn (mu-defun foo args ([] t)) (foo)))
 
     ;; with arglist
-    (should (progn (mu-defun foo (| args) ([] t)) (foo)))
-    (should (progn (mu-defun foo (a | args) ([] t)) (foo 1)))
+    (should (progn (mu-defun foo (&rest args) ([] t)) (foo)))
+    (should (progn (mu-defun foo (a &rest args) ([_] t)) (foo 1)))
 
     ;; breaking calling conventions should error
     (should (mu--error-match "in mu-defun malformed" (mu-defun foo t)))
@@ -463,7 +461,6 @@
 
     (mu-defun simple-foo [a b &rest rest]
       "docstring"
-      :sig (a b &rest tail)
       :interactive "P"
       (list* a b rest))
 
@@ -474,7 +471,7 @@
                     (simple-foo :a :b 1 2)
                     (simple-foo :a :b))))
 
-    (should (mu--error-match "no matching clause" (simple-foo :a)))
+    (should (mu--error-match "in mu-defun no matching clause" (simple-foo :a)))
 
     (should (documentation 'simple-foo))
 
@@ -482,8 +479,8 @@
     (mu-defun simple-foo [a [b [c]] &rest rest]
       (list* a b c rest))
 
-    (should (mu--error-match "no matching clause" (simple-foo :a)))
-    (should (mu--error-match "no matching clause" (simple-foo :a :b)))
+    (should (mu--error-match "in mu-defun no matching clause" (simple-foo :a)))
+    (should (mu--error-match "in mu-defun no matching clause" (simple-foo :a :b)))
 
     ;; internal []-patterns should be permissive
     (should (equal '(:a :b nil) (simple-foo :a [:b])))
@@ -491,10 +488,11 @@
 
     (mu-defun foo-fun (&optional a b &rest args)
       "docstring"
-      :sig (a b c d)
       :interactive t
-      ([x y] (list a b x y))
-      ([x] (list a b x))
+      ([_ _ x y] (list a b x y))
+      ([_ _ x] (list a b x))
+      ([_ _] (list a b))
+      ([_] (list a b))
       ([] (list a b)))
 
     (should
@@ -509,15 +507,13 @@
              (foo-fun :a :b)
              (foo-fun :a))))
 
-    (should (mu--error-match "no matching clause found" (foo-fun :a :b 1 2 3)))
+    (should (mu--error-match "in mu-defun no matching clause" (foo-fun :a :b 1 2 3)))
 
     (mu-defmacro foo-macro (a &rest args)
       "docstring"
-      :sig (a x :in other)
-      :sigs t
       :declare ((indent defun))
-      ([x [1 y] | z] `(list ,a ,x ,y ',z))
-      ([x [y] | z] `(list ,a ,x ,y ',z))
+      ([_ x [1 y] | z] `(list ,a ,x ,y ',z))
+      ([_ x [y] | z] `(list ,a ,x ,y ',z))
       (otherwise `(list ,a)))
 
     (should
@@ -550,10 +546,10 @@
                      (foo table [:a :b]))))
 
     ;; multi-head setter
-    (mu-defsetter foo (val | args)
-      ([table ['quote [level-1-key level-2-key]]]
+    (mu-defsetter foo (val &rest args)
+      ([_ table ['quote [level-1-key level-2-key]]]
        `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
-      ([table [level-1-key level-2-key]]
+      ([_ table [level-1-key level-2-key]]
        `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val)))
 
     ;; should work

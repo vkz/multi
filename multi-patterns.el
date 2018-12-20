@@ -170,17 +170,19 @@ partitions."
 
 (defconst mu--errors
   (ht
-   (:lst-pattern     '("in mu-case lst-pattern doesn't support &rest,"
-                       " use l-pattern instead in: %S"))
-   (:vec-pattern     '("in mu-case vec-pattern doesn't support &rest,"
-                       " use v-pattern instead in: %S"))
-   (:pattern         '("in mu-case unrecognized pattern %S"))
-   (:ht-pattern      '("in mu-case malformed ht pattern in %S"))
-   (:seq-pattern     '("in mu-case seq pattern applied to unrecognized type %s"))
-   (:rest-pattern    '("in mu-case malformed &rest pattern %S"))
-   (:let-malformed   '("in mu-let malformed binding list in %S"))
-   (:defun-malformed '("in mu-defun/macro malformed arglist has no"
-                       " &rest argument in %S")))
+   (:lst-pattern             '("in mu-case lst-pattern doesn't support &rest,"
+                               " use l-pattern instead in: %S"))
+   (:vec-pattern             '("in mu-case vec-pattern doesn't support &rest,"
+                               " use v-pattern instead in: %S"))
+   (:pattern                 '("in mu-case unrecognized pattern %S"))
+   (:ht-pattern              '("in mu-case malformed ht pattern in %S"))
+   (:seq-pattern             '("in mu-case seq pattern applied to unrecognized type %s"))
+   (:rest-pattern            '("in mu-case malformed &rest pattern %S"))
+   (:let-malformed           '("in mu-let malformed binding list in %S"))
+   (:defun-malformed-arglist '("in mu-defun malformed arglist %S"))
+   (:defun-no-match          '("in mu-defun no matching clause found for call %s"))
+   (:defun-malformed-body    '("in mu-defun malformed body %S"))
+   (:setter-no-match         '("in mu-setter no matching clause for %s")))
   "Predefined error messages that can be used in `mu-error' by
 passing it an attribute as the first argument.")
 
@@ -272,6 +274,7 @@ permissive sequence matching."
   (condition-case err
       (let ((pcase-clauses
              (mapcar (lambda (clause) (mu-case--clause seq-pat clause)) clauses)))
+        ;; TODO remove redundant otherwise clauses
         (if mu-prefer-nested-pcase
             (mu--pcase-nest e pcase-clauses)
           `(pcase ,e
@@ -839,106 +842,71 @@ arglist and mu-patterns in BODY clauses."
        (every #'mu--defun-clause? body)))
 
 
-(defun mu--defun (fun-type name arglist docstring attrs body)
-  "Do all the heavy lifting to process the code from `mu-defun'
-or `mu-defmacro': extract metadata, normalize arglist and body
-and recursively call itself to generate actual defun or defmacro
-respectively. See `mu-defun' for what can appear in ARGLIST and
-ATTRS."
+(defun mu--defun-body (fun-type name arglist docstring attrs &rest body)
+  (mu-let (((ht ret debug test
+                (:declare dspec)
+                (:interactive ispec))
+            attrs))
+    `(,fun-type
+      ,name ,arglist
+      ,docstring
+      ,@(when dspec `((declare ,@dspec)))
+      ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
+      ,@body)))
 
-  ;; extract docstring from body
-  (unless docstring
-    (setq docstring "")
+
+(defun mu--defun (fun-type name arglist body)
+  (let (attrs
+        (docstring ""))
+
+    ;; extract docstring from body
     (when (stringp (car body))
       (setq docstring (car body)
-            body (cdr body))))
+            body (cdr body)))
 
-  ;; extract attributes from body
-  (unless attrs
-    (let ((meta (mu--defun-meta body)))
-      (setq body (ht-get meta :body)
-            attrs meta)))
+    ;; extract attributes from body
+    (setq attrs (mu--defun-meta body))
+    (setq body (ht-get attrs :body))
 
-  ;; BODY should now be either a list of mu-clauses (multi-head defun), or
-  ;; anything at all (single-head defun).
-  ;;
-  ;; Dispatch on the ARGLIST. Each clause matches some permitted calling
-  ;; convention and will either normalize arguments, body and recurse or generate
-  ;; the final function definition.
+    (cond
 
-  (mu-case arglist
+     ;; arglist is [pat...]
+     ((vectorp arglist) (let ((args (gensym "args")))
+                          (mu--defun-body fun-type name `(&rest ,args) docstring attrs
+                                          `(mu--case seq ,args
+                                             ((lv ,@(seq-into arglist 'list)) ,@body)
+                                             (otherwise
+                                              (mu-error :defun-no-match ',name))))))
 
-    ;; ARGLIST: [patterns]
-    ((pred vectorp)
-     (let* ((args (gensym "args"))
-            (clauses `((,arglist ,@body))))
-       ;; arglist now (&rest random-id), single clause ([patterns] body), recurse
-       (mu--defun fun-type name `(&rest ,args) docstring attrs clauses)))
+     ;; arglist is '()
+     ((null arglist) `(mu-error :defun-malformed-arglist ',arglist))
 
-    ;; ARGLIST: '() or nil
-    ('()
-     `(mu-error "in mu-defun malformed arglist"))
+     ;; arglist is a symbol
+     ((symbolp arglist) (if (not (mu--defun-clauses? body))
+                            `(mu-error :defun-malformed-body ',body)
+                          (let ((args (if (eq arglist '_) (gensym "id") arglist)))
+                            (mu--defun-body fun-type name `(&rest ,args) docstring attrs
+                                            `(mu-case ,args
+                                               ,@body
+                                               (otherwise
+                                                (mu-error :defun-no-match ',name)))))))
 
-    ;; ARGLIST: id or _
-    ((and (pred symbolp) id)
-     ;; if asked to not bind all args, do it by generating some random id
-     (when (equal id '_)
-       (setq id (gensym "id")))
-     ;; arglist now (&rest ID), body must already be mu-clauses, recurse
-     (mu--defun fun-type name `(&rest ,id) docstring attrs body))
+     ;; arglist is (a b &rest args)
+     ((listp arglist) (if (not (mu--defun-clauses? body))
+                          `(mu-error :defun-malformed-body ',body)
+                        (let ((args (gensym "args")))
+                          (mu--defun-body fun-type name `(&rest ,args) docstring attrs
+                                          `(apply
+                                            (lambda ,arglist
+                                              (mu-case ,args
+                                                ,@body
+                                                (otherwise
+                                                 (mu-error :defun-no-match ',name))))
+                                            ,args)))))
 
-    ;; ARGLIST: (a b &rest args)
-    ;; TODO should I allow _ and replace them with random symbols?
-    ((and (pred (lambda (arg) (some #'mu--rest? arg))) arglist)
-     (if (mu--defun-clauses? body)
-         ;; having verified that body consists of mu-clauses, pull any metadata
-         ;; supplied as :attributes before the actual body
-         (mu-let (((ht sig ret sigs debug test (:declare dspec) (:interactive ispec))
-                   attrs)
-                  (split-args (mu--split-when #'mu--rest? arglist))
-                  ;; split the arglist into positional head-args and the catch all
-                  ;; argument after &rest
-                  ([head-args [rest-arg]] split-args)
-                  ;; ensure the &rest delimiter is used
-                  (arglist (concatenate 'list head-args `(&rest ,rest-arg)))
-                  ;; are we dealing with a (mu-defun foo [patterns] body) call?
-                  (single-clause? (= 1 (length body))))
-
-           ;; TODO :ret :test :debug
-
-           `(,fun-type
-             ,name ,arglist
-             ;; enrich the docstring with signatures if supplied
-             ,(mu--defun-sig split-args body docstring sig sigs)
-             ,@(when dspec `((declare ,@dspec)))
-             ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
-
-             ;; TODO decide whether I want to treat single-clause specially
-             ,(if single-clause?
-
-                  ;; re-write outermost []-pattern to be strict, so we catch
-                  ;; arrity bugs, but treat any internal []-pattern as permissive
-                  ;; `seq', single clause requires no dispatch, so we want to be
-                  ;; generous with destructuring not strict with dispatch like in
-                  ;; multi-head case below
-                  `(mu--case seq ,rest-arg
-                     ((lv ,@(seq-into (caar body) 'list)) ,@(cdr (car body)))
-                     ;; default otherwise clause
-                     (otherwise
-                      (mu-error "no matching clause found for mu-defun call %s" ',name)))
-
-                ;; all []-patterns are strict
-                `(mu-case ,rest-arg
-                   ,@body
-                   ;; default otherwise clause if not supplied by the user
-                   (otherwise
-                    (mu-error "no matching clause found for mu-defun call %s" ',name))))))
-       ;; expected body of mu-clauses
-       `(mu-error "in mu-defun malformed body: expected mu-clauses, got %S" ',body)))
-
-    ;; ARGLIST: unrecognized call-pattern
-    (otherwise
-     `(mu-error "in mu-defun malformed arglist %S" ',arglist))))
+     ;; arglist is matches no call-pattern
+     (:unrecognized-call-pattern
+      `(mu-error :defun-malformed-arglist ',arglist)))))
 
 
 (defun mu--set-defun-docstring (fun-type)
@@ -991,13 +959,13 @@ METADATA is optional and may include the following attributes:
 
 (defmacro mu-defun (name arglist &rest body)
   (declare (indent 2))
-  (mu--defun 'defun name arglist nil nil body))
+  (mu--defun 'defun name arglist body))
 
 
 (defmacro mu-defmacro (name arglist &rest body)
   (declare (indent 2)
            (debug mu-defun))
-  (mu--defun 'defmacro name arglist nil nil body))
+  (mu--defun 'defmacro name arglist body))
 
 
 ;; add docstring to `mu-defun'
@@ -1069,11 +1037,6 @@ cool."
 ;; run some code with a given setter instrumented for Edebug.
 
 
-(defun mu--split-at-rest (arglist)
-  (when (or (listp arglist) (vectorp arglist))
-    (mu--split-when #'mu--rest? arglist)))
-
-
 (defun mu-function? (obj)
   (or (functionp obj)
       (when (listp obj)
@@ -1081,59 +1044,35 @@ cool."
             (eq 'μ (car obj))))))
 
 
-;; NOTE Re `mu-defsetter' macro: `pcase' expander generates ~32K loc from just the
-;; 4-clauses below, enough to break the byte-compiler. To avoid we sandwich the
-;; macro between two `eval-when-compile' statements that effectively toggle
-;; `mu-prefer-nested-pcase' on for compilation only. That shrinks expansion to
-;; just 1200 loc. This won't effect loading the code, so eval should work
-;; normally. I "sandwich" rather than `eval-when-compile-let' the macro, so I can
-;; easily instrument it for debugging.
+(defmacro mu-defsetter (id &rest body)
+  (declare (indent 2)
+           (debug (&or [&define name mu]
+                       mu-defun)))
 
+  (cond
+   ;; body is (function or lambda or mu-lambda)
+   ((and (mu-function? (car body)) (null (cdr body)))
+    `(function-put ',id 'gv-expander
+                   (lambda (do &rest args)
+                     (gv--defsetter ',id
+                                    ,(car body)
+                                    do args))))
 
-;; turn `mu-prefer-nested-pcase' on (turn off after the macro)
-(eval-when-compile
-  (setq mu-prefer-nested-pcase--old mu-prefer-nested-pcase)
-  (setq mu-prefer-nested-pcase nil))
+   ;; body is ([pattern] body...)
+   ((vectorp (car body))
+    `(mu-defsetter ,id
+         (mu ,(gensym "args")
+           (,(car body) ,@(cdr body))
+           (otherwise
+            (mu-error :setter-no-match ',id)))))
 
-
-(mu-defmacro mu-defsetter (id | args)
-  :declare ((indent 2)
-            (debug (&or [&define name mu]
-                        mu-defun)))
-
-  ;; args: function, lambda or mu-lambda
-  ([(and (pred mu-function?) fun)]
-   `(function-put ',id 'gv-expander
-                  (lambda (do &rest args)
-                    (gv--defsetter ',id
-                                   ,fun
-                                   do args))))
-
-  ;; args: ([pattern] body)
-  ([(v (and (pred symbolp) val-id) | pattern) | body]
-   `(mu-defsetter ,id
-        (mu (,val-id &rest ,(gensym "rest-arg"))
-          (,pattern ,@body)
-          (otherwise
-           (mu-error "no setter matches a call to %s" ',id)))))
-
-  ;; args: (arglist mu-clauses)
-  ([[val-id | (app mu--split-at-rest [head-args [rest-arg]])] |
-    (and (pred mu--defun-clauses?) clauses)]
-   `(mu-defsetter ,id
-        (mu (,val-id ,@head-args &rest rest-arg)
-          ,@clauses
-          (otherwise
-           (mu-error "no setter matches a call to %s" ',id)))))
-
-  (otherwise
-   `(mu-error "in mu-defsetter malformed arglist or body")))
-
-
-;; turn `mu-prefer-nested-pcase' off
-(eval-when-compile
-  (setq mu-prefer-nested-pcase mu-prefer-nested-pcase--old)
-  (makunbound 'mu-prefer-nested-pcase--old))
+   ;; body is (arglist mu-clause...)
+   (:arglist
+    `(mu-defsetter ,id
+         (mu ,(car body)
+           ,@(cdr body)
+           (otherwise
+            (mu-error :setter-no-match ',id)))))))
 
 
 ;; TODO make this example work, but need to revisit API to mu-defun, I'm beginning
@@ -1187,23 +1126,23 @@ cool."
 ;; evaluated. Exercise caution when passing mu-lambdas as arguments to macros.
 
 
-(defun mu--single-head-lambda (patterns body)
-  (let ((args (gensym "args")))
-    `(lambda (&rest ,args)
-       (mu--case seq ,args
-         ((lv ,@patterns) ,@body)
-         (otherwise (mu-error "in mu-lambda call: no matching clause found"))))))
+(defun mu--single-head-body (name case-expr-arg body)
+  `(mu--case seq ,case-expr-arg
+     ,@body
+     (otherwise (mu-error :defun-no-match ',name))))
 
 
-(defun mu--multi-head-lambda (arglist rest-arg body)
-  `(lambda ,arglist
-     (mu-case ,rest-arg
-       ,@body
-       (otherwise
-        (mu-error "in mu-lambda call: no matching clause found")))))
+(defun mu--multi-head-body (name lambda-arglist case-expr-arg body)
+  (let ((body `(mu-case ,case-expr-arg
+                 ,@body
+                 (otherwise
+                  (mu-error :defun-no-match ',name)))))
+    (if lambda-arglist
+        `(apply (lambda ,lambda-arglist ,body) ,case-expr-arg)
+      body)))
 
 
-(mu-defmacro mu (&rest args)
+(defmacro mu (arglist &rest body)
   "Create a lambda-like anonymous function but allow `mu-defun'
 style single-head destructuring or multi-head dispatching and
 destructuring:
@@ -1213,43 +1152,40 @@ destructuring:
 
 \(fn [patterns] body)"
 
-  :declare ((indent 1))
+  (declare (indent 1))
 
-  ;; Dispatch by pattern-matching ARGS:
+  (cond
 
-  ;; ARGS: (mu [patterns] body)
-  ([(v &rest patterns) | body]
-   ;; wrap in a lambda that destructures arguments according to [patterns]
-   (mu--single-head-lambda (seq-into patterns 'list) body))
+   ;; arglist is [pat...]
+   ((vectorp arglist)
+    (let ((args (gensym "args")))
+      `(lambda (&rest ,args)
+         ,(mu--single-head-body
+           'mu-lambda args
+           `(((lv ,@(seq-into arglist 'list)) ,@body))))))
 
-  ;; ARGS: (mu '() body) aka (mu nil body)
-  (['() | _]
-   `(mu-error "in mu-lambda malformed arglist"))
+   ;; arglist is '()
+   ((null arglist) `(mu-error :defun-malformed-arglist ',arglist))
 
-  ;; ARGS: (mu id clauses) or (mu _ clauses)
-  ([(and (pred symbolp) id) | (and (pred mu--defun-clauses?) clauses)]
-   ;; if asked to not bind all args, do it by generating some random id
-   (when (equal id '_)
-     (setq id (gensym "id")))
-   ;; wrap in a lambda dispatching to clauses with mu-case
-   (mu--multi-head-lambda `(&rest ,id) id clauses))
+   ;; arglist is a symbol
+   ((symbolp arglist)
+    (if (not (mu--defun-clauses? body))
+        `(mu-error :defun-malformed-body ',body)
+      (let ((args (if (eq arglist '_) (gensym "id") arglist)))
+        `(lambda (&rest ,args)
+           ,(mu--multi-head-body 'mu-lambda nil args body)))))
 
-  ;; ARGS: (mu (a b &rest args) clauses)
-  ([(and (pred listp) (pred (lambda (arg) (some #'mu--rest? arg))) arglist) |
-    (and (pred mu--defun-clauses?) clauses)]
-   (mu-let ((split-args (mu--split-when #'mu--rest? arglist))
-            ;; split the arglist into positional head-args and the catch all
-            ;; argument after &rest
-            ([head-args [rest-arg]] split-args)
-            ;; ensure only the &rest delimiter is used
-            (arglist (concatenate 'list head-args `(&rest ,rest-arg))))
-     ;; wrap in a lambda that uses the supplied arglist and dispatches to clauses
-     ;; by mu-case matching the rest-arg
-     (mu--multi-head-lambda arglist rest-arg clauses)))
+   ;; arglist is (a b &rest args)
+   ((listp arglist)
+    (if (not (mu--defun-clauses? body))
+        `(mu-error :defun-malformed-body ',body)
+      (let ((args (gensym "args")))
+        `(lambda (&rest ,args)
+           ,(mu--multi-head-body 'mu-lambda arglist args body)))))
 
-  ;; ARGS: unrecogsized call-pattern
-  (otherwise
-   `(mu-error "in mu-lambda malformed arglist or body")))
+   ;; ARGS: unrecogsized call-pattern
+   (:unrecognized-call-pattern
+    `(mu-error :defun-malformed-arglist ',arglist))))
 
 
 (defalias 'μ 'mu)
