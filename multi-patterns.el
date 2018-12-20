@@ -787,6 +787,13 @@ Any []-pattern is permissive and assumes open-world collections."
 ;; footsteps and surrender expressiveness afforded by patterns.
 
 
+(defun mu-function? (obj)
+  (or (functionp obj)
+      (when (listp obj)
+        (or (eq 'mu (car obj))
+            (eq 'μ (car obj))))))
+
+
 (defun mu--defun-meta (body &optional map)
   "Return a hash-table of attribute value pairs from `mu-defun'
 preamble"
@@ -842,7 +849,23 @@ arglist and mu-patterns in BODY clauses."
        (every #'mu--defun-clause? body)))
 
 
-(defun mu--defun-body (fun-type name arglist docstring attrs &rest body)
+(defun mu--single-head-body (name case-expr-arg body)
+  `(mu--case seq ,case-expr-arg
+     ,@body
+     (otherwise (mu-error :defun-no-match ',name))))
+
+
+(defun mu--multi-head-body (name lambda-arglist case-expr-arg body)
+  (let ((body `(mu-case ,case-expr-arg
+                 ,@body
+                 (otherwise
+                  (mu-error :defun-no-match ',name)))))
+    (if lambda-arglist
+        `(apply (lambda ,lambda-arglist ,body) ,case-expr-arg)
+      body)))
+
+
+(defun mu--wrap-defun (fun-type name arglist docstring attrs &rest body)
   (mu-let (((ht ret debug test
                 (:declare dspec)
                 (:interactive ispec))
@@ -855,7 +878,7 @@ arglist and mu-patterns in BODY clauses."
       ,@body)))
 
 
-(defun mu--defun (fun-type name arglist body)
+(defun mu--defun (fun-type name arglist body wrap-body)
   (let (attrs
         (docstring ""))
 
@@ -872,37 +895,35 @@ arglist and mu-patterns in BODY clauses."
 
      ;; arglist is [pat...]
      ((vectorp arglist) (let ((args (gensym "args")))
-                          (mu--defun-body fun-type name `(&rest ,args) docstring attrs
-                                          `(mu--case seq ,args
-                                             ((lv ,@(seq-into arglist 'list)) ,@body)
-                                             (otherwise
-                                              (mu-error :defun-no-match ',name))))))
+                          (funcall
+                           wrap-body
+                           fun-type name `(&rest ,args) docstring attrs
+                           (mu--single-head-body
+                            name args
+                            `(((lv ,@(seq-into arglist 'list)) ,@body))))))
 
      ;; arglist is '()
      ((null arglist) `(mu-error :defun-malformed-arglist ',arglist))
 
      ;; arglist is a symbol
-     ((symbolp arglist) (if (not (mu--defun-clauses? body))
-                            `(mu-error :defun-malformed-body ',body)
-                          (let ((args (if (eq arglist '_) (gensym "id") arglist)))
-                            (mu--defun-body fun-type name `(&rest ,args) docstring attrs
-                                            `(mu-case ,args
-                                               ,@body
-                                               (otherwise
-                                                (mu-error :defun-no-match ',name)))))))
+     ((symbolp arglist)
+      (if (not (mu--defun-clauses? body))
+          `(mu-error :defun-malformed-body ',body)
+        (let ((args (if (eq arglist '_) (gensym "id") arglist)))
+          (funcall
+           wrap-body
+           fun-type name `(&rest ,args) docstring attrs
+           (mu--multi-head-body name nil args body)))))
 
      ;; arglist is (a b &rest args)
-     ((listp arglist) (if (not (mu--defun-clauses? body))
-                          `(mu-error :defun-malformed-body ',body)
-                        (let ((args (gensym "args")))
-                          (mu--defun-body fun-type name `(&rest ,args) docstring attrs
-                                          `(apply
-                                            (lambda ,arglist
-                                              (mu-case ,args
-                                                ,@body
-                                                (otherwise
-                                                 (mu-error :defun-no-match ',name))))
-                                            ,args)))))
+     ((listp arglist)
+      (if (not (mu--defun-clauses? body))
+          `(mu-error :defun-malformed-body ',body)
+        (let ((args (gensym "args")))
+          (funcall
+           wrap-body
+           fun-type name `(&rest ,args) docstring attrs
+           (mu--multi-head-body name arglist args body)))))
 
      ;; arglist is matches no call-pattern
      (:unrecognized-call-pattern
@@ -959,13 +980,13 @@ METADATA is optional and may include the following attributes:
 
 (defmacro mu-defun (name arglist &rest body)
   (declare (indent 2))
-  (mu--defun 'defun name arglist body))
+  (mu--defun 'defun name arglist body #'mu--wrap-defun))
 
 
 (defmacro mu-defmacro (name arglist &rest body)
   (declare (indent 2)
            (debug mu-defun))
-  (mu--defun 'defmacro name arglist body))
+  (mu--defun 'defmacro name arglist body #'mu--wrap-defun))
 
 
 ;; add docstring to `mu-defun'
@@ -1022,6 +1043,38 @@ cool."
  )
 
 
+;;* mu-lambda ---------------------------------------------------- *;;
+
+
+;; Provide single-head and multi-head anonymous functions. These translate into
+;; simple lambdas, so should be fine to use in most places a lambda would work.
+;; However, it isn't unusual for a macro to introspect that something is a lambda
+;; e.g. with a `functionp' or by checking the car of a list etc. I know of no way
+;; to extend `functionp', so mu-lambdas won't be recognised as functions until
+;; evaluated. Exercise caution when passing mu-lambdas as arguments to macros.
+
+
+(defun mu--wrap-lambda (fun-type name arglist docstring attrs &rest body)
+  `(lambda ,arglist ,@body))
+
+
+(defmacro mu (arglist &rest body)
+  "Create a lambda-like anonymous function but allow `mu-defun'
+style single-head destructuring or multi-head dispatching and
+destructuring:
+
+  (mu [patterns] body)
+  (mu arglist ([patterns] body) mu-clause...)
+
+\(fn [patterns] body)"
+
+  (declare (indent 1))
+  (mu--defun 'mu-lambda 'mu-lambda arglist body #'mu--wrap-lambda))
+
+
+(defalias 'μ 'mu)
+
+
 ;;* mu-defsetter ------------------------------------------------- *;;
 
 
@@ -1037,42 +1090,39 @@ cool."
 ;; run some code with a given setter instrumented for Edebug.
 
 
-(defun mu-function? (obj)
-  (or (functionp obj)
-      (when (listp obj)
-        (or (eq 'mu (car obj))
-            (eq 'μ (car obj))))))
-
-
 (defmacro mu-defsetter (id &rest body)
   (declare (indent 2)
-           (debug (&or [&define name mu]
-                       mu-defun)))
+           (debug (&or [&define name mu] mu-defun)))
+  (if (mu-function? (car body))
+      (let* ((gv-args (gensym "gv-args"))
+             (do      (gensym "do")))
+        `(function-put ',id 'gv-expander
+                       (lambda (,do &rest ,gv-args)
+                         (gv--defsetter ',id ,(car body)
+                                        ,do ,gv-args))))
+    `(mu-defsetter ,id (mu ,@body))))
 
-  (cond
-   ;; body is (function or lambda or mu-lambda)
-   ((and (mu-function? (car body)) (null (cdr body)))
-    `(function-put ',id 'gv-expander
-                   (lambda (do &rest args)
-                     (gv--defsetter ',id
-                                    ,(car body)
-                                    do args))))
+(comment
+ (mu-defun foo [table [level-1-key level-2-key]]
+   (ht-get* table :cache level-1-key level-2-key))
 
-   ;; body is ([pattern] body...)
-   ((vectorp (car body))
-    `(mu-defsetter ,id
-         (mu ,(gensym "args")
-           (,(car body) ,@(cdr body))
-           (otherwise
-            (mu-error :setter-no-match ',id)))))
+ (mu-defsetter foo (val &rest args)
+   ([_ table ['quote [level-1-key level-2-key]]]
+    `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val))
+   ([_ table [level-1-key level-2-key]]
+    `(setf (ht-get* ,table :cache ,level-1-key ,level-2-key) ,val)))
 
-   ;; body is (arglist mu-clause...)
-   (:arglist
-    `(mu-defsetter ,id
-         (mu ,(car body)
-           ,@(cdr body)
-           (otherwise
-            (mu-error :setter-no-match ',id)))))))
+ ;; should work
+ (equal '(:foo :updated-foo)
+        (let ((table (ht)))
+          (list (progn
+                  (setf (foo table [:a :b]) :foo)
+                  (foo table [:a :b]))
+                (progn
+                  (setf (foo table '(:a :b)) :updated-foo)
+                  (foo table '(:a :b))))))
+ ;; comment
+ )
 
 
 ;; TODO make this example work, but need to revisit API to mu-defun, I'm beginning
@@ -1113,82 +1163,6 @@ cool."
    lol)
  ;; comment
  )
-
-
-;;* mu-lambda ---------------------------------------------------- *;;
-
-
-;; Provide single-head and multi-head anonymous functions. These translate into
-;; simple lambdas, so should be fine to use in most places a lambda would work.
-;; However, it isn't unusual for a macro to introspect that something is a lambda
-;; e.g. with a `functionp' or by checking the car of a list etc. I know of no way
-;; to extend `functionp', so mu-lambdas won't be recognised as functions until
-;; evaluated. Exercise caution when passing mu-lambdas as arguments to macros.
-
-
-(defun mu--single-head-body (name case-expr-arg body)
-  `(mu--case seq ,case-expr-arg
-     ,@body
-     (otherwise (mu-error :defun-no-match ',name))))
-
-
-(defun mu--multi-head-body (name lambda-arglist case-expr-arg body)
-  (let ((body `(mu-case ,case-expr-arg
-                 ,@body
-                 (otherwise
-                  (mu-error :defun-no-match ',name)))))
-    (if lambda-arglist
-        `(apply (lambda ,lambda-arglist ,body) ,case-expr-arg)
-      body)))
-
-
-(defmacro mu (arglist &rest body)
-  "Create a lambda-like anonymous function but allow `mu-defun'
-style single-head destructuring or multi-head dispatching and
-destructuring:
-
-  (mu [patterns] body)
-  (mu arglist ([patterns] body) mu-clause...)
-
-\(fn [patterns] body)"
-
-  (declare (indent 1))
-
-  (cond
-
-   ;; arglist is [pat...]
-   ((vectorp arglist)
-    (let ((args (gensym "args")))
-      `(lambda (&rest ,args)
-         ,(mu--single-head-body
-           'mu-lambda args
-           `(((lv ,@(seq-into arglist 'list)) ,@body))))))
-
-   ;; arglist is '()
-   ((null arglist) `(mu-error :defun-malformed-arglist ',arglist))
-
-   ;; arglist is a symbol
-   ((symbolp arglist)
-    (if (not (mu--defun-clauses? body))
-        `(mu-error :defun-malformed-body ',body)
-      (let ((args (if (eq arglist '_) (gensym "id") arglist)))
-        `(lambda (&rest ,args)
-           ,(mu--multi-head-body 'mu-lambda nil args body)))))
-
-   ;; arglist is (a b &rest args)
-   ((listp arglist)
-    (if (not (mu--defun-clauses? body))
-        `(mu-error :defun-malformed-body ',body)
-      (let ((args (gensym "args")))
-        `(lambda (&rest ,args)
-           ,(mu--multi-head-body 'mu-lambda arglist args body)))))
-
-   ;; ARGS: unrecogsized call-pattern
-   (:unrecognized-call-pattern
-    `(mu-error :defun-malformed-arglist ',arglist))))
-
-
-(defalias 'μ 'mu)
 
 
 ;;* todo --------------------------------------------------------- *;;
