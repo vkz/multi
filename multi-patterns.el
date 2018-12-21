@@ -810,37 +810,6 @@ preamble"
    (:else                 (ht-set map :body body) map)))
 
 
-(defun mu--defun-sig (split-args body &optional doc sig sigs)
-  "Create a docstring from DOC adding signature SIG if supplied
-and extra signatures either supplied or generated from the
-arglist and mu-patterns in BODY clauses."
-  (default doc :to "")
-  (let* ((head (car split-args))
-         (tail (cadr split-args))
-         (sig (if sig (concat "\n\n\(fn " (substring (format "%S" sig) 1)) ""))
-         (gen-sig (lambda (s)
-                    (unless (equal 'otherwise (car s))
-                      (format "`%S'"
-                              (append
-                               head '(&rest)
-                               (list (car s)))))))
-         (sigs (cond
-                ;; generate extra signatures
-                ((equal sigs t) (mapcar gen-sig body))
-                ;; use the ones supplied
-                (sigs (mapcar (lambda (s) (format "`%S'" s)) sigs))))
-         (doc (string-join
-               ;; prepend supplied docstring
-               `(,doc
-                 ;; maybe add extra signatures
-                 ,@(when sigs '("\nMay also be called according to signatures:\n"))
-                 ,@sigs)
-               "\n  ")))
-    (string-trim
-     ;; add special last line signature if supplied
-     (concat doc sig))))
-
-
 (defun mu--defun-clause? (clause)
   "Is CLAUSE a mu-clause ([pat...] body...)?"
   (and (listp clause)
@@ -950,8 +919,6 @@ expression pairs before the BODY:
 
   (mu-%s foo (arg &rest args)
     \"docstring\"
-    :sig         signature
-    :sigs        extra-signatures
     :declare     dspec
     :interactive ispec
     ([mu-case-args-pat1] body1)
@@ -964,17 +931,6 @@ every clause has the entire ARGLIST in scope.
 METADATA is optional and may include the following attributes:
 
   :doc dostring - a docstring to attach to the NAME function,
-
-  :sig signature - an implicitly quoted arglist that showcases
-                   the most likely use of the function, will be
-                   stringified and added to the docstring,
-
-  :sigs signatures - extra calling conventions to add to the
-                     docstring: absent or `nil' - no extra
-                     signatures; `t' - combine head of the
-                     arglist and patterns in the clauses to
-                     generate signatures; explicit list of
-                     signatures.
 
   :declare dspec - a list of `declare' SPECS,
 
