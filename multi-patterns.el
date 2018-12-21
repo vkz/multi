@@ -4,11 +4,11 @@
 (require 'cl)
 
 
-;;* prelude ------------------------------------------------------ *;;
-
-
 ;; TODO remove
 (load-file "~/Code/drill/prelude.el")
+
+
+;;* prelude ------------------------------------------------------ *;;
 
 ;; Definitions that aren't multi-pattern specific and may as well belong in a
 ;; separate helper module. Safe to skip on the first read.
@@ -658,6 +658,10 @@ succeed."
 ;; with full expressiveness of mu-patterns.
 
 
+;; TODO Is it a bad idea? Should I simply allow the two cases:
+;;   (mu-let [pat val   ...] body)
+;;   (mu-let ((pat val) ...) body
+;; and dispense with this stupid option?
 (defcustom mu-let-parens 'yes
   "Control if `mu-let' shoud have a set of parens around each
 binding clause like normal `let': 'yes (default), 'no, 'square -
@@ -1000,52 +1004,6 @@ METADATA is optional and may include the following attributes:
 (mu--set-defun-docstring 'defmacro)
 
 
-;; TODO Idea for extra attributes :test, :ret, :debug
-(comment
- (mu-defun foo-fun [a b | args]
-   "This is a foo function that performs foo and returns something
-cool."
-   ;; initial a b args are in scope for the ret check
-   :ret (lambda (v) (and (pred #'some-struct?) etc))
-   :test ([1 2] => (struct2 1 2)
-          [1 2 3] => (lambda (v) do some checks)
-          [1 2 0] => #'predicate)
-   ;; enables ret check and test runs
-   :debug t
-   :interactive t
-   :declare ((indent 2) (debug t))
-   (some body here))
- ;; => when :debug t
- `(progn
-
-    (defun foo-fun-temp (&rest arglist)
-      (mu-case arglist
-        ([a b | argls] body)))
-
-    (defun foo-fun (&rest arglist)
-      (let ((ret? (lambda (v) (and (pred #'some-struct?) etc)))
-            (ret (apply #'foo-fun-temp arglist)))
-        (cond
-         ((functionp ret?) (funcall ret? ret))
-         (:mu-pattern (mu-case ret
-                        (ret? t)
-                        (otherwise (mu-error "in foo-fun return value %S failed the check %S" ret 'ret?)))))))
-
-    ;; also run tests
-    (ert-deftest foo-fun-test ()
-      "foo-fun must pass predefined tests"
-
-      (should (mu-case (foo-fun 1 2)
-                (some-pat t)
-                (otherwise (mu-error "foo-fun failed test ... "))))
-
-      (should (funcall #'predicate (foo-fun 1 2 3))))
-
-    (ert 'foo-fun-test))
- ;; comment
- )
-
-
 ;;* mu-lambda ---------------------------------------------------- *;;
 
 
@@ -1110,46 +1068,6 @@ destructuring:
                                       ,do ,gv-args))))))
 
 
-;; TODO make this example work, but need to revisit API to mu-defun, I'm beginning
-;; to hate sematics of arglist
-(comment
-
- (defun foo (lol index-or-indexes)
-   (cond
-    ((numberp index-or-indexes) (list (nth index-or-indexes (car lol))))
-    ((seqp index-or-indexes) (loop for l in lol
-                                   and n in index-or-indexes
-                                   collect (nth n l)))))
-
- (mu-defun foo _
-   ([[l | _] (and (pred numberp) k)] (list (nth k l)))
-   ([[l | _] [k]] (list (nth k l)))
-   ([[l | lol] [k | keys]] (list* (nth k l)
-                                  (foo lol keys))))
- (foo '((0)
-        (0 1)
-        (0 1 2)
-        (0 1 2 3))
-      '(0 1 2 3))
-
- (foo '((0 1)) 1)
-
- (mu-defsetter foo (v lol &rest args)
-   ([(and (pred numberp) k)] `(setf (nth ,k (car ,lol)) ,v))
-   ([k | keys] `(progn
-                  (setf (nth ,k (car ,lol)) (car ,v))
-                  (setf (foo (cdr ,lol) ,@keys) (cdr ,v)))))
-
- (let ((lol '((0)
-              (0 1)
-              (0 1 2)
-              (0 1 2 3))))
-   (setf (foo lol 0 0) '(1 1))
-   lol)
- ;; comment
- )
-
-
 ;;* todo --------------------------------------------------------- *;;
 
 
@@ -1207,7 +1125,54 @@ destructuring:
 
 ;; TODO Allow to force-list in seq-patterns. See `mu-seq-pattern-force-list'.
 
-;; TODO Allow mu-lambdas in standard patterns pred, app etc
+;; TODO Allow mu-lambdas in standard patterns pred, app etc: one way is to
+;; macroexpand arguments at compile time, another is to generate a (let ..)
+;; pattern. Wonder if the former would be less expensive?
+
+;; TODO Idea for extra attributes :test, :ret, :debug
+(comment
+ (mu-defun foo-fun [a b | args]
+   "This is a foo function that performs foo and returns something
+cool."
+   ;; initial a b args are in scope for the ret check
+   :ret (lambda (v) (and (pred #'some-struct?) etc))
+   :test ([1 2] => (struct2 1 2)
+          [1 2 3] => (lambda (v) do some checks)
+          [1 2 0] => #'predicate)
+   ;; enables ret check and test runs
+   :debug t
+   :interactive t
+   :declare ((indent 2) (debug t))
+   (some body here))
+ ;; => when :debug t
+ `(progn
+
+    (defun foo-fun-temp (&rest arglist)
+      (mu-case arglist
+        ([a b | argls] body)))
+
+    (defun foo-fun (&rest arglist)
+      (let ((ret? (lambda (v) (and (pred #'some-struct?) etc)))
+            (ret (apply #'foo-fun-temp arglist)))
+        (cond
+         ((functionp ret?) (funcall ret? ret))
+         (:mu-pattern (mu-case ret
+                        (ret? t)
+                        (otherwise (mu-error "in foo-fun return value %S failed the check %S" ret 'ret?)))))))
+
+    ;; also run tests
+    (ert-deftest foo-fun-test ()
+      "foo-fun must pass predefined tests"
+
+      (should (mu-case (foo-fun 1 2)
+                (some-pat t)
+                (otherwise (mu-error "foo-fun failed test ... "))))
+
+      (should (funcall #'predicate (foo-fun 1 2 3))))
+
+    (ert 'foo-fun-test))
+ ;; comment
+ )
 
 
 ;;* provide ------------------------------------------------------ *;;
