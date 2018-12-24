@@ -323,6 +323,22 @@
                   '((1 2) [1 2])))))
 
 
+
+;;* custom-------------------------------------------------------- *;;
+
+
+(ert-deftest mu-test-custom-patterns ()
+  "`mu-defpattern' defined custom patterns should work"
+
+  ;; (? predicate)  should work
+  (should (mu-case '(1 2) ([(?  numberp) (?  numberp)] 'match)))
+
+  ;; (id binding) should work
+  (should     (mu-case (list 1 'foo) ([_ (id bar)] bar)))
+  (should-not (mu-case (list 1 nil)  ([_ (id bar)] bar)))
+  (should-not (mu-case (list 1 t)    ([_ (id bar)] bar))))
+
+
 ;;* mu-let ------------------------------------------------------- *;;
 
 

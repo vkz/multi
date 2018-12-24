@@ -308,8 +308,12 @@ permissive sequence matching."
     ;; standard pcase patterns
     (`(or . ,pats)            (cons 'or (mapcar (lambda (p) (mu--pat-unquoted seq-pat p)) pats)))
     (`(and . ,pats)           (cons 'and (mapcar (lambda (p) (mu--pat-unquoted seq-pat p)) pats)))
+    ;; TODO allow mu-lambda in (app fun pat)
     (`(app ,fun ,pat)         (list 'app fun (mu--pat-unquoted seq-pat pat)))
     (`(let ,pat ,exp)         (list 'let (mu--pat-unquoted seq-pat pat) exp))
+    (`(pred ,pred)            (list 'pred pred))
+    ;; (? pred) pattern, which we can't mu-defpattern since ? translates into 32
+    (`(32 ,pred)              (list 'pred pred))
     ;; quoted symbol
     (`(quote ,(pred symbolp)) pat)
     ;; mu-defpatterns
@@ -623,6 +627,13 @@ Example:
          (alist-pats (mapcar #'cadr patterns)))
     `(or (and (pred ht-p) ,@ht-pats)
          (and (pred listp) ,@alist-pats))))
+
+
+(mu-defpattern id (binding)
+  (let ((id? (lambda (s) (and (symbolp s)
+                         (not (eq s '()))
+                         (not (eq s 't))))))
+    `(and (pred ,id?) ,binding)))
 
 
 ;;* mu-case ------------------------------------------------------ *;;
@@ -1029,31 +1040,7 @@ destructuring:
 
 ;; TODO (ht), other prelude.el that's used
 
-;; TODO replace (pred ..) pattern with a shorter (? ..) maybe, alternatively we
-;; could just allow straight up #'functions or (lambda (a) ..) and treat them as
-;; predicates, but this may obscure intent.
-;;
-;; (mu-case e
-;;   [(and (? listp) (? rest-arglist?) arglist) |
-;;    (and (? mu--defun-clauses?) clauses)]
-;;   (body))
-;;
-;; or even cleaner:
-;;
-;; (mu-case e
-;;   [(and #'listp #'rest-arglist? arglist) |
-;;    (and #'mu--defun-clauses? clauses)]
-;;   (body))
-
-;; TODO define custom mu-patterns to clarify hairy pattern-matching!
-;; - (id foo) => (and (pred symbolp) foo)
-;; - (mu-arglist head-args rest-arg) => (app mu--split-at-rest [head-args [rest-arg]])
-
-;; TODO with the above in mind I may want to have a mechanism to namespace
-;; user-defined patterns lest they start to clash with each other. Would that be
-;; an overkill? I could also expand into an actual defun with randomly or
-;; systematically generated name, then the :mu-patterns table would map pattern
-;; NAME to that defun. I could also store edebug-specs on that defun's symbol.
+;; TODO namespace custom patterns
 
 ;; TODO Perfwise byte-compilation should work. Also consider byte-compiling
 ;; generated functions, or maybe even generate an actual named function instead of
@@ -1064,7 +1051,7 @@ destructuring:
 
 ;; TODO Replace lambdas with defuns where it would make code more readable. If we
 ;; are to byte-compile everything then having lambda or an actual #'defun
-;; shouldn't effect performance.
+;; shouldn't effect performance or would it?
 
 ;; TODO consider places where we could catch errors including `pcase' errors, so
 ;; that we can report in terms of mu-patterns and propagate some context. Sadly,
@@ -1081,9 +1068,9 @@ destructuring:
 
 ;; TODO Allow to force-list in seq-patterns. See `mu-seq-pattern-force-list'.
 
-;; TODO Allow mu-lambdas in standard patterns pred, app etc: one way is to
-;; macroexpand arguments at compile time, another is to generate a (let ..)
-;; pattern. Wonder if the former would be less expensive?
+;; TODO Allow mu-lambdas in standard app-pattern etc: one way is to macroexpand
+;; arguments at compile time, another is to generate a (let ..) pattern. Wonder if
+;; the former would be less expensive?
 
 ;; TODO Idea for extra attributes :test, :ret, :debug
 (comment
