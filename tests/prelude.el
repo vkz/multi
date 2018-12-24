@@ -17,6 +17,7 @@
         (elc (concat (file-name-sans-extension file) ".elc")))
     (load-file (if (file-newer-than-file-p el elc) el elc))))
 
+(multi--load-el-if-newer "../multi-prelude.el")
 (multi--load-el-if-newer "../multi-patterns.el")
 (multi--load-el-if-newer "../multi-methods.el")
 
@@ -39,7 +40,7 @@ tables and unbind functions in the MULTIS list for the extent of
 BODY, allowing it to bind them as needed. Restore everything
 after BODY."
   (declare (indent defun))
-  (let ((multis (mapcar (fn (m) `((mu--symbol-function ',m) :unbind)) multis)))
+  (let ((multis (mapcar (lambda (m) `((mu--symbol-function ',m) :unbind)) multis)))
     `(cl-letf ((mu-global-hierarchy (make-mu-hierarchy))
                ,@multis)
        ,@body)))

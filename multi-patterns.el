@@ -1,61 +1,7 @@
 ;; -*- lexical-binding: t; -*-
 
 
-(require 'cl)
-
-
-;; TODO remove
-(load-file "~/Code/drill/prelude.el")
-
-
-;;* prelude ------------------------------------------------------ *;;
-
-;; Definitions that aren't multi-pattern specific and may as well belong in a
-;; separate helper module. Safe to skip on the first read.
-
-
-(defmacro eval-when-compile-let (bindings &rest body)
-  "Like `let' but only install BINDINGS for the duration of BODY
-when compiling. Revert or unbind as needed right after."
-  (declare (indent 1))
-  (let* ((table (gensym "old-values"))
-         (unbound (gensym "unbound"))
-         (syms (mapcar #'car bindings)))
-    `(progn
-
-       (eval-when-compile
-         ;; collect unbound symbols
-         (setq ,unbound (seq-remove #'boundp '(,@syms)))
-         ;; bind unbound symbols to nil
-         (dolist (unbound-sym ,unbound) (set unbound-sym nil))
-         ;; store old values for all symbols in a vector
-         (setq ,table (vector ,@syms))
-         ;; bind symbols to new values
-         (setq ,@(apply #'append bindings)))
-
-       ,@body
-
-       (eval-when-compile
-         ;; restore symbols to old-values
-         (setq ,@(apply #'append (seq-map-indexed (lambda (s i) `(,s (aref ,table ,i))) syms)))
-         ;; unbind symbols that were unbound before
-         (dolist (unbound-sym ,unbound) (makunbound unbound-sym))
-         ;; unbind temporaries
-         (makunbound ',table)
-         (makunbound ',unbound)))))
-
-
-(defun mu--split-when (pred lst)
-  "Partition the list LST on every item that satisfies predicate
-PRED. Do not include such items into partitions. Return a list of
-partitions."
-  (cl-loop for item in lst
-           if (funcall pred item)
-           collect partition into partitions
-           and do (setq partition '())
-           else
-           collect item into partition
-           finally return (nconc partitions (list partition))))
+(require 'multi-prelude)
 
 
 ;;* edebug-specs ------------------------------------------------- *;;
@@ -629,6 +575,9 @@ Example:
          (and (pred listp) ,@alist-pats))))
 
 
+;;** - id-pattern ------------------------------------------------ *;;
+
+
 (mu-defpattern id (binding)
   (let ((id? (lambda (s) (and (symbolp s)
                          (not (eq s '()))
@@ -1037,8 +986,6 @@ destructuring:
 
 ;;* todo --------------------------------------------------------- *;;
 
-
-;; TODO (ht), other prelude.el that's used
 
 ;; TODO namespace custom patterns
 

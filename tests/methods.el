@@ -36,7 +36,7 @@
     (should (equal :rect (funcall (mu-methods 'foo :rect) :rect)))
 
     ;; mu-methods should be setf-able when called with keys
-    (setf (mu-methods 'foo :rect) (fn (x) :shape))
+    (setf (mu-methods 'foo :rect) (lambda (x) :shape))
     (should (equal :shape (funcall (mu-methods 'foo :rect) :rect)))
 
     ;; mu-methods should be setf-able when called without keys
@@ -210,7 +210,7 @@
   "Basic equality based dispatch should work"
   (mu-test (foo)
 
-    (mu-defmulti foo (fn (&rest args) (apply #'vector args)))
+    (mu-defmulti foo (lambda (&rest args) (apply #'vector args)))
     (mu-defmethod foo (&rest x) :when [:a] :a)
     (mu-defmethod foo (&rest x) :when [:b] :b)
     (mu-defmethod foo (&rest x) :when [:a :a] :a)

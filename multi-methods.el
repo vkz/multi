@@ -1,6 +1,7 @@
 ;; -*- lexical-binding: t; -*-
 
-(require 'cl)
+
+(require 'multi-prelude)
 (require 'multi-patterns)
 
 
