@@ -91,6 +91,9 @@ message prefix matches PREFIX"
  )
 
 
+;;* Perf --------------------------------------------------------- *;;
+
+
 (defmacro mu-test-time (&rest body)
   (declare (indent defun))
   `(let ((start (float-time)))
@@ -98,7 +101,7 @@ message prefix matches PREFIX"
      (- (float-time) start)))
 
 
-;;* Playground ---------------------------------------------------- *;;
+;;* Playground --------------------------------------------------- *;;
 
 
 ;; TODO Alternative syntax for most of the above test. Idea is for `expect' have

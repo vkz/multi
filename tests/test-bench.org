@@ -1,0 +1,51 @@
+
+#+PROPERTY: header-args :results table raw prepend value :cache no
+
+* require
+
+Load benchmarking code
+
+#+begin_src emacs-lisp :results output silent
+(load-file "test-bench.el")
+#+end_src
+
+* multi-patterns
+
+Bench patterns.
+
+Every time the benchmark is run the perf table is prepended to the RESULTS, so that the history is preserved between any improvements we make. Once happy, simply commit to git and we have the entire history of improvements that we can even plot.
+
+#+begin_src emacs-lisp
+  (bench-multi-lexical :times 1000 :ensure-equal t
+    :forms
+    (("multi-case" (mu-case '(1 2)
+                     ([] 0)
+                     ([_] 1)
+                     ([_ _] 2)
+                     ([_ _ _] 3)
+                     (otherwise 'many)))
+     ("pcase" (pcase '(1 2)
+                ((or `nil `[]) 0)
+                ((or `(,_) `[,_]) 1)
+                ((or `(,_ ,_) `[,_ ,_]) 2)
+                ((or `(,_ ,_ ,_) `[,_ ,_ ,_]) 3)
+                (otherwise 'many)))))
+#+end_src
+
+#+RESULTS:
+| Form       | x faster than next | Total runtime | # of GCs | Total GC runtime |
+|------------+--------------------+---------------+----------+------------------|
+| pcase      | 1.01               |      0.000100 |        0 |                0 |
+| multi-case | slowest            |      0.000101 |        0 |                0 |
+|------------+--------------------+---------------+----------+------------------|
+
+
+* multi-methods
+
+Bench multi-methods
+
+* locals
+
+# Local Variables:
+# org-confirm-babel-evaluate: nil
+# End:
