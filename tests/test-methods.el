@@ -1,4 +1,4 @@
-(load-file "prelude.el")
+(load-file "test-prelude.el")
 
 
 (defmacro mu--install-shape-rels ()

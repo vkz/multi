@@ -1,7 +1,7 @@
 ;; -*- lexical-binding: t; -*-
 
 
-(load-file "prelude.el")
+(load-file "test-prelude.el")
 
 
 ;;* basics ------------------------------------------------------- *;;
