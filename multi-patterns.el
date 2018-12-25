@@ -578,32 +578,93 @@ Example:
 ;;** - ht|-pattern ----------------------------------------------- *;;
 
 
-(cl-defun mu--prefix-map (body &optional (key-pred #'keywordp) (map (ht)))
-  "Collect prefix of a list into a hash-table, return (list ht
-seq-tail) for further pattern-matching."
-  (cond
-   ((funcall key-pred (car body)) (ht-set map (pop body) (pop body)) (mu--prefix-map body key-pred map))
-   (:else (list map body))))
+;; NOTE This implementation maybe too general. Do I ever expect to match vectors
+;; with an ht| pattern? Do I ever expect keys to be anything but :keywords?
+(cl-defun mu--prefix-map (body &optional (key-pred #'keywordp))
+  "Collect prefix of a sequence into a hash-table, return (list
+ht seq-tail) for further pattern-matching."
+  (let* ((vector? (vectorp body))
+         (body    (if vector? (seq-into body 'list) body))
+         (pairs   (cl-loop for item in body
+                           when (funcall key-pred item)
+                           collect (cons (pop body) (pop body)))))
+    (list (ht<-alist pairs)
+          (if vector? (apply #'vector body) body))))
+
+
+(example
+ (mu--prefix-map '(:a 1 :b 2 3 4 5))
+ (mu--prefix-map [:a 1 :b 2 3 4 5])
+ (mu--prefix-map '(:a 1 :b))
+ (mu--prefix-map [:a 1 :b])
+ (mu--prefix-map '(1 2 3))
+ (mu--prefix-map '())
+ ;; example
+ )
 
 
 (mu-defpattern ht| (&rest patterns)
+  "Match sequence prefix as if its a hash-table with :keyword
+keys. Patterns are keyword-patterns allowed in ht-pattern
+followed by an optional []-pattern to match the rest of the
+sequence:
+
+  (mu-case '(:a 1 :b 2 body)
+     ([| (ht| a b)] (list a b)))
+  =>
+  '(1 2)
+
+  (mu-case '(:a 1 :b 2 body)
+     ([| (ht| a b [| rest])] (list a b rest)))
+  =>
+  '(1 2 (body))"
   (let* ((patterns (nreverse patterns))
          (seq-pat (if (vectorp (car patterns)) (pop patterns) '_)))
     `(app mu--prefix-map [(ht ,@patterns) ,seq-pat])))
 
 
 (example
- (mu-case '(:a 1 :b 2 3 4 5)
+ ;; ignoring tail
+ (mu-case '(:a 1 :b 2 body)
    ([| (ht| a b)] (list a b)))
 
- (mu-case '(:a 1 :b 2 3 4 5)
+ ;; matching tail
+ (mu-case '(:a 1 :b 2 body)
    ([| (ht| a b [| rest])] (list a b rest)))
 
+ ;; matching vector prefix
+ (mu-case [:a 1 :b 2 3 4 5]
+   ([| (ht| a b [| rest])] (list a b rest)))
+
+ ;; with defun
  (mu-defun foo-prefix [| (ht| a b [| body])]
    (list a b body))
 
  (foo-prefix :a 1 :b 2 3 4 5)
  ;; example
+ )
+
+
+(comment
+ ;; TODO implementation that lets you specify a custom key-predicate as the first
+ ;; pattern. Do I want to be this generic?
+ (mu-defpattern ht| (&optional key-predicate &rest patterns)
+   (unless (mu-function? key-predicate)
+     (push key-predicate patterns)
+     (setq key-predicate nil))
+   (let* ((patterns (nreverse patterns))
+          (seq-pat (if (vectorp (car patterns)) (pop patterns) '_))
+          (prefix-extract (if key-predicate
+                              (lambda (seq) (mu--prefix-map seq key-predicate))
+                            'mu--prefix-map)))
+     `(app ,prefix-extract [(ht ,@patterns) ,seq-pat])))
+
+ (mu-case '(a 1 b 2 3 4 5)
+   ([| (ht| symbolp a b [| rest])] (list a b rest)))
+
+ ;; Alternative syntax that maybe cleaner:
+ (ht| (? symbolp) pat pat [pat])
+ ;; comment
  )
 
 
