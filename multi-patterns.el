@@ -575,6 +575,38 @@ Example:
          (and (pred listp) ,@alist-pats))))
 
 
+;;** - ht|-pattern ----------------------------------------------- *;;
+
+
+(cl-defun mu--prefix-map (body &optional (key-pred #'keywordp) (map (ht)))
+  "Collect prefix of a list into a hash-table, return (list ht
+seq-tail) for further pattern-matching."
+  (cond
+   ((funcall key-pred (car body)) (ht-set map (pop body) (pop body)) (mu--prefix-map body key-pred map))
+   (:else (list map body))))
+
+
+(mu-defpattern ht| (&rest patterns)
+  (let* ((patterns (nreverse patterns))
+         (seq-pat (if (vectorp (car patterns)) (pop patterns) '_)))
+    `(app mu--prefix-map [(ht ,@patterns) ,seq-pat])))
+
+
+(example
+ (mu-case '(:a 1 :b 2 3 4 5)
+   ([| (ht| a b)] (list a b)))
+
+ (mu-case '(:a 1 :b 2 3 4 5)
+   ([| (ht| a b [| rest])] (list a b rest)))
+
+ (mu-defun foo-prefix [| (ht| a b [| body])]
+   (list a b body))
+
+ (foo-prefix :a 1 :b 2 3 4 5)
+ ;; example
+ )
+
+
 ;;** - id-pattern ------------------------------------------------ *;;
 
 
