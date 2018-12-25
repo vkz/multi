@@ -578,8 +578,18 @@ Example:
 ;;** - ht|-pattern ----------------------------------------------- *;;
 
 
-;; NOTE This implementation maybe too general. Do I ever expect to match vectors
+;; NOTE basic idea for ht| pattern: rewrite into an app-pattern where the applied
+;; function collects all :attr value pairs at the start of the sequence, shoves
+;; them into a hash-table and returns (list hash-table seq-tail) for matching
+;; against a [(ht pat...) tail-pat].
+
+
+;; TODO This implementation maybe too general. Do I ever expect to match vectors
 ;; with an ht| pattern? Do I ever expect keys to be anything but :keywords?
+
+
+;; NOTE My first version was a trivial recursive function. This loop is ugly but I
+;; guess more performant? I should've measured.
 (cl-defun mu--prefix-map (body &optional (key-pred #'keywordp))
   "Collect prefix of a sequence into a hash-table, return (list
 ht seq-tail) for further pattern-matching."
@@ -590,17 +600,6 @@ ht seq-tail) for further pattern-matching."
                            collect (cons (pop body) (pop body)))))
     (list (ht<-alist pairs)
           (if vector? (apply #'vector body) body))))
-
-
-(example
- (mu--prefix-map '(:a 1 :b 2 3 4 5))
- (mu--prefix-map [:a 1 :b 2 3 4 5])
- (mu--prefix-map '(:a 1 :b))
- (mu--prefix-map [:a 1 :b])
- (mu--prefix-map '(1 2 3))
- (mu--prefix-map '())
- ;; example
- )
 
 
 (mu-defpattern ht| (&rest patterns)
@@ -623,31 +622,8 @@ sequence:
     `(app mu--prefix-map [(ht ,@patterns) ,seq-pat])))
 
 
-(example
- ;; ignoring tail
- (mu-case '(:a 1 :b 2 body)
-   ([| (ht| a b)] (list a b)))
-
- ;; matching tail
- (mu-case '(:a 1 :b 2 body)
-   ([| (ht| a b [| rest])] (list a b rest)))
-
- ;; matching vector prefix
- (mu-case [:a 1 :b 2 3 4 5]
-   ([| (ht| a b [| rest])] (list a b rest)))
-
- ;; with defun
- (mu-defun foo-prefix [| (ht| a b [| body])]
-   (list a b body))
-
- (foo-prefix :a 1 :b 2 3 4 5)
- ;; example
- )
-
-
 (comment
- ;; TODO implementation that lets you specify a custom key-predicate as the first
- ;; pattern. Do I want to be this generic?
+ ;; implementation that lets you specify a custom key-predicate
  (mu-defpattern ht| (&optional key-predicate &rest patterns)
    (unless (mu-function? key-predicate)
      (push key-predicate patterns)

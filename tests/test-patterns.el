@@ -177,6 +177,30 @@
                              ((ht "a"))))))
 
 
+(ert-deftest mu-test-table-prefix-patterns ()
+  "ht| pattern should work"
+
+  (mu-test (foo-prefix)
+
+    ;; match just the key-value pairs
+    (should (equal '(1 2) (mu-case '(:a 1 :b 2 body)
+                            ([| (ht| a b)] (list a b)))))
+
+    ;; match key-value pairs and tail
+    (should (equal '(1 2 (body)) (mu-case '(:a 1 :b 2 body)
+                                   ([| (ht| a b [| rest])] (list a b rest)))))
+
+    ;; match in a vector
+    (should (equal '(1 2 [body]) (mu-case [:a 1 :b 2 body]
+                                   ([| (ht| a b [| rest])] (list a b rest)))))
+
+    ;; use in mu-defun
+    (mu-defun foo-prefix [| (ht| a b [| body])]
+      (list a b body))
+
+    (should (equal '(1 2 (3 4 5)) (foo-prefix :a 1 :b 2 3 4 5)))))
+
+
 ;;* sequence ----------------------------------------------------- *;;
 
 
@@ -634,6 +658,37 @@
   ;; lone otherwise simply returns its body, imo reasonable
   (should (equal '(progn body1 body2)
                  (mu--pcase-nest 'expr '((otherwise body1 body2))))))
+
+
+(ert-deftest mu-test-mu--prefix-map ()
+  "Collecting key-value pairs at the start of a sequence should work"
+
+  (mu-test (ht-and-seq=)
+
+    (mu-defun ht-and-seq= [[table1 seq1] [table2 seq2]]
+      (and (equal seq1 seq2)
+           (let* ((car->str (lambda (pair) (symbol-name (car pair))))
+                  (table1 (sort (ht->alist table1) (-on #'string< car->str)))
+                  (table2 (sort (ht->alist table2) (-on #'string< car->str))))
+             (equal table1 table2))))
+
+    (should (ht-and-seq= (list (ht (:b 2) (:a 1)) '(3 4 5))
+                         (mu--prefix-map '(:a 1 :b 2 3 4 5))))
+
+    (should (ht-and-seq= (list (ht (:b 2) (:a 1)) [3 4 5])
+                         (mu--prefix-map [:a 1 :b 2 3 4 5])))
+
+    (should (ht-and-seq= (list (ht (:b 2) (:a 1)) nil)
+                         (mu--prefix-map '(:a 1 :b 2))))
+
+    (should (ht-and-seq= (list (ht (:b 2) (:a 1)) [])
+                         (mu--prefix-map [:a 1 :b 2])))
+
+    (should (ht-and-seq= (list (ht) '(1 2 3))
+                         (mu--prefix-map '(1 2 3))))
+
+    (should (ht-and-seq= (list (ht) nil)
+                         (mu--prefix-map '())))))
 
 
 ;;* perf --------------------------------------------------------- *;;
