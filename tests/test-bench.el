@@ -1,24 +1,37 @@
 ;; -*- lexical-binding: t; -*-
 
 
-;; src:
+;; Inspiration:
 ;; https://github.com/alphapapa/emacs-package-dev-handbook#profiling--optimization
 
-(require 'dash)
 
+(mu-defmacro mu-bench [| (ht| times raw hline [| body])]
+  "Run BODY in `benchmark-run-compiled' TIMES times. Collect
+results into an ORG-table as list.
 
-(cl-defmacro bench (&optional (times 100000) &rest body)
-  "Call `benchmark-run-compiled' on BODY with TIMES iterations, returning list suitable for Org source block evaluation.
-Garbage is collected before calling `benchmark-run-compiled' to
-avoid counting existing garbage which needs collection."
-  (declare (indent defun))
-  `(progn
-     (garbage-collect)
-     (list '("Total runtime" "# of GCs" "Total GC runtime")
-           'hline
-           (benchmark-run-compiled ,times
-             (progn
-               ,@body)))))
+When RAW is non-nil don't include a table header with column
+names (default: nil).
+
+When HLINE is nil don't add table separator to the
+table (default: t)."
+  :declare ((indent 0))
+  (default times :to 10000)
+  (default raw :to nil)
+  (default hline :to t)
+  (let ((table (gensym "table"))
+        (results (gensym "results")))
+    `(progn
+       (let (,table ,results)
+         (garbage-collect)
+         (setq ,results (benchmark-run-compiled ,times (progn ,@body)))
+         ;; add timestamp as the first column
+         (setq ,table (list (cons (current-time-string) ,results)))
+         ;; add hline above the results unless hline=nil
+         (when ,hline (setq ,table (cons 'hline ,table)))
+         ;; add column names unless raw=t
+         (unless ,raw (setq ,table (cons (list "Timestamp" "Total runtime" "# of GCs" "Total GC runtime") ,table)))
+         ;; return org-table as a list
+         ,table))))
 
 
 (cl-defmacro bench-multi (&key (times 1) forms ensure-equal raw)
@@ -42,18 +55,18 @@ avoid counting existing garbage which needs collection."
   ;; MAYBE: Since `bench-multi-lexical' byte-compiles the file, I'm not sure if
   ;; `benchmark-run-compiled' is necessary over `benchmark-run', or if it matters.
   (declare (indent defun))
-  (let*((keys (gensym "keys"))
-        (result-times (gensym "result-times"))
-        (header '(("Form" "x faster than next" "Total runtime" "# of GCs" "Total GC runtime")
-                  hline))
-        ;; Copy forms so that a subsequent call of the macro will get the original forms.
-        (forms (copy-list forms))
-        (descriptions (cl-loop for form in forms
-                               for i from 0
-                               collect (if (stringp (car form))
-                                           (prog1 (car form)
-                                             (setf (nth i forms) (cadr (nth i forms))))
-                                         i))))
+  (let* ((keys (gensym "keys"))
+         (result-times (gensym "result-times"))
+         (header '(("Form" "x faster than next" "Total runtime" "# of GCs" "Total GC runtime")
+                   hline))
+         ;; Copy forms so that a subsequent call of the macro will get the original forms.
+         (forms (copy-list forms))
+         (descriptions (cl-loop for form in forms
+                                for i from 0
+                                collect (if (stringp (car form))
+                                            (prog1 (car form)
+                                              (setf (nth i forms) (cadr (nth i forms))))
+                                          i))))
     `(unwind-protect
          (progn
            (defvar bench-multi-results nil)
@@ -155,6 +168,10 @@ the benchmark is uninterned."
            (user-error "Error byte-compiling and loading temp file"))
        (delete-file temp-file)
        (unintern (symbol-name fn) nil))))
+
+
+;; TODO I want a :pre or :let where I can define bindings for all forms. Above
+;; implementation feels backwards
 
 
 (provide 'multi-bench)

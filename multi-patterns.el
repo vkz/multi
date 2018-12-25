@@ -602,6 +602,9 @@ ht seq-tail) for further pattern-matching."
           (if vector? (apply #'vector body) body))))
 
 
+;; TODO Should I rename this pattern into (: pat.. tail-pat)?
+
+
 (mu-defpattern ht| (&rest patterns)
   "Match sequence prefix as if its a hash-table with :keyword
 keys. Patterns are keyword-patterns allowed in ht-pattern
