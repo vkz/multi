@@ -1080,6 +1080,23 @@ destructuring:
 ;;* todo --------------------------------------------------------- *;;
 
 
+;; TODO allow to maintain state between recursive mu-defun calls:
+;;
+;;   (mu-defun foo (arglist)
+;;     :with ((a (ht)))
+;;     ;; we want vars A and B to persist between calls, so that e.g. clause1 can
+;;     ;; update A and B, recurse, and the next clause will see those changes. Pretty
+;;     ;; much a let-ovel-lambda pattern
+;;     ([pat] body)
+;;     ([pat pat] body))
+;;
+;;   =>
+;;
+;;   (let* ((a (ht)))
+;;     (mu-defun foo-let-over-lambda _
+;;       ([] a)
+;;       ([v] (ht-set a 1 v)  (foo-let-over-lambda))))
+
 ;; TODO namespace custom patterns
 
 ;; TODO Perfwise byte-compilation should work. Also consider byte-compiling
