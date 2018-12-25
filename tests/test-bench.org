@@ -11,33 +11,261 @@ Load benchmarking code
 
 * multi-patterns
 
-Bench patterns.
+** relative performance
 
-Every time the benchmark is run the perf table is prepended to the RESULTS, so that the history is preserved between any improvements we make. Once happy, simply commit to git and we have the entire history of improvements that we can even plot.
+How does pattern-matching compare to the existing semantically similar solutions.
+E.g. manual destructuring, seq-* functions, dash, etc. Idea is to have baseline
+perf we should strive for and to give users some idea about perf so they can
+decide if its good enough for them.
+
+*** basic mu-case vs pcase
 
 #+begin_src emacs-lisp
-  (bench-multi-lexical :times 1000 :ensure-equal t
+  (bench-multi-lexical :times 1000
     :forms
-    (("multi-case" (mu-case '(1 2)
-                     ([] 0)
-                     ([_] 1)
-                     ([_ _] 2)
-                     ([_ _ _] 3)
-                     (otherwise 'many)))
-     ("pcase" (pcase '(1 2)
-                ((or `nil `[]) 0)
-                ((or `(,_) `[,_]) 1)
-                ((or `(,_ ,_) `[,_ ,_]) 2)
-                ((or `(,_ ,_ ,_) `[,_ ,_ ,_]) 3)
-                (otherwise 'many)))))
+    (("multi-case" (let* ((test-cases '(() (1) (1 2) (1 2 3) (1 2 3 4)))
+                          (len (length test-cases))
+                          (test-case (lambda () (nth (random len) test-cases))))
+                     (mu-case (funcall test-case)
+                       ((lst) 0)
+                       ((lst _) 1)
+                       ((lst _ _) 2)
+                       ((lst _ _ _) 3)
+                       (otherwise 'many))))
+     ("pcase" (let* ((test-cases '(() (1) (1 2) (1 2 3) (1 2 3 4)))
+                     (len (length test-cases))
+                     (test-case (lambda () (nth (random len) test-cases))))
+                (pcase (funcall test-case)
+                  (`nil 0)
+                  (`(,_) 1)
+                  (`(,_ ,_) 2)
+                  (`(,_ ,_ ,_) 3)
+                  (otherwise 'many))))))
 #+end_src
 
 #+RESULTS:
 | Form       | x faster than next | Total runtime | # of GCs | Total GC runtime |
 |------------+--------------------+---------------+----------+------------------|
-| pcase      | 1.01               |      0.000100 |        0 |                0 |
-| multi-case | slowest            |      0.000101 |        0 |                0 |
+| multi-case | 1.01               |      0.000172 |        0 |                0 |
+| pcase      | slowest            |      0.000174 |        0 |                0 |
 |------------+--------------------+---------------+----------+------------------|
+
+*** mu-let
+
+mu-let is terribly slow and triggers GC
+
+#+begin_src emacs-lisp
+  (bench-multi-lexical
+    :times 10000
+    :ensure-equal t
+    :forms (("seq-let" (mapcar
+                        (lambda (arg)
+                          (seq-let (s1 &rest d) arg
+                            (seq-let (a &rest t2) s1
+                              (seq-let (b c) (seq-elt t2 0)
+                                (list a b c d)))))
+                        (list '((1 (2 3)) 4) [[1 [2 3]] 4])))
+
+            ("mu-let" (mapcar
+                       (lambda (arg)
+                         (mu-let (([[a &rest [[b c]]] &rest d] arg))
+                           (list a b c d)))
+                       (list '((1 (2 3)) 4) [[1 [2 3]] 4])))
+
+            ("mu-case" (mapcar
+                        (lambda (arg)
+                          (mu-case arg
+                            ([[a &rest [[b c]]] &rest d] (list a b c d))))
+                        (list '((1 (2 3)) 4) [[1 [2 3]] 4])))))
+#+end_src
+
+#+RESULTS:
+| Form    | x faster than next | Total runtime | # of GCs | Total GC runtime |
+|---------+--------------------+---------------+----------+------------------|
+| seq-let |               6.99 |      0.034610 |        0 |                0 |
+| mu-case |               2.51 |      0.241866 |        0 |                0 |
+| mu-let  |            slowest |      0.606006 |        1 |         0.095216 |
+|---------+--------------------+---------------+----------+------------------|
+
+#+begin_src emacs-lisp
+(bench-multi-lexical
+  :times 10000
+  :ensure-equal t
+  :forms (("seq-let" (let* ((a 1))
+                       (seq-let (b) '(2 3)
+                         (seq-let (c d e) '(3 4)
+                           (list a b c d e)))))
+
+          ("mu-let" (mu-let ((a 1)
+                             ([b] '(2 3))
+                             ([c d e] '(3 4)))
+                      (list a b c d e)))))
+#+end_src
+
+#+RESULTS:
+| Form    | x faster than next | Total runtime | # of GCs | Total GC runtime |
+|---------+--------------------+---------------+----------+------------------|
+| seq-let | 32.28              |      0.007311 |        0 |                0 |
+| mu-let  | slowest            |      0.235976 |        0 |                0 |
+|---------+--------------------+---------------+----------+------------------|
+
+*** ht-pattern vs ht|alist-get
+
+#+begin_src emacs-lisp
+(bench-multi-lexical
+  :times 10000
+  :ensure-equal t
+  :forms (("ht-get" (let* ((table (ht (:a 1) ('b 2) (:c 3) ('d 4)))
+                           (a (ht-get table :a))
+                           (b (ht-get table 'b))
+                           (c (ht-get table :c))
+                           (D (ht-get table 'd)))
+                      (list a b c D)))
+
+          ("ht-pattern" (mu-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
+                          ;; NOTE this one is richer than the ht-get version cause
+                          ;; it tries different keys :a 'a "a" in order
+                          ((ht :a b 'c ('d D)) (list a b c D))))))
+#+end_src
+
+#+RESULTS:
+| Form       | x faster than next | Total runtime | # of GCs | Total GC runtime |
+|------------+--------------------+---------------+----------+------------------|
+| ht-get     | 1.03               |      0.125360 |        1 |         0.100907 |
+| ht-pattern | slowest            |      0.129434 |        1 |         0.101316 |
+|------------+--------------------+---------------+----------+------------------|
+
+
+#+begin_src emacs-lisp
+(bench-multi-lexical
+  :times 10000
+  :ensure-equal t
+  :forms (("ht-get" (let* ((l (list (ht (:a 1)) '((:b . 2))))
+                           (a (ht-get (car l) :a))
+                           (b (alist-get :b (cadr l))))
+                      (list a b)))
+
+          ("ht-pattern" (mu-case (list (ht (:a 1)) '((:b . 2)))
+                          ((l (ht :a) (ht b)) (list a b))))))
+#+end_src
+
+#+RESULTS:
+| Form       | x faster than next | Total runtime | # of GCs | Total GC runtime |
+|------------+--------------------+---------------+----------+------------------|
+| ht-get     | 1.01               |      0.111728 |        1 |         0.094867 |
+| ht-pattern | slowest            |      0.112726 |        1 |         0.094886 |
+|------------+--------------------+---------------+----------+------------------|
+
+*** mu-lambda vs lambda
+
+#+begin_src emacs-lisp
+(bench-multi-lexical
+  :times 10000
+  :ensure-equal t
+  :forms (("lambda" (let ((fun (lambda () t)))
+                      (funcall fun)))
+
+          ("mu-lambda" (let ((fun (mu [] t)))
+                         (funcall fun)))))
+#+end_src
+
+#+RESULTS:
+| Form      | x faster than next | Total runtime | # of GCs | Total GC runtime |
+|-----------+--------------------+---------------+----------+------------------|
+| lambda    | 1.15               |      0.000866 |        0 |                0 |
+| mu-lambda | slowest            |      0.000993 |        0 |                0 |
+|-----------+--------------------+---------------+----------+------------------|
+
+I don't think this is apples to apples comparison, need a better bench.
+
+#+begin_src emacs-lisp
+  (bench-multi-lexical
+    :times 10000
+    :ensure-equal t
+    :forms (("lambda"    (funcall (lambda (a b &rest args) (list* a b args)) 1 2 3 4))
+            ("mu-lambda" (funcall (mu [a b | args] (list* a b args)) 1 2 3 4))))
+#+end_src
+
+#+RESULTS:
+| Form      | x faster than next | Total runtime | # of GCs | Total GC runtime |
+|-----------+--------------------+---------------+----------+------------------|
+| lambda    | 89.82              |      0.001256 |        0 |                0 |
+| mu-lambda | slowest            |      0.112812 |        0 |                0 |
+|-----------+--------------------+---------------+----------+------------------|
+
+#+begin_src emacs-lisp
+(bench-multi-lexical
+  :times 10000
+  :ensure-equal t
+  :forms (("lambda" (let ((fun (lambda (&rest args)
+                                 (pcase args
+                                   ((or `(,a ,b) `[,a ,b]) (list a b))
+                                   ((or `(,a ,b ,c) `[,a ,b ,c]) (list a b c))))))
+                      (list (funcall fun 1 2)
+                            (funcall fun 1 2 3))))
+
+          ("mu-lambda" (let ((fun (mu _
+                                    ([a b] (list a b))
+                                    ([a b c] (list a b c)))))
+                         (list (funcall fun 1 2)
+                               (funcall fun 1 2 3))))))
+#+end_src
+
+#+RESULTS:
+| Form      | x faster than next | Total runtime | # of GCs | Total GC runtime |
+|-----------+--------------------+---------------+----------+------------------|
+| lambda    | 1.07               |      0.003462 |        0 |                0 |
+| mu-lambda | slowest            |      0.003704 |        0 |                0 |
+|-----------+--------------------+---------------+----------+------------------|
+
+** absolute performance
+
+Benchmarks to track perf improvements and spot regressions. Ideally we should cover a wide variaty of patterns in every API bell-n-whistle we expose.
+
+*** basic patterns
+
+#+begin_src emacs-lisp
+  (mu-bench
+    :times 10000
+    :raw t
+    (mapcar
+     (lambda (arg)
+       (mu-case arg
+         ((lst) 0)
+         ((lst _) 1)
+         ((lst _ _) 2)
+         ((lst _ _ _) 3)
+         (otherwise 'many)))
+     '(() (1) (1 2) (1 2 3) (1 2 3 4))))
+#+end_src
+
+#+RESULTS:
+|--------------------------+---------------+----------+------------------|
+| Tue Dec 25 16:40:57 2018 |      0.009832 |        0 |              0.0 |
+|--------------------------+---------------+----------+------------------|
+| Timestamp                | Total runtime | # of GCs | Total GC runtime |
+
+
+*** deeply nested []-pattern
+
+#+begin_src emacs-lisp
+(mu-bench
+  :times 10000
+  :raw t
+  (mapcar
+   (lambda (arg)
+     (mu-case arg
+       ([[a &rest [[b c]]] &rest d] (list a b c d))))
+   (list '((1 (2 3)) 4) [[1 [2 3]] 4])))
+#+end_src
+
+#+RESULTS:
+|--------------------------+---------------+----------+------------------|
+| Tue Dec 25 16:41:14 2018 |      0.257341 |        0 |              0.0 |
+|--------------------------+---------------+----------+------------------|
+| Timestamp                | Total runtime | # of GCs | Total GC runtime |
+
+
 
 
 * multi-methods
