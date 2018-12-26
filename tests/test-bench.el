@@ -13,29 +13,46 @@
 
 
 (defun mu--bench/let (context times body)
-  (with-gensyms (garbage time gcs gc gcs-delta gc-delta code-time empty-time)
+  (with-gensyms (garbage time gcs gc gcs-delta gc-delta code-time empty-time time-delta)
 
     (let* ((lexical-binding t)
            (bindings     (mapcar #'car context))
            (values       (mapcar #'cadr context))
            (code-lambda  (byte-compile `(lambda (,@bindings) ,@body)))
-           (code-loop    `(dotimes (,time ,times)
-                            (funcall ,code-lambda ,@values)))
-           (empty-lambda (byte-compile `(lambda (,@bindings))))
-           (empty-loop   `(dotimes (,time ,times)
-                            (funcall ,empty-lambda ,@values))))
-
-      `(let* ((lexical-binding t)
+           (empty-lambda (byte-compile `(lambda (,@bindings)))))
+      `(let* (;; enable lexical scope
+              (lexical-binding t)
+              ;; splice supplied let-bindings
               ,@context
+              ;; collect garbage
               (,garbage    (garbage-collect))
+              ;; number of GC runs before benchmark
               (,gcs         gcs-done)
+              ;; total GC time elapsed before benchmark
               (,gc          gc-elapsed)
-              (,code-time  (benchmark-elapse ,code-loop))
+              ;; benchmark body
+              (,code-time  (benchmark-elapse (dotimes (,time ,times)
+                                               (funcall ,code-lambda ,@values))))
+              ;; collect GC deltas
               (,gcs-delta  (- gcs-done ,gcs))
               (,gc-delta   (- gc-elapsed ,gc))
-              (,empty-time (benchmark-elapse ,empty-loop)))
-
-         (list (- ,code-time ,empty-time) ,gcs-delta ,gc-delta)))))
+              ;; collect garbage
+              (,garbage    (garbage-collect))
+              ;; benchmark empty body
+              (,empty-time (benchmark-elapse (dotimes (,time ,times)
+                                               (funcall ,empty-lambda ,@values))))
+              (,time-delta (- ,code-time ,empty-time)))
+         ;; NOTE theoretically empty-time could be higher than the code-time, say
+         ;; due to GC pause or Emacs background activity. Or the body is so simple
+         ;; that float error dwarfs the result. Return code-time instead of delta
+         ;; if that happens.
+         (list
+          ;; account for funcall overhead
+          (if (> ,time-delta 0) ,time-delta ,code-time)
+          ;; number of GC runs
+          ,gcs-delta
+          ;; total GC time
+          ,gc-delta)))))
 
 
 (mu-defmacro mu-bench/let [context | (ht| times raw [| body])]
@@ -65,13 +82,17 @@ Accept optional arguments as attributes:
                  ,stats))))))
 
 
-(mu-defmacro mu-bench*/let [context | (ht| times raw [| body])]
+(mu-defmacro mu-bench*/let [context | (ht| times raw compare [| body])]
   "Like `mu-bench/let' but bench every form in the BODY, where
 each form is a list (label &rest expr).
 
 \(fn varlist &key times raw &rest (label body...)"
   :declare ((indent 1))
-  (let ((header '(list "Form" "Total time" "GCs" "GC time" "Timestamp")))
+  (default times :to 10000)
+  (let ((header  (if compare
+                     '(list "Form" "x slower" "Total time" "GCs" "GC time" "Timestamp")
+                   '(list "Form" "Total time" "GCs" "GC time" "Timestamp")))
+        (process (if compare #'mu--add-relative-stats #'identity)))
     (with-gensyms (timestamp stats)
       `(let* ((,timestamp (current-time-string))
               (,stats (list ,@(cl-loop for form in body
@@ -83,10 +104,26 @@ each form is a list (label &rest expr).
                                                  ;; timestamp
                                                  (list ,timestamp))))))
          (if ,raw
-             ,stats
+             (funcall #',process ,stats)
            (list* ,header
                   'hline
-                  ,stats))))))
+                  (funcall #',process ,stats)))))))
+
+
+(mu-defun --by [field :on compare]
+  (lambda (&rest args)
+    (apply compare (mapcar field args))))
+
+
+(defun mu--add-relative-stats (stats)
+  "Augment stats with a 'slowdown relative to the fastest'
+factor"
+  (let* ((fast-to-slow (sort stats (--by #'second :on #'<)))
+         (fastest (second (car fast-to-slow))))
+    (mapcar
+     (mu [[label time gcs gc timestamp]]
+       (list label (format "%.2f" (/ time fastest)) (format "%.6f" time) gcs gc timestamp))
+     fast-to-slow)))
 
 
 (defmacro mu-bench (&rest args)
@@ -112,9 +149,12 @@ each form is a list (label &rest expr).
    (+ 1 2))
 
  (mu-bench*
-   :times 10000
-   (:form1 (+ 1 2))
-   (:form2 (* 1 2)))
+   :times 1000
+   :compare t
+   (:form1 (cl-loop for x from 1 to 1000
+                    collect (+ x x)))
+   (:form2 (cl-loop for x from 1 to 1000
+                    collect (* x x))))
 
  (mu-bench/let ((a 1)
                 (b 2))
@@ -132,10 +172,6 @@ each form is a list (label &rest expr).
 
 
 (example
-
- (defun -on (compare take)
-   (lambda (&rest args)
-     (apply compare (mapcar take args))))
 
  (sort '((b 2) (d 5) (c 3) (a 1)) (-on #'< #'second))
 
