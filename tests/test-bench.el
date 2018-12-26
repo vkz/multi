@@ -5,6 +5,9 @@
 ;; https://github.com/alphapapa/emacs-package-dev-handbook#profiling--optimization
 
 
+(require 'multi-prelude)
+
+
 (mu-defmacro mu-bench [| (ht| times raw hline [| body])]
   "Run BODY in `benchmark-run-compiled' TIMES times. Collect
 results into an ORG-table as list.
@@ -32,6 +35,53 @@ table (default: t)."
          (unless ,raw (setq ,table (cons (list "Timestamp" "Total runtime" "# of GCs" "Total GC runtime") ,table)))
          ;; return org-table as a list
          ,table))))
+
+(defun mu--bench/context (context times body)
+  (with-gensyms (garbage time gcs gc gcs-delta gc-delta code-time empty-time)
+
+    (let* ((lexical-binding t)
+           (bindings     (mapcar #'car context))
+           (values       (mapcar #'cadr context))
+           (code-lambda  (byte-compile `(lambda (,@bindings) ,@body)))
+           (code-loop    `(dotimes (,time ,times)
+                            (funcall ,code-lambda ,@values)))
+           (empty-lambda (byte-compile `(lambda (,@bindings))))
+           (empty-loop   `(dotimes (,time ,times)
+                            (funcall ,empty-lambda ,@values))))
+
+      `(let* ((lexical-binding t)
+              ,@context
+              (,garbage    (garbage-collect))
+              (,gcs         gcs-done)
+              (,gc          gc-elapsed)
+              (,code-time  (benchmark-elapse ,code-loop))
+              (,gcs-delta  (- gcs-done ,gcs))
+              (,gc-delta   (- gc-elapsed ,gc))
+              (,empty-time (benchmark-elapse ,empty-loop)))
+
+         (list (- ,code-time ,empty-time) ,gcs-delta ,gc-delta)))))
+
+
+(mu-defmacro mu-bench/context [context | (ht| times raw [| body])]
+  :declare ((indent 1))
+  (with-gensyms (results table)
+    `(let* ((,results ,(mu--bench/context context times body))
+            (,table (cons (current-time-string) ,results)))
+       (if ,raw
+           ,table
+         (list (list "Timestamp" "Total time" "GCs" "GC time")
+               'hline
+               ,table)))))
+
+
+(example
+ (mu-bench/context ((a 1)
+                    (b 2))
+   :times 100000
+   :raw t
+   (+ a b))
+ ;; example
+ )
 
 
 (cl-defmacro bench-multi (&key (times 1) forms ensure-equal raw)

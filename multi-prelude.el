@@ -39,6 +39,17 @@ Clojure's (str ...) but for interned symbols."
     "")))
 
 
+(defmacro with-gensyms (syms &rest body)
+  "For every symbol in SYMS gensym a symbol from its
+`symbol-name', make it available in the BODY by let-binding it to
+SYM."
+  (declare (indent 1))
+  (let ((bindings (cl-loop for s in syms
+                           collect (list s `(gensym (symbol-name ',s))))))
+    `(let ,bindings
+       ,@body)))
+
+
 ;; Define convenient setters for `ht-get' and `ht-get*'
 
 
