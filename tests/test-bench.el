@@ -8,6 +8,10 @@
 (require 'multi-prelude)
 
 
+;; TODO consider :print option that simply prints result of execution. For quick
+;; and easy sanity checks especially coupled with low number of :times.
+
+
 (defun mu--bench/let (context times body)
   (with-gensyms (garbage time gcs gc gcs-delta gc-delta code-time empty-time time-delta)
 

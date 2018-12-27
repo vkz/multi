@@ -11,6 +11,12 @@ Load benchmarking code
 
 * multi-patterns
 
+Load multi-patterns
+
+#+begin_src emacs-lisp :results output silent
+(load-file "../multi-patterns.el")
+#+end_src
+
 ** relative performance
 
 How does pattern-matching compare to the existing semantically similar solutions.
@@ -247,7 +253,188 @@ Benchmarks to track perf improvements and spot regressions. Ideally we should co
 
 * multi-methods
 
-Bench multi-methods
+Load multi-methods
+
+#+begin_src emacs-lisp :results output silent
+(load-file "../multi-methods.el")
+#+end_src
+
+As a running example we'll be using the following global hierachy:
+
+#+begin_example
+  :dot  ->  :square  ->  :rect   *-> :shape
+            |                    ^
+            |                    |
+            *->  :parallelogram  *-> :multiangle
+#+end_example
+
+captured in the following function:
+
+#+begin_src emacs-lisp :results output silent
+  (defsubst mu--bench-reset-hierachy ()
+    ;; reset global hierarchy
+    (setq mu-global-hierarchy (make-mu-hierarchy))
+    ;; install new relations
+    (mu-rel :dot isa :square)
+    (mu-rel :rect isa :shape)
+    (mu-rel :square isa :rect)
+    (mu-rel :square isa :parallelogram)
+    (mu-rel :parallelogram isa :multiangle)
+    (mu-rel :parallelogram isa :shape))
+#+end_src
+
+** relative performance
+
+multimethods vs generic dispatch
+
+#+begin_src emacs-lisp
+  (cl-defstruct foo-struct-0)
+  (cl-defstruct foo-struct-1)
+  (cl-defstruct foo-struct-2)
+  (cl-defstruct foo-struct-3)
+  (cl-defstruct foo-struct-4)
+  (cl-defstruct foo-struct-5)
+  (cl-defstruct foo-struct-6)
+
+  ;; multi
+  (mu-defmulti foo-test #'type-of)
+  (mu-defmethod foo-test (x) :when 'foo-struct-1 1)
+  (mu-defmethod foo-test (x) :when 'foo-struct-2 2)
+  (mu-defmethod foo-test (x) :when 'foo-struct-3 3)
+  (mu-defmethod foo-test (x) :when 'foo-struct-4 4)
+  (mu-defmethod foo-test (x) :when 'foo-struct-5 5)
+  (mu-defmethod foo-test (x) :when 'foo-struct-6 6)
+  (mu-defmethod foo-test (x) :when :default 0)
+
+  ;; generic
+  (cl-defgeneric foo-struct-test (s) 0)
+  (cl-defmethod foo-struct-test ((s foo-struct-1)) 1)
+  (cl-defmethod foo-struct-test ((s foo-struct-2)) 2)
+  (cl-defmethod foo-struct-test ((s foo-struct-3)) 3)
+  (cl-defmethod foo-struct-test ((s foo-struct-4)) 4)
+  (cl-defmethod foo-struct-test ((s foo-struct-5)) 5)
+  (cl-defmethod foo-struct-test ((s foo-struct-6)) 6)
+
+  (mu-bench*/let ((s0 (make-foo-struct-0))
+                  (s1 (make-foo-struct-1))
+                  (s2 (make-foo-struct-2))
+                  (s3 (make-foo-struct-3))
+                  (s4 (make-foo-struct-4))
+                  (s5 (make-foo-struct-5))
+                  (s6 (make-foo-struct-6)))
+    :compare t
+    (:generic (foo-struct-test s0)
+              (foo-struct-test s1)
+              (foo-struct-test s2)
+              (foo-struct-test s3)
+              (foo-struct-test s4)
+              (foo-struct-test s5)
+              (foo-struct-test s6))
+
+    (:mu-method (foo-test s0)
+                (foo-test s1)
+                (foo-test s2)
+                (foo-test s3)
+                (foo-test s4)
+                (foo-test s5)
+                (foo-test s6)))
+#+end_src
+
+#+RESULTS:
+| Form       | x slower | Total time | GCs |  GC time | Timestamp                |
+|------------+----------+------------+-----+----------+--------------------------|
+| :generic   |     1.00 |   0.020529 |   0 | 0.000000 | Thu Dec 27 10:49:29 2018 |
+| :mu-method |   219.09 |   4.497643 |  27 | 2.535174 | Thu Dec 27 10:49:29 2018 |
+
+** absolute performance
+
+basic isa lookup
+
+#+begin_src emacs-lisp
+  (mu--bench-reset-hierachy)
+
+  (mu-bench*
+    :times 1000
+    :compare t
+    (:equal    (mu-isa? 42 42))
+    (:direct   (mu-isa? :rect   :shape))
+    (:indirect (mu-isa? :square :shape))
+    (:seq1     (mu-isa? [:square :rect]  [:rect :shape]))
+    (:seq2     (mu-isa? [:square :shape] [:rect :shape]))
+    (:nested   (mu-isa? [[:dot :parallelogram] :square] [[:shape :multiangle] :rect])))
+#+end_src
+
+#+RESULTS:
+| Form      | x slower | Total time | GCs |  GC time | Timestamp                |
+|-----------+----------+------------+-----+----------+--------------------------|
+| :equal    |     1.00 |   0.000477 |   0 | 0.000000 | Thu Dec 27 11:45:38 2018 |
+| :direct   |     7.61 |   0.003632 |   0 | 0.000000 | Thu Dec 27 11:45:38 2018 |
+| :indirect |     8.75 |   0.004175 |   0 | 0.000000 | Thu Dec 27 11:45:38 2018 |
+| :seq2     |    15.37 |   0.007332 |   0 | 0.000000 | Thu Dec 27 11:45:38 2018 |
+| :seq1     |    22.34 |   0.010657 |   0 | 0.000000 | Thu Dec 27 11:45:38 2018 |
+| :nested   |    42.18 |   0.020122 |   0 | 0.000000 | Thu Dec 27 11:45:38 2018 |
+
+dispatch on equality - no deep isa hierarchy traversal
+
+#+begin_src emacs-lisp
+  (mu-defmulti foo (lambda (&rest args) (apply #'vector args)))
+  (mu-defmethod foo (&rest x) :when [:a] :a)
+  (mu-defmethod foo (&rest x) :when [:b] :b)
+  (mu-defmethod foo (&rest x) :when [:a :a] :a)
+  (mu-defmethod foo (&rest x) :when [:a :b] :b)
+
+  (mu-bench*
+    :times 1000
+    :compare t
+    (:a (foo :a))
+    (:b (foo :b))
+    (:a-a (foo :a :a))
+    (:b-b (foo :a :b)))
+#+end_src
+
+#+RESULTS:
+| Form | x slower | Total time | GCs |  GC time | Timestamp                |
+|------+----------+------------+-----+----------+--------------------------|
+| :a   |     1.00 |   0.018426 |   0 | 0.000000 | Thu Dec 27 10:35:22 2018 |
+| :a-a |     1.04 |   0.019175 |   0 | 0.000000 | Thu Dec 27 10:35:22 2018 |
+| :b-b |     1.04 |   0.019238 |   0 | 0.000000 | Thu Dec 27 10:35:22 2018 |
+| :b   |     1.05 |   0.019259 |   0 | 0.000000 | Thu Dec 27 10:35:22 2018 |
+
+Hierarchies are rarely used, so most cache benefit comes from avoiding to isa with every registered method (0-20 in this example). The more methods we register the more overhead choosing the one becomes. Keep in mind: cache may overflow if most of the time you go to the :default method, so need to think of cache excision eventually.
+
+#+begin_src emacs-lisp
+
+  (mu-defmulti foo #'identity)
+  (mu-defmethod foo (&rest args) :when 0  0)
+  (mu-defmethod foo (&rest args) :when 1  1)
+  (mu-defmethod foo (&rest args) :when 2  2)
+  (mu-defmethod foo (&rest args) :when 3  3)
+  (mu-defmethod foo (&rest args) :when 4  4)
+  (mu-defmethod foo (&rest args) :when 5  5)
+  (mu-defmethod foo (&rest args) :when 6  6)
+  (mu-defmethod foo (&rest args) :when 7  7)
+  (mu-defmethod foo (&rest args) :when 8  8)
+  (mu-defmethod foo (&rest args) :when 9  9)
+  (mu-defmethod foo (&rest args) :when 10 10)
+  (mu-defmethod foo (&rest args) :when 11 11)
+  (mu-defmethod foo (&rest args) :when 12 12)
+  (mu-defmethod foo (&rest args) :when 13 13)
+  (mu-defmethod foo (&rest args) :when 14 14)
+  (mu-defmethod foo (&rest args) :when 15 15)
+  (mu-defmethod foo (&rest args) :when 16 16)
+  (mu-defmethod foo (&rest args) :when 17 17)
+  (mu-defmethod foo (&rest args) :when 18 18)
+  (mu-defmethod foo (&rest args) :when 19 19)
+  (mu-defmethod foo (&rest args) :when 20 20)
+
+  (mu-bench/let ((random20 (byte-compile (lambda () (random 21)))))
+    (foo (funcall random20)))
+#+end_src
+
+#+RESULTS:
+| Total time | GCs |            GC time | Timestamp                |
+|------------+-----+--------------------+--------------------------|
+|   1.420547 |   8 | 0.7918730000000096 | Thu Dec 27 11:43:49 2018 |
 
 * locals
 
