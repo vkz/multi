@@ -5,10 +5,6 @@
 ;; https://github.com/alphapapa/emacs-package-dev-handbook#profiling--optimization
 
 
-;; TODO :ensure-equal
-;; TODO relative comparison i.e. slower-by X
-
-
 (require 'multi-prelude)
 
 
@@ -45,7 +41,8 @@
          ;; NOTE theoretically empty-time could be higher than the code-time, say
          ;; due to GC pause or Emacs background activity. Or the body is so simple
          ;; that float error dwarfs the result. Return code-time instead of delta
-         ;; if that happens.
+         ;; if that happens. I doubt time resolution in Elisp is even worth going
+         ;; for precision beyond certain point.
          (list
           ;; account for funcall overhead
           (if (> ,time-delta 0) ,time-delta ,code-time)
@@ -61,8 +58,8 @@ is requested collect results into an ORG-ready table. BODY will
 have access to the variables bound according to VARLIST.
 
 Accept optional arguments as attributes:
-  :times number-of-iterations (defaults to 10 000)
-  :raw   return-raw-data      (defaults to nil)
+  :times number  (defaults to 10 000)  - number of iterations
+  :raw   boolean (defaults to nil)     - return raw stats
 
 \(fn varlist &key times raw &rest body)"
   :declare ((indent 1))
@@ -86,12 +83,15 @@ Accept optional arguments as attributes:
   "Like `mu-bench/let' but bench every form in the BODY, where
 each form is a list (label &rest expr).
 
+Accept one extra attribute argument:
+  :compare boolean (defaults to nil) - relative performance
+
 \(fn varlist &key times raw &rest (label body...)"
   :declare ((indent 1))
   (default times :to 10000)
-  (let ((header  (if compare
-                     '(list "Form" "x slower" "Total time" "GCs" "GC time" "Timestamp")
-                   '(list "Form" "Total time" "GCs" "GC time" "Timestamp")))
+  (let ((header  (cond
+                  (compare  '(list "Form" "x slower" "Total time" "GCs" "GC time" "Timestamp"))
+                  (:default '(list "Form"            "Total time" "GCs" "GC time" "Timestamp"))))
         (process (if compare #'mu--add-relative-stats #'identity)))
     (with-gensyms (timestamp stats)
       `(let* ((,timestamp (current-time-string))
@@ -164,21 +164,12 @@ factor"
  (mu-bench*/let ((a 1)
                  (b 2))
    :times 10000
-
+   ;; These forms are so simple that an empty-lambda will on occasion have worse
+   ;; overhead than the one with actual computation resulting in negative
+   ;; time-delta, exactly the case which will return code-time, not the delta.
+   ;; Really, mu-bench or rather `benchmark.el' isn't well suited for such code.
    (:form1 (+ a b))
    (:form2 (* a b)))
- ;; example
- )
-
-
-(example
-
- (sort '((b 2) (d 5) (c 3) (a 1)) (-on #'< #'second))
-
- (defun -on (compare take)
-   (lambda (&rest args)
-     (when (apply compare args)
-       (funcall take args))))
  ;; example
  )
 
