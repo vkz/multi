@@ -290,63 +290,69 @@ TODO I think I'm testing the interpreted code here. I need the "dispatch" be byt
 multimethods vs generic dispatch
 
 #+begin_src emacs-lisp
-  (cl-defstruct foo-struct-0)
-  (cl-defstruct foo-struct-1)
-  (cl-defstruct foo-struct-2)
-  (cl-defstruct foo-struct-3)
-  (cl-defstruct foo-struct-4)
-  (cl-defstruct foo-struct-5)
-  (cl-defstruct foo-struct-6)
+  (mu-bench/context
 
-  ;; multi
-  (mu-defmulti foo-test #'type-of)
-  (mu-defmethod foo-test (x) :when 'foo-struct-1 1)
-  (mu-defmethod foo-test (x) :when 'foo-struct-2 2)
-  (mu-defmethod foo-test (x) :when 'foo-struct-3 3)
-  (mu-defmethod foo-test (x) :when 'foo-struct-4 4)
-  (mu-defmethod foo-test (x) :when 'foo-struct-5 5)
-  (mu-defmethod foo-test (x) :when 'foo-struct-6 6)
-  (mu-defmethod foo-test (x) :when :default 0)
+      ;; benchmark
+      (mu-bench*/let ((s0 (make-foo-struct-0))
+                      (s1 (make-foo-struct-1))
+                      (s2 (make-foo-struct-2))
+                      (s3 (make-foo-struct-3))
+                      (s4 (make-foo-struct-4))
+                      (s5 (make-foo-struct-5))
+                      (s6 (make-foo-struct-6)))
+        :times 1000
+        :compare t
+        (:generic (foo-struct-test s0)
+                  (foo-struct-test s1)
+                  (foo-struct-test s2)
+                  (foo-struct-test s3)
+                  (foo-struct-test s4)
+                  (foo-struct-test s5)
+                  (foo-struct-test s6))
 
-  ;; generic
-  (cl-defgeneric foo-struct-test (s) 0)
-  (cl-defmethod foo-struct-test ((s foo-struct-1)) 1)
-  (cl-defmethod foo-struct-test ((s foo-struct-2)) 2)
-  (cl-defmethod foo-struct-test ((s foo-struct-3)) 3)
-  (cl-defmethod foo-struct-test ((s foo-struct-4)) 4)
-  (cl-defmethod foo-struct-test ((s foo-struct-5)) 5)
-  (cl-defmethod foo-struct-test ((s foo-struct-6)) 6)
+        (:mu-method (foo-test s0)
+                    (foo-test s1)
+                    (foo-test s2)
+                    (foo-test s3)
+                    (foo-test s4)
+                    (foo-test s5)
+                    (foo-test s6)))
 
-  (mu-bench*/let ((s0 (make-foo-struct-0))
-                  (s1 (make-foo-struct-1))
-                  (s2 (make-foo-struct-2))
-                  (s3 (make-foo-struct-3))
-                  (s4 (make-foo-struct-4))
-                  (s5 (make-foo-struct-5))
-                  (s6 (make-foo-struct-6)))
-    :compare t
-    (:generic (foo-struct-test s0)
-              (foo-struct-test s1)
-              (foo-struct-test s2)
-              (foo-struct-test s3)
-              (foo-struct-test s4)
-              (foo-struct-test s5)
-              (foo-struct-test s6))
+    ;; context
 
-    (:mu-method (foo-test s0)
-                (foo-test s1)
-                (foo-test s2)
-                (foo-test s3)
-                (foo-test s4)
-                (foo-test s5)
-                (foo-test s6)))
+    (cl-defstruct foo-struct-0)
+    (cl-defstruct foo-struct-1)
+    (cl-defstruct foo-struct-2)
+    (cl-defstruct foo-struct-3)
+    (cl-defstruct foo-struct-4)
+    (cl-defstruct foo-struct-5)
+    (cl-defstruct foo-struct-6)
+
+    ;; multi
+    (mu-defmulti foo-test #'type-of)
+    (mu-defmethod foo-test (x) :when 'foo-struct-1 1)
+    (mu-defmethod foo-test (x) :when 'foo-struct-2 2)
+    (mu-defmethod foo-test (x) :when 'foo-struct-3 3)
+    (mu-defmethod foo-test (x) :when 'foo-struct-4 4)
+    (mu-defmethod foo-test (x) :when 'foo-struct-5 5)
+    (mu-defmethod foo-test (x) :when 'foo-struct-6 6)
+    (mu-defmethod foo-test (x) :when :default 0)
+
+    ;; generic
+    (cl-defgeneric foo-struct-test (s) 0)
+    (cl-defmethod foo-struct-test ((s foo-struct-1)) 1)
+    (cl-defmethod foo-struct-test ((s foo-struct-2)) 2)
+    (cl-defmethod foo-struct-test ((s foo-struct-3)) 3)
+    (cl-defmethod foo-struct-test ((s foo-struct-4)) 4)
+    (cl-defmethod foo-struct-test ((s foo-struct-5)) 5)
+    (cl-defmethod foo-struct-test ((s foo-struct-6)) 6))
 #+end_src
 
 #+RESULTS:
 | Form       | x slower | Total time | GCs |  GC time | Timestamp                |
 |------------+----------+------------+-----+----------+--------------------------|
-| :generic   |     1.00 |   0.020529 |   0 | 0.000000 | Thu Dec 27 10:49:29 2018 |
-| :mu-method |   219.09 |   4.497643 |  27 | 2.535174 | Thu Dec 27 10:49:29 2018 |
+| :generic   |     1.00 |   0.001652 |   0 | 0.000000 | Thu Dec 27 16:36:18 2018 |
+| :mu-method |   237.57 |   0.392460 |   2 | 0.194683 | Thu Dec 27 16:36:18 2018 |
 
 ** absolute performance
 
@@ -379,28 +385,32 @@ basic isa lookup
 dispatch on equality - no deep isa hierarchy traversal
 
 #+begin_src emacs-lisp
-  (mu-defmulti foo (lambda (&rest args) (apply #'vector args)))
-  (mu-defmethod foo (&rest x) :when [:a] :a)
-  (mu-defmethod foo (&rest x) :when [:b] :b)
-  (mu-defmethod foo (&rest x) :when [:a :a] :a)
-  (mu-defmethod foo (&rest x) :when [:a :b] :b)
+  (mu-bench/context
 
-  (mu-bench*
-    :times 1000
-    :compare t
-    (:a (foo :a))
-    (:b (foo :b))
-    (:a-a (foo :a :a))
-    (:b-b (foo :a :b)))
+      ;; benchmark
+      (mu-bench*
+        :times 1000
+        :compare t
+        (:a (foo :a))
+        (:b (foo :b))
+        (:a-a (foo :a :a))
+        (:b-b (foo :a :b)))
+
+    ;; context
+    (mu-defmulti foo (lambda (&rest args) (apply #'vector args)))
+    (mu-defmethod foo (&rest x) :when [:a] :a)
+    (mu-defmethod foo (&rest x) :when [:b] :b)
+    (mu-defmethod foo (&rest x) :when [:a :a] :a)
+    (mu-defmethod foo (&rest x) :when [:a :b] :b))
 #+end_src
 
 #+RESULTS:
 | Form | x slower | Total time | GCs |  GC time | Timestamp                |
 |------+----------+------------+-----+----------+--------------------------|
-| :a   |     1.00 |   0.018426 |   0 | 0.000000 | Thu Dec 27 10:35:22 2018 |
-| :a-a |     1.04 |   0.019175 |   0 | 0.000000 | Thu Dec 27 10:35:22 2018 |
-| :b-b |     1.04 |   0.019238 |   0 | 0.000000 | Thu Dec 27 10:35:22 2018 |
-| :b   |     1.05 |   0.019259 |   0 | 0.000000 | Thu Dec 27 10:35:22 2018 |
+| :b   |     1.00 |   0.017638 |   0 | 0.000000 | Thu Dec 27 16:38:10 2018 |
+| :a   |     1.02 |   0.017966 |   0 | 0.000000 | Thu Dec 27 16:38:10 2018 |
+| :b-b |     1.04 |   0.018348 |   0 | 0.000000 | Thu Dec 27 16:38:10 2018 |
+| :a-a |     1.05 |   0.018576 |   0 | 0.000000 | Thu Dec 27 16:38:10 2018 |
 
 Hierarchies are rarely used, so most cache benefit comes from avoiding to isa with every registered method (0-20 in this example). The more methods we register the more overhead choosing the one becomes. Keep in mind: cache may overflow if most of the time you go to the :default method, so need to think of cache excision eventually.
 
