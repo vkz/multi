@@ -67,6 +67,58 @@
           ,gc-delta)))))
 
 
+(defun mu-bench--in-context (let-context times raw compare context body &optional show temp-file)
+  (let* ((temp-file (or temp-file (make-temp-file "mu-bench" nil ".el")))
+         (bench (sym (gensym "bench")))
+         (contents (with-temp-buffer
+                     ;; enable lexical-binding
+                     (insert ";; -*- lexical-binding: t; -*-") (newline) (newline)
+                     ;; insert context to be compiled
+                     (insert (pp-to-string context)) (newline) (newline)
+                     ;; insert defun that runs benchmark
+                     (insert
+                      (pp-to-string
+                       `(defun ,bench ()
+                          (mu-bench*/let ,let-context
+                            :times ,times
+                            :raw ,raw
+                            :compare ,compare
+                            ,@body))))
+                     (buffer-string))))
+    (if show
+        ;; show context in temp buffer
+        (with-output-to-temp-buffer "*mu-bench-context*"
+          (prin1 contents) nil)
+      ;; insert context into temp file
+      (with-temp-file temp-file
+        (insert contents))
+      (unwind-protect
+          ;; byte-compile and load temp file
+          (if (byte-compile-file temp-file 'load)
+              ;; run benchmarks
+              (funcall (symbol-function bench))
+            (mu-error "in mu-bench failed to byte-compile and load context"))
+        ;; clean up
+        (delete-file temp-file)
+        (fmakunbound bench)
+        (unintern (symbol-name bench) nil)))))
+
+
+(comment
+ (mu-bench--in-context
+  '((a 1) (b 2))
+  5 nil nil
+  '(defun foobar () (princ (+ 2 3)))
+  '((:foobar (foobar)))
+  nil
+  (expand-file-name "foo.el"))
+
+
+ (mu-bench--in-context '((a 1) (b 2)) 1000 nil nil '(progn (+ 2 3)) '((+ 1 2)) 'show (expand-file-name "foo.el"))
+ ;; comment
+ )
+
+
 (mu-defmacro mu-bench/let [context | (ht| times raw [| body])]
   "Run `benchmark-run-compiled' BODY that many TIMES. Unless RAW
 is requested collect results into an ORG-ready table. BODY will
