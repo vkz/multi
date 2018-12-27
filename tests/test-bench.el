@@ -122,7 +122,12 @@ factor"
          (fastest (second (car fast-to-slow))))
     (mapcar
      (mu [[label time gcs gc timestamp]]
-       (list label (format "%.2f" (/ time fastest)) (format "%.6f" time) gcs gc timestamp))
+       (list label
+             (format "%.2f" (/ time fastest))
+             (format "%.6f" time)
+             gcs
+             (format "%.6f" gc)
+             timestamp))
      fast-to-slow)))
 
 
