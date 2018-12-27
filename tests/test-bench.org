@@ -285,6 +285,8 @@ captured in the following function:
 
 ** relative performance
 
+TODO I think I'm testing the interpreted code here. I need the "dispatch" be byte-compiled and running byte-code. Both the user-install foo-dispatcher and my mu-method lookup. I guess this means I want to (byte-compile #'foo-test)?
+
 multimethods vs generic dispatch
 
 #+begin_src emacs-lisp

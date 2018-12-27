@@ -337,6 +337,13 @@ This form is `setf'-able."
     (get fun-symbol :mu-methods)))
 
 
+;; TODO mu-methods is probably the most perf sensitivy function, so we shouldn't
+;; overload it. IMO better extract into a separate mu-dispatch: fun val hier ->
+;; methods, so it cane cache as needed. Also definitely don't need that argument
+;; parsing overhead or recursion. May keep this implementation around to let users
+;; reflect the dispatch as it happens, but use mu-dispatch for actual dispatch?
+
+
 (defun mu-methods (&rest args)
   "Returns a hash-table of FUN-SYM mu-methods, where each entry
 is a (value . method) pair.
@@ -919,6 +926,12 @@ a function.
  )
 
 
+;; NOTE Far as I can tell if I were to define some methods with mu-defmethod then
+;; compile that file and load it mu-methods table will have compiled lambdas, so
+;; that's good. But the (byte-compile (mu-defmethod ...)) doesn't seem to install
+;; compiled lambdas, not sure why.
+
+
 (cl-defmacro mu-defmethod (fun arglist &rest args)
   "Creates a new mu-defmethod associated with the dispatch
 function FUN and dispatch value VAL. ARGLIST follows full Common
@@ -1056,6 +1069,14 @@ Lisp conventions.
 ;; lookup with it. This probably means that hierarchies should be implemented as
 ;; structs or given a symbolic name so that they can keep such meta information in
 ;; the plist. IMO struct would be cleaner.
+;;
+;; Actually, the above paragraph isn't quite right. In my experience hierarchies
+;; are rarely used unless you have a quality global one that captures type
+;; hierarchies in the language and you often dispatch on type-of. Most cache
+;; benefit comes from not having to choose the method by sequentially doing isa
+;; with every registered dispatch value. So, as the number of registered methods
+;; grow you want to cache the choice you make based on the incomming value. In my
+;; case caching should be done for: (mu-methods :for val :in hierarchy)
 
 ;; TODO Lexical vs dynamic scope. Something I ran into by chance. `mu-tests.el'
 ;; doesn't have lexical scope on and this has interesting implications for

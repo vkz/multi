@@ -8,6 +8,17 @@
 (require 'multi-prelude)
 
 
+;; TODO beginning to think that what I often want is actually: put code in a file,
+;; byte-compile it, load it then run forms. So, somethnig like:
+;;
+;;   (mu-bench
+;;     :context (some code to be byte-compiled)
+;;     forms)
+;;
+;; context gets compiled and loaded once, then forms run :times for perf
+;; measurement
+
+
 ;; TODO consider :print option that simply prints result of execution. For quick
 ;; and easy sanity checks especially coupled with low number of :times.
 
