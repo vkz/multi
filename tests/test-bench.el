@@ -7,18 +7,6 @@
 
 (require 'multi-prelude)
 
-
-;; TODO beginning to think that what I often want is actually: put code in a file,
-;; byte-compile it, load it then run forms. So, somethnig like:
-;;
-;;   (mu-bench
-;;     :context (some code to be byte-compiled)
-;;     forms)
-;;
-;; context gets compiled and loaded once, then forms run :times for perf
-;; measurement
-
-
 ;; TODO consider :print option that simply prints result of execution. For quick
 ;; and easy sanity checks especially coupled with low number of :times.
 
@@ -192,6 +180,109 @@ factor"
    (:form2 (* a b)))
  ;; example
  )
+
+;; cause mu-case is freaking slow
+(setq-local mu-prefer-nested-pcase t)
+
+
+(mu-defmacro mu-bench _
+  :declare ((indent 1))
+
+  ;; (mu-bench let-varlist "doc" body)
+  ([(l | let-varlist) (and doc (?  stringp)) | (ht| times raw ts [| body])]
+   (default times :to 10000)
+   (default ts :to (current-time-string))
+   (let ((header '(list "Bench" "Total time" "GCs" "GC time" "Timestamp")))
+     (with-gensyms (stats)
+       `(let ((,stats (append
+                       ;; description
+                       (list ,doc)
+                       ;; list of perf stats
+                       ,(mu--bench/let let-varlist times body)
+                       ;; timestamp
+                       (list ,ts))))
+          (if ,raw
+              ,stats
+            (list ,header
+                  'hline
+                  ,stats))))))
+
+  ;; (mu-bench "doc" body)
+  ([(and (?  stringp) doc) | body]
+   `(mu-bench () ,doc ,@body))
+
+  ;; (mu-bench varlist body)
+  ([(l | let-varlist) | body]
+   `(mu-bench ,let-varlist "" ,@body))
+
+  ;; (mu-bench body)
+  ([| body]
+   `(mu-bench () "" ,@body)))
+
+
+(defun mu-bench--raw (bench let-varlist times ts)
+  (mu-case bench
+    (['mu-bench (l | let-bench-varlist) (and (?  stringp) doc) | (ht| [| body])]
+     `(mu-bench ,(append let-varlist let-bench-varlist) ,doc :times ,times :raw t :ts ,ts ,@body))
+
+    ;; (mu-bench "doc" body)
+    (['mu-bench (and (?  stringp) doc) | body]
+     (mu-bench--raw `(mu-bench () ,doc ,@body) let-varlist times ts))
+
+    ;; (mu-bench varlist body)
+    (['mu-bench (l | let-bench-varlist) | body]
+     (mu-bench--raw
+      `(mu-bench ,let-bench-varlist ,(symbol-name (gensym "bench")) ,@body)
+      let-varlist
+      times
+      ts))
+
+    ;; (mu-bench body)
+    (['mu-bench | body]
+     (mu-bench--raw `(mu-bench () ,(symbol-name (gensym "bench")) ,@body) let-varlist times ts))))
+
+
+(mu-defmacro mu-benches _
+  :declare ((indent 1))
+
+  ;; (mu-benches varlist "doc" body)
+  ([(l | let-varlist) (and doc (?  stringp)) | (ht| times raw compare [| body])]
+   (default times :to 10000)
+   (let* ((ts (current-time-string))
+          (benches (mapcar (lambda (bench) (mu-bench--raw bench let-varlist times ts)) body))
+          (header (cond
+                   (compare '(list "Bench" "x slower" "Total time" "GCs" "GC time" "Timestamp"))
+                   (:default '(list "Bench" "Total time" "GCs" "GC time" "Timestamp"))))
+          (process (if compare #'mu--add-relative-stats #'identity)))
+     (with-gensyms (stats)
+       `(let ((,stats (funcall #',process (list ,@benches))))
+          (if ,raw
+              ,stats
+            (list* ,header
+                   'hline
+                   ,stats))))))
+
+  ;; (mu-benches "doc" body)
+  ([(and (? stringp) doc) | body]
+   `(mu-benches () ,doc ,@body))
+
+  ;; (mu-benches varlist body)
+  ([(l | varlist) | body]
+   `(mu-benches ,varlist "" ,@body))
+
+  ;; (mu-benches body)
+  ([| body]
+   `(mu-benches () "" ,@body)))
+
+
+;; butt slow without `mu-prefer-nested-pcase'
+(mu-benches ((a 1)
+             (b 2))
+  "benches"
+  :times 5
+  :compare t
+  (mu-bench "bench 1" (princ (+ a b)))
+  (mu-bench "bench 2" (princ (+ 3 2))))
 
 
 (defvar mu-bench-debug nil)
