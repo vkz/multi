@@ -11,106 +11,108 @@
 ;; and easy sanity checks especially coupled with low number of :times.
 
 
-(defun mu--bench/let (context times body)
+(defvar mu-bench--override-ts nil)
+(defvar mu-bench--override-raw nil)
+(defvar mu-bench--override-run t)
+(defvar mu-bench--override-times nil)
+
+
+(defun mu--bench (doc times body ts &optional bindings)
   (with-gensyms (garbage time gcs gc gcs-delta gc-delta code-time empty-time time-delta
                          code-lambda empty-lambda)
 
     (let* ((lexical-binding t)
-           (bindings (mapcar #'car context))
+           ;; NOTE this whole bindings weirdness because Elisp manages to break
+           ;; lexical-scope in the most bizarre fashion, so I work around id. See:
+           ;; https://emacs.stackexchange.com/questions/46812/byte-compile-and-lexical-binding
            (code `(lambda (,@bindings) ,@body))
            (empty `(lambda (,@bindings))))
       `(let* (;; enable lexical scope
               (lexical-binding t)
-              (,code-lambda  (byte-compile ,code))
-              (,empty-lambda (byte-compile ,empty))
+              (,code-lambda    (byte-compile ,code))
+              (,empty-lambda   (byte-compile ,empty))
               ;; collect garbage
-              (,garbage    (garbage-collect))
+              (,garbage        (garbage-collect))
               ;; number of GC runs before benchmark
-              (,gcs         gcs-done)
+              (,gcs            gcs-done)
               ;; total GC time elapsed before benchmark
-              (,gc          gc-elapsed)
+              (,gc             gc-elapsed)
               ;; benchmark body
-              (,code-time  (benchmark-elapse (dotimes (,time (or mu-bench--override-times ,times))
-                                               (funcall ,code-lambda ,@bindings))))
+              (,code-time      (benchmark-elapse (dotimes (,time (or mu-bench--override-times ,times))
+                                                   (funcall ,code-lambda ,@bindings))))
               ;; collect GC deltas
-              (,gcs-delta  (- gcs-done ,gcs))
-              (,gc-delta   (- gc-elapsed ,gc))
+              (,gcs-delta      (- gcs-done ,gcs))
+              (,gc-delta       (- gc-elapsed ,gc))
               ;; collect garbage
-              (,garbage    (garbage-collect))
+              (,garbage        (garbage-collect))
               ;; benchmark empty body
-              (,empty-time (benchmark-elapse (dotimes (,time (or mu-bench--override-times ,times))
-                                               (funcall ,empty-lambda ,@bindings))))
-              (,time-delta (- ,code-time ,empty-time)))
+              (,empty-time     (benchmark-elapse (dotimes (,time (or mu-bench--override-times ,times))
+                                                   (funcall ,empty-lambda ,@bindings))))
+              (,time-delta     (- ,code-time ,empty-time)))
          ;; NOTE theoretically empty-time could be higher than the code-time, say
          ;; due to GC pause or Emacs background activity. Or the body is so simple
          ;; that float error dwarfs the result. Return code-time instead of delta
          ;; if that happens. I doubt time resolution in Elisp is even worth going
          ;; for precision beyond certain point.
          (list
+          ,doc
           ;; account for funcall overhead
           (if (> ,time-delta 0) ,time-delta ,code-time)
           ;; number of GC runs
           ,gcs-delta
           ;; total GC time
-          ,gc-delta)))))
+          ,gc-delta
+          (or mu-bench--override-ts ,ts))))))
 
 
-(mu-defmacro mu-bench/let [context | (ht| times raw [| body])]
-  "Run `benchmark-run-compiled' BODY that many TIMES. Unless RAW
-is requested collect results into an ORG-ready table. BODY will
-have access to the variables bound according to VARLIST.
+(defvar mu-bench--header  '(list "Form"            "Total time" "GCs" "GC time" "Timestamp"))
+(defvar mu-bench--header* '(list "Form" "x slower" "Total time" "GCs" "GC time" "Timestamp"))
 
-Accept optional arguments as attributes:
-  :times number  (defaults to 10 000)  - number of iterations
-  :raw   boolean (defaults to nil)     - return raw stats
 
-\(fn varlist &key times raw &rest body)"
-  :declare ((indent 1))
-  (default times :to 10000)
-  (let ((header '(list "Total time" "GCs" "GC time" "Timestamp")))
-    (with-gensyms (timestamp stats)
-      `(let* ((,timestamp (current-time-string))
-              (,stats (append
-                       ;; list of perf stats
-                       ,(mu--bench/let context times body)
-                       ;; timestamp
-                       (list ,timestamp))))
-         (if ,raw
+(defmacro mu-bench/let (varlist &optional doc &rest body)
+  "like `mu-bench' but with additional bindings per VARLIST.
+
+\(fn varlist &optional docstring &key name times raw &rest body)"
+  (declare (indent 1))
+
+  (unless (stringp doc)
+    (push doc body)
+    (setq doc "_"))
+
+  (mu-let (((ht| name times raw [| body]) body))
+    (default times :to 10000)
+    (let ((bindings (mapcar #'car varlist))
+          (stats (gensym "stats")))
+      `(let* ((lexical-binding t)
+              ,@varlist
+              (,stats ,(mu--bench (or name doc) times body (current-time-string) bindings)))
+         (if (or mu-bench--override-raw ,raw)
              ,stats
-           (list ,header
+           (list mu-bench--header
                  'hline
                  ,stats))))))
 
 
-(mu-defmacro mu-bench*/let [context | (ht| times raw compare [| body])]
-  "Like `mu-bench/let' but bench every form in the BODY, where
-each form is a list (label &rest expr).
+(mu-defmacro mu-bench*/let [varlist | (ht| times raw compare [| body])]
+  "Like `mu-bench*' but with additional bindings per VARLIST.
 
-Accept one extra attribute argument:
-  :compare boolean (defaults to nil) - relative performance
-
-\(fn varlist &key times raw &rest (label body...)"
+\(fn varlist &key times raw compare &rest mu-benches"
   :declare ((indent 1))
   (default times :to 10000)
-  (let ((header  (cond
-                  (compare  '(list "Form" "x slower" "Total time" "GCs" "GC time" "Timestamp"))
-                  (:default '(list "Form"            "Total time" "GCs" "GC time" "Timestamp"))))
-        (process (if compare #'mu--add-relative-stats #'identity)))
-    (with-gensyms (timestamp stats)
-      `(let* ((,timestamp (current-time-string))
-              (,stats (list ,@(cl-loop for form in body
-                                       collect `(append
-                                                 ;; form name
-                                                 (list ,(car form))
-                                                 ;; list of perf stats
-                                                 ,(mu--bench/let context times (cdr form))
-                                                 ;; timestamp
-                                                 (list ,timestamp))))))
-         (if ,raw
-             (funcall #',process ,stats)
-           (list* ,header
-                  'hline
-                  (funcall #',process ,stats)))))))
+  (let ((header  (if compare mu-bench--header* mu-bench--header))
+        (process (if compare #'mu--add-relative-stats #'identity))
+        (stats (gensym "stats")))
+    `(let* ((lexical-binding t)
+            (mu-bench--override-raw t)
+            (mu-bench--override-times ,times)
+            (mu-bench--override-ts (current-time-string))
+            ,@varlist
+            (,stats (list ,@body)))
+       (if ,raw
+           (funcall #',process ,stats)
+         (list* ,header
+                'hline
+                (funcall #',process ,stats))))))
 
 
 (mu-defun --by [field :on compare]
@@ -134,97 +136,52 @@ factor"
      fast-to-slow)))
 
 
-(defvar mu-bench--override-ts nil)
-(defvar mu-bench--override-raw nil)
-(defvar mu-bench--override-run t)
-(defvar mu-bench--override-times nil)
+(defmacro mu-bench (&rest args)
+  "Run `benchmark-run-compiled' BODY that many TIMES. Unless RAW
+is requested collect results into an ORG-ready table with
+headings.
+
+Accept optional arguments as attributes:
+  :name  string                        - same as docstring
+  :times number  (defaults to 10 000)  - number of iterations
+  :raw   boolean (defaults to nil)     - return raw stats
+
+\(fn &optional docstring &key name times raw &rest body)"
+  `(mu-bench/let nil ,@args))
 
 
-(defmacro mu-bench (name varlist &optional doc &rest body)
-  (declare (indent 1))
+(defmacro mu-bench* (&rest args)
+  "Like `mu-bench' but run multiple MU-BENCHES in the body.
 
-  (unless (stringp doc)
-    (push doc body)
-    (setq doc (symbol-name name)))
+Accept one extra attribute argument:
+  :compare boolean (defaults to nil) - relative performance
 
-  (mu-let (((ht| times raw [| body]) body))
-    (default times :to 10000)
-    (let ((header '(list "Bench" "Total time" "GCs" "GC time" "Timestamp")))
-      (with-gensyms (stats raw? ts?)
-        `(progn
-           (defun ,name ,(mapcar #'car varlist)
-             (let* ((,raw? (or mu-bench--override-raw ,raw))
-                    (,ts? (or mu-bench--override-ts (current-time-string)))
-                    (,stats (append
-                             ;; description
-                             (list ,doc)
-                             ;; list of perf stats
-                             ,(mu--bench/let varlist times body)
-                             ;; timestamp
-                             (list ,ts?))))
-               (if ,raw?
-                   ,stats
-                 (list ,header
-                       'hline
-                       ,stats))))
-
-           (when mu-bench--override-run
-             (,name ,@(mapcar #'cadr varlist))))))))
+\(fn &optional docstring &key name times raw &rest mu-benches)"
+  `(mu-bench*/let nil ,@args))
 
 
-(defmacro mu-benches (name varlist &optional doc &rest body)
-  (declare (indent defun)
-           (debug defun))
+(defmacro mu-defbench (name arglist &optional doc &rest body)
+  "doc"
+  (declare (indent defun))
 
   (unless (stringp doc)
     (push doc body)
     (setq doc (symbol-name name)))
 
-  (mu-let (((ht| times raw compare [| body]) body))
-    (default times :to 10000)
-    (let* ((ts (current-time-string))
-           (benches (mapcar (lambda (bench) (nth 1 bench)) body))
-           (values (mapcar (lambda (bench) (mapcar #'cadr (nth 2 bench))) body))
-           (bench-calls (cl-loop for bench in benches
-                                 for vals in values
-                                 collect `(,bench ,@vals)))
-           (header (cond
-                    (compare '(list "Bench" "x slower" "Total time" "GCs" "GC time" "Timestamp"))
-                    (:default '(list "Bench" "Total time" "GCs" "GC time" "Timestamp"))))
-           (process (if compare #'mu--add-relative-stats #'identity)))
-      (with-gensyms (stats)
-        `(progn
-           (defun ,name ,(mapcar #'car varlist)
-             ,doc
-             (let* ((lexical-binding t)
-                    (mu-bench--override-raw t)
-                    (mu-bench--override-times ,times)
-                    (mu-bench--override-ts ,ts)
-                    (mu-bench--override-run nil))
-               ,@body
-               (let ((,stats (funcall #',process (list ,@bench-calls))))
-                 (if ,raw
-                     ,stats
-                   (list* ,header
-                          'hline
-                          ,stats)))))
-
-           (,name ,@(mapcar #'cadr varlist)))))))
+  `(defun ,name ,arglist
+     (mu-bench/let nil ,@body)))
 
 
+(defmacro mu-defbench* (name arglist &optional doc &rest body)
+  "doc"
+  (declare (indent defun))
 
-(comment
- (mu-benches foo-benches ((a 1)
-                          (b 2))
-   "benches"
-   :times 5
-   :compare t
-   (mu-bench foo-bench () (princ (+ a b)))
-   (mu-bench bar-bench () (princ (+ 3 2))))
+  (unless (stringp doc)
+    (push doc body)
+    (setq doc (symbol-name name)))
 
- (mu-bench bar-bench () (princ (+ 3 2)))
- ;; comment
- )
+  `(defun ,name ,arglist
+     (mu-bench*/let nil ,@body)))
 
 
 (defvar mu-bench-debug nil)
@@ -233,9 +190,6 @@ factor"
 (defmacro mu-bench/context (mu-bench &rest context)
   (declare (indent 1))
   (let* ((temp-file (make-temp-file "mu-bench" nil ".el"))
-         (bench (nth 1 mu-bench))
-         (let-varlist (nth 2 mu-bench))
-         (values (mapcar #'cadr let-varlist))
          (contents (with-temp-buffer
                      ;; enable lexical-binding
                      (insert ";; -*- lexical-binding: t; -*-") (newline) (newline)
@@ -254,21 +208,49 @@ factor"
            (insert ,contents))
          (unwind-protect
              ;; byte-compile and load temp file
-             (if (byte-compile-file ,temp-file 'load)
-                 ;; run benchmarks
-                 (,bench ,@values)
-               (mu-error "in mu-bench failed to byte-compile and load context"))
+             (or (byte-compile-file ,temp-file 'load)
+                 (mu-error "in mu-bench failed to byte-compile and load context"))
            ;; clean up
            (delete-file ,temp-file))))))
 
 
 (example
+
+ (mu-bench :times 3 (princ (+ 1 2)))
+
+ (mu-bench*
+   :times 3
+   :compare t
+   (mu-bench "1" (princ (+ 1 2)))
+   (mu-bench/let ((a 1)) "2" (princ (+ 1 a))))
+
+ (mu-bench*/let ((a 0)
+                 (b 1))
+   :times 3
+   :compare t
+   (mu-bench "1" (princ (+ a b)))
+   (mu-bench/let ((a 1)) "2" (princ (+ a b))))
+
+ (mu-defbench bar-bench (a b)
+   :times 3
+   (princ (+ a b)))
+
+ (bar-bench 1 2)
+
+ (mu-defbench* foo-bench (a b)
+   :times 3
+   :compare t
+   (mu-bench :name "1" (princ (+ a b)))
+   (mu-bench/let ((a 1)) :name "2" (princ (+ a b))))
+
+ (foo-bench 0 1)
+
  (let ((mu-bench-debug t))
    (mu-bench/context
        ;; benchmark
-       (mu-bench foo-bench ((a 1) (b 2))
-         :times 5
-         (princ (list (foobar) (barfoo))))
+       (mu-bench/let ((a 1) (b 2))
+         :times 3
+         (princ (list (foobar) (barfoo) a b)))
      ;; context
      (defun foobar () 'foobar)
      (defun barfoo () 'barfoo)))
