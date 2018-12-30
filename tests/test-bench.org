@@ -1,3 +1,4 @@
+# -*- lexical-binding: t; -*-
 
 #+PROPERTY: header-args :results table raw prepend value :cache no
 
@@ -29,31 +30,37 @@ decide if its good enough for them.
 #+begin_src emacs-lisp
   (mu-bench*
     :compare t
-    ("multi-case" (let* ((test-cases '(() (1) (1 2) (1 2 3) (1 2 3 4)))
-                         (len (length test-cases))
-                         (test-case (lambda () (nth (random len) test-cases))))
-                    (mu-case (funcall test-case)
-                      ((lst) 0)
-                      ((lst _) 1)
-                      ((lst _ _) 2)
-                      ((lst _ _ _) 3)
-                      (otherwise 'many))))
-    ("pcase" (let* ((test-cases '(() (1) (1 2) (1 2 3) (1 2 3 4)))
-                    (len (length test-cases))
-                    (test-case (lambda () (nth (random len) test-cases))))
-               (pcase (funcall test-case)
-                 (`nil 0)
-                 (`(,_) 1)
-                 (`(,_ ,_) 2)
-                 (`(,_ ,_ ,_) 3)
-                 (otherwise 'many)))))
+    (mu-bench "multi-case"
+      (let* ((test-cases '(() (1) (1 2) (1 2 3) (1 2 3 4)))
+             (len (length test-cases))
+             (test-case (lambda () (nth (random len) test-cases))))
+        (mu-case (funcall test-case)
+          ((lst) 0)
+          ((lst _) 1)
+          ((lst _ _) 2)
+          ((lst _ _ _) 3)
+          (otherwise 'many))))
+    (mu-bench "pcase"
+      (let* ((test-cases '(() (1) (1 2) (1 2 3) (1 2 3 4)))
+             (len (length test-cases))
+             (test-case (lambda () (nth (random len) test-cases))))
+        (pcase (funcall test-case)
+          (`nil 0)
+          (`(,_) 1)
+          (`(,_ ,_) 2)
+          (`(,_ ,_ ,_) 3)
+          (otherwise 'many)))))
 #+end_src
 
 #+RESULTS:
-| Form       | x slower | Total time | GCs | GC time | Timestamp                |
-|------------+----------+------------+-----+---------+--------------------------|
-| pcase      |     1.00 |   0.001325 |   0 |     0.0 | Thu Dec 27 08:41:01 2018 |
-| multi-case |     1.56 |   0.002069 |   0 |     0.0 | Thu Dec 27 08:41:01 2018 |
+| Form       | x slower | Total time | GCs |  GC time | Timestamp                |
+|------------+----------+------------+-----+----------+--------------------------|
+| multi-case |     1.00 |   0.002010 |   0 | 0.000000 | Sun Dec 30 11:34:41 2018 |
+| pcase      |     1.06 |   0.002134 |   0 | 0.000000 | Sun Dec 30 11:34:41 2018 |
+| Form       | x slower | Total time | GCs |  GC time | Timestamp                |
+|------------+----------+------------+-----+----------+--------------------------|
+| pcase      |     1.00 |   0.001325 |   0 |      0.0 | Thu Dec 27 08:41:01 2018 |
+| multi-case |     1.56 |   0.002069 |   0 |      0.0 | Thu Dec 27 08:41:01 2018 |
 
 *** mu-let
 
@@ -62,28 +69,36 @@ mu-let is terribly slow and triggers GC
 #+begin_src emacs-lisp
   (mu-bench*
     :compare t
-    ("seq-let" (mapcar
-                (lambda (arg)
-                  (seq-let (s1 &rest d) arg
-                    (seq-let (a &rest t2) s1
-                      (seq-let (b c) (seq-elt t2 0)
-                        (list a b c d)))))
-                (list '((1 (2 3)) 4) [[1 [2 3]] 4])))
+    (mu-bench "seq-let"
+      (mapcar
+       (lambda (arg)
+         (seq-let (s1 &rest d) arg
+           (seq-let (a &rest t2) s1
+             (seq-let (b c) (seq-elt t2 0)
+               (list a b c d)))))
+       (list '((1 (2 3)) 4) [[1 [2 3]] 4])))
 
-    ("mu-let" (mapcar
-               (lambda (arg)
-                 (mu-let (([[a &rest [[b c]]] &rest d] arg))
-                   (list a b c d)))
-               (list '((1 (2 3)) 4) [[1 [2 3]] 4])))
+    (mu-bench "mu-let"
+      (mapcar
+       (lambda (arg)
+         (mu-let (([[a &rest [[b c]]] &rest d] arg))
+           (list a b c d)))
+       (list '((1 (2 3)) 4) [[1 [2 3]] 4])))
 
-    ("mu-case" (mapcar
-                (lambda (arg)
-                  (mu-case arg
-                    ([[a &rest [[b c]]] &rest d] (list a b c d))))
-                (list '((1 (2 3)) 4) [[1 [2 3]] 4]))))
+    (mu-bench "mu-case"
+      (mapcar
+       (lambda (arg)
+         (mu-case arg
+           ([[a &rest [[b c]]] &rest d] (list a b c d))))
+       (list '((1 (2 3)) 4) [[1 [2 3]] 4]))))
 #+end_src
 
 #+RESULTS:
+| Form    | x slower | Total time | GCs |  GC time | Timestamp                |
+|---------+----------+------------+-----+----------+--------------------------|
+| seq-let |     1.00 |   0.032032 |   0 | 0.000000 | Sun Dec 30 11:45:50 2018 |
+| mu-case |     6.94 |   0.222181 |   0 | 0.000000 | Sun Dec 30 11:45:50 2018 |
+| mu-let  |    15.79 |   0.505918 |   1 | 0.046986 | Sun Dec 30 11:45:50 2018 |
 | Form    | x slower | Total time | GCs |  GC time | Timestamp                |
 |---------+----------+------------+-----+----------+--------------------------|
 | seq-let |     1.00 |   0.031043 |   0 | 0.000000 | Thu Dec 27 08:44:16 2018 |
@@ -115,21 +130,27 @@ mu-let is terribly slow and triggers GC
 
 #+begin_src emacs-lisp
   (mu-bench*
-    :compare t
-    ("ht-get" (let* ((table (ht (:a 1) ('b 2) (:c 3) ('d 4)))
-                     (a (ht-get table :a))
-                     (b (ht-get table 'b))
-                     (c (ht-get table :c))
-                     (D (ht-get table 'd)))
-                (list a b c D)))
+   :compare t
+   (mu-bench "ht-get"
+     (let* ((table (ht (:a 1) ('b 2) (:c 3) ('d 4)))
+            (a (ht-get table :a))
+            (b (ht-get table 'b))
+            (c (ht-get table :c))
+            (D (ht-get table 'd)))
+       (list a b c D)))
 
-    ("ht-pattern" (mu-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
-                    ;; NOTE this one is richer than the ht-get version cause
-                    ;; it tries different keys :a 'a "a" in order
-                    ((ht :a b 'c ('d D)) (list a b c D)))))
+   (mu-bench "ht-pattern"
+     (mu-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
+       ;; NOTE this one is richer than the ht-get version cause
+       ;; it tries different keys :a 'a "a" in order
+       ((ht :a b 'c ('d D)) (list a b c D)))))
 #+end_src
 
 #+RESULTS:
+| Form       | x slower | Total time | GCs |  GC time | Timestamp                |
+|------------+----------+------------+-----+----------+--------------------------|
+| ht-pattern |     1.00 |   0.079156 |   1 | 0.049057 | Sun Dec 30 11:47:27 2018 |
+| ht-get     |     1.05 |   0.082799 |   1 | 0.046360 | Sun Dec 30 11:47:27 2018 |
 | Form       | x slower | Total time | GCs |  GC time | Timestamp                |
 |------------+----------+------------+-----+----------+--------------------------|
 | ht-pattern |     1.00 |   0.130536 |   1 | 0.095632 | Thu Dec 27 08:46:47 2018 |
@@ -138,17 +159,23 @@ mu-let is terribly slow and triggers GC
 
 #+begin_src emacs-lisp
   (mu-bench*
-    :compare t
-    ("ht-get" (let* ((l (list (ht (:a 1)) '((:b . 2))))
-                     (a (ht-get (car l) :a))
-                     (b (alist-get :b (cadr l))))
-                (list a b)))
+   :compare t
+   (mu-bench "ht-get"
+     (let* ((l (list (ht (:a 1)) '((:b . 2))))
+            (a (ht-get (car l) :a))
+            (b (alist-get :b (cadr l))))
+       (list a b)))
 
-    ("ht-pattern" (mu-case (list (ht (:a 1)) '((:b . 2)))
-                    ((l (ht :a) (ht b)) (list a b)))))
+   (mu-bench "ht-pattern"
+     (mu-case (list (ht (:a 1)) '((:b . 2)))
+       ((l (ht :a) (ht b)) (list a b)))))
 #+end_src
 
 #+RESULTS:
+| Form       | x slower | Total time | GCs |  GC time | Timestamp                |
+|------------+----------+------------+-----+----------+--------------------------|
+| ht-pattern |     1.00 |   0.064096 |   1 | 0.046210 | Sun Dec 30 11:47:52 2018 |
+| ht-get     |     1.12 |   0.071720 |   1 | 0.047829 | Sun Dec 30 11:47:52 2018 |
 | Form       | x slower | Total time | GCs |  GC time | Timestamp                |
 |------------+----------+------------+-----+----------+--------------------------|
 | ht-get     |     1.00 |   0.118207 |   1 | 0.096840 | Thu Dec 27 08:47:22 2018 |
@@ -158,15 +185,21 @@ mu-let is terribly slow and triggers GC
 
 #+begin_src emacs-lisp
   (mu-bench*
-    :compare t
-    ("lambda" (let ((fun (lambda () t)))
-                (funcall fun)))
+   :compare t
+   (mu-bench "lambda"
+     (let ((fun (lambda () t)))
+       (funcall fun)))
 
-    ("mu-lambda" (let ((fun (mu [] t)))
-                   (funcall fun))))
+   (mu-bench "mu-lambda"
+     (let ((fun (mu [] t)))
+       (funcall fun))))
 #+end_src
 
 #+RESULTS:
+| Form      | x slower | Total time | GCs |  GC time | Timestamp                |
+|-----------+----------+------------+-----+----------+--------------------------|
+| mu-lambda |     1.00 |   0.000613 |   0 | 0.000000 | Sun Dec 30 11:48:29 2018 |
+| lambda    |     1.49 |   0.000915 |   0 | 0.000000 | Sun Dec 30 11:48:29 2018 |
 | Form      | x slower | Total time | GCs |  GC time | Timestamp                |
 |-----------+----------+------------+-----+----------+--------------------------|
 | lambda    |     1.00 |   0.000499 |   0 | 0.000000 | Thu Dec 27 08:48:50 2018 |
@@ -176,12 +209,16 @@ I don't think this is apples to apples comparison, need a better bench.
 
 #+begin_src emacs-lisp
   (mu-bench*
-    :compare t
-    ("lambda" (funcall (lambda (a b &rest args) (list* a b args)) 1 2 3 4))
-    ("mu-lambda" (funcall (mu [a b | args] (list* a b args)) 1 2 3 4)))
+   :compare t
+   (mu-bench "lambda" (funcall (lambda (a b &rest args) (list* a b args)) 1 2 3 4))
+   (mu-bench "mu-lambda" (funcall (mu [a b | args] (list* a b args)) 1 2 3 4)))
 #+end_src
 
 #+RESULTS:
+| Form      | x slower | Total time | GCs |  GC time | Timestamp                |
+|-----------+----------+------------+-----+----------+--------------------------|
+| lambda    |     1.00 |   0.000627 |   0 | 0.000000 | Sun Dec 30 11:49:01 2018 |
+| mu-lambda |   151.09 |   0.094734 |   0 | 0.000000 | Sun Dec 30 11:49:01 2018 |
 | Form      | x slower | Total time | GCs |  GC time | Timestamp                |
 |-----------+----------+------------+-----+----------+--------------------------|
 | lambda    |     1.00 |   0.000718 |   0 | 0.000000 | Thu Dec 27 08:49:00 2018 |
@@ -189,22 +226,28 @@ I don't think this is apples to apples comparison, need a better bench.
 
 #+begin_src emacs-lisp
   (mu-bench*
-    :compare t
-    ("lambda" (let ((fun (lambda (&rest args)
-                           (pcase args
-                             ((or `(,a ,b) `[,a ,b]) (list a b))
-                             ((or `(,a ,b ,c) `[,a ,b ,c]) (list a b c))))))
-                (list (funcall fun 1 2)
-                      (funcall fun 1 2 3))))
+   :compare t
+   (mu-bench "lambda"
+     (let ((fun (lambda (&rest args)
+                  (pcase args
+                    ((or `(,a ,b) `[,a ,b]) (list a b))
+                    ((or `(,a ,b ,c) `[,a ,b ,c]) (list a b c))))))
+       (list (funcall fun 1 2)
+             (funcall fun 1 2 3))))
 
-    ("mu-lambda" (let ((fun (mu _
-                              ([a b] (list a b))
-                              ([a b c] (list a b c)))))
-                   (list (funcall fun 1 2)
-                         (funcall fun 1 2 3)))))
+   (mu-bench "mu-lambda"
+     (let ((fun (mu _
+                  ([a b] (list a b))
+                  ([a b c] (list a b c)))))
+       (list (funcall fun 1 2)
+             (funcall fun 1 2 3)))))
 #+end_src
 
 #+RESULTS:
+| Form      | x slower | Total time | GCs |  GC time | Timestamp                |
+|-----------+----------+------------+-----+----------+--------------------------|
+| mu-lambda |     1.00 |   0.003206 |   0 | 0.000000 | Sun Dec 30 11:49:27 2018 |
+| lambda    |     1.19 |   0.003807 |   0 | 0.000000 | Sun Dec 30 11:49:27 2018 |
 | Form      | x slower | Total time | GCs |  GC time | Timestamp                |
 |-----------+----------+------------+-----+----------+--------------------------|
 | mu-lambda |     1.00 |   0.003443 |   0 | 0.000000 | Thu Dec 27 08:50:05 2018 |
@@ -302,21 +345,23 @@ multimethods vs generic dispatch
                       (s6 (make-foo-struct-6)))
         :times 1000
         :compare t
-        (:generic (foo-struct-test s0)
-                  (foo-struct-test s1)
-                  (foo-struct-test s2)
-                  (foo-struct-test s3)
-                  (foo-struct-test s4)
-                  (foo-struct-test s5)
-                  (foo-struct-test s6))
+        (mu-bench "generic"
+          (foo-struct-test s0)
+          (foo-struct-test s1)
+          (foo-struct-test s2)
+          (foo-struct-test s3)
+          (foo-struct-test s4)
+          (foo-struct-test s5)
+          (foo-struct-test s6))
 
-        (:mu-method (foo-test s0)
-                    (foo-test s1)
-                    (foo-test s2)
-                    (foo-test s3)
-                    (foo-test s4)
-                    (foo-test s5)
-                    (foo-test s6)))
+        (mu-bench "multi"
+          (foo-test s0)
+          (foo-test s1)
+          (foo-test s2)
+          (foo-test s3)
+          (foo-test s4)
+          (foo-test s5)
+          (foo-test s6)))
 
     ;; context
 
@@ -351,6 +396,10 @@ multimethods vs generic dispatch
 #+RESULTS:
 | Form       | x slower | Total time | GCs |  GC time | Timestamp                |
 |------------+----------+------------+-----+----------+--------------------------|
+| generic    |     1.00 |   0.001680 |   0 | 0.000000 | Sun Dec 30 11:12:15 2018 |
+| multi      |   244.41 |   0.410613 |   2 | 0.210106 | Sun Dec 30 11:12:15 2018 |
+| Form       | x slower | Total time | GCs |  GC time | Timestamp                |
+|------------+----------+------------+-----+----------+--------------------------|
 | :generic   |     1.00 |   0.001652 |   0 | 0.000000 | Thu Dec 27 16:36:18 2018 |
 | :mu-method |   237.57 |   0.392460 |   2 | 0.194683 | Thu Dec 27 16:36:18 2018 |
 
@@ -364,15 +413,23 @@ basic isa lookup
   (mu-bench*
     :times 1000
     :compare t
-    (:equal    (mu-isa? 42 42))
-    (:direct   (mu-isa? :rect   :shape))
-    (:indirect (mu-isa? :square :shape))
-    (:seq1     (mu-isa? [:square :rect]  [:rect :shape]))
-    (:seq2     (mu-isa? [:square :shape] [:rect :shape]))
-    (:nested   (mu-isa? [[:dot :parallelogram] :square] [[:shape :multiangle] :rect])))
+    (mu-bench "equal"    (mu-isa? 42 42))
+    (mu-bench "direct"   (mu-isa? :rect   :shape))
+    (mu-bench "indirect" (mu-isa? :square :shape))
+    (mu-bench "seq1"     (mu-isa? [:square :rect]  [:rect :shape]))
+    (mu-bench "seq2"     (mu-isa? [:square :shape] [:rect :shape]))
+    (mu-bench "nested"   (mu-isa? [[:dot :parallelogram] :square] [[:shape :multiangle] :rect])))
 #+end_src
 
 #+RESULTS:
+| Form      | x slower | Total time | GCs |  GC time | Timestamp                |
+|-----------+----------+------------+-----+----------+--------------------------|
+| equal     |     1.00 |   0.000603 |   0 | 0.000000 | Sun Dec 30 11:13:09 2018 |
+| indirect  |     6.82 |   0.004114 |   0 | 0.000000 | Sun Dec 30 11:13:09 2018 |
+| direct    |     6.89 |   0.004154 |   0 | 0.000000 | Sun Dec 30 11:13:09 2018 |
+| seq2      |    12.86 |   0.007752 |   0 | 0.000000 | Sun Dec 30 11:13:09 2018 |
+| seq1      |    18.04 |   0.010876 |   0 | 0.000000 | Sun Dec 30 11:13:09 2018 |
+| nested    |    28.42 |   0.017139 |   0 | 0.000000 | Sun Dec 30 11:13:09 2018 |
 | Form      | x slower | Total time | GCs |  GC time | Timestamp                |
 |-----------+----------+------------+-----+----------+--------------------------|
 | :equal    |     1.00 |   0.000477 |   0 | 0.000000 | Thu Dec 27 11:45:38 2018 |
@@ -391,10 +448,10 @@ dispatch on equality - no deep isa hierarchy traversal
       (mu-bench*
         :times 1000
         :compare t
-        (:a (foo :a))
-        (:b (foo :b))
-        (:a-a (foo :a :a))
-        (:b-b (foo :a :b)))
+        (mu-bench "a" (foo :a))
+        (mu-bench "b" (foo :b))
+        (mu-bench "a-a" (foo :a :a))
+        (mu-bench "b-b" (foo :a :b)))
 
     ;; context
     (mu-defmulti foo (lambda (&rest args) (apply #'vector args)))
@@ -405,6 +462,12 @@ dispatch on equality - no deep isa hierarchy traversal
 #+end_src
 
 #+RESULTS:
+| Form | x slower | Total time | GCs |  GC time | Timestamp                |
+|------+----------+------------+-----+----------+--------------------------|
+| a    |     1.00 |   0.017098 |   0 | 0.000000 | Sun Dec 30 11:14:02 2018 |
+| b    |     1.10 |   0.018743 |   0 | 0.000000 | Sun Dec 30 11:14:02 2018 |
+| b-b  |     1.10 |   0.018848 |   0 | 0.000000 | Sun Dec 30 11:14:02 2018 |
+| a-a  |     1.12 |   0.019098 |   0 | 0.000000 | Sun Dec 30 11:14:02 2018 |
 | Form | x slower | Total time | GCs |  GC time | Timestamp                |
 |------+----------+------------+-----+----------+--------------------------|
 | :b   |     1.00 |   0.017638 |   0 | 0.000000 | Thu Dec 27 16:38:10 2018 |
@@ -444,12 +507,13 @@ Hierarchies are rarely used, so most cache benefit comes from avoiding to isa wi
 #+end_src
 
 #+RESULTS:
-| Total time | GCs |            GC time | Timestamp                |
-|------------+-----+--------------------+--------------------------|
-|   1.420547 |   8 | 0.7918730000000096 | Thu Dec 27 11:43:49 2018 |
+| Form | Total time | GCs |            GC time | Timestamp                |
+|------+------------+-----+--------------------+--------------------------|
+| _    |   1.442045 |   7 | 0.7474569999999403 | Sun Dec 30 11:30:35 2018 |
 
 * locals
 
 # Local Variables:
+# lexical-binding: t
 # org-confirm-babel-evaluate: nil
 # End:

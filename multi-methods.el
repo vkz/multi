@@ -33,6 +33,14 @@
  to define a new multi dispatch or method while in a dynamically
  scoped environment.")
 
+;; TODO (mu-lexical-binding) check is somehow subtly broken when you
+;; byte-compile-file that defines multimethods and then load. With lexical-binding
+;; set it remains on when you compile, but on load it appears nil. I don't know
+;; what's going on. Either byte-compile is subtly broken, or by the time we
+;; byte-compile every defun is already a closure and load happens in dynamic
+;; environment. Until I figure this out, I am disabling this check. See:
+;; https://emacs.stackexchange.com/questions/46812/byte-compile-and-lexical-binding
+(setq mu-lexical-binding nil)
 
 (defun mu-lexical-binding ()
   "Signal an error depending on the setting of
