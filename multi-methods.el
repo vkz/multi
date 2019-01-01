@@ -1,5 +1,8 @@
 ;; -*- lexical-binding: t; -*-
 
+;; TODO go over all code and try to avoid using let-over lambdas. Basically don't
+;; assume we're lexically scoped and everything is a closure. I'd like everything
+;; to work with lexical-binding nil at least for obvious cases.
 
 (require 'multi-prelude)
 (require 'multi-patterns)
@@ -762,176 +765,89 @@ HIERARCHY. Returns that method or signals an error."
 ;;* Multi --------------------------------------------------------- *;;
 
 
-(defmacro mu-defmulti (fun &rest args)
-  "Creates a new mu-method dispatch function. The DOCSTRING and
-HIERARCHY are optional. HIERARCHY if not supplied defaults to the
-global hierarchy.
-
-May be called according to one of the following signatures:
-
-  (mu-defmulti name argvector &optional docstring :in hierarchy body...)
-  (mu-defmulti name function &optional docstring :in hierarchy)
-
-where ARGVECTOR is a vector of arguments that follows full Common
-Lisp arglist convention, FUNCTION is any expression that returns
-a function.
-
-\(fn name argvector &optional docstring :in hierarchy body...)"
-  (declare (indent 2))
-  (destructuring-bind
-      (err dispatch doc hierarchy)
-      (pcase args
-        ;; (mu-defmulti foo [a b &rest args] "doc" :in hierarchy e1 e2)
-        (`(,(multi arglist :if vectorp) ,(multi doc :if stringp) :in ,hierarchy . ,body)
-         (list nil `(fn ,(seq-into arglist 'list) ,@body) doc hierarchy))
-
-        ;; (mu-defmulti foo [a b &rest args] :in hierarchy e1 e2)
-        (`(,(multi arglist :if vectorp) :in ,hierarchy . ,body)
-         (list nil `(fn ,(seq-into arglist 'list) ,@body) "" hierarchy))
-
-        ;; (mu-defmulti foo [a b &rest args] "doc" e1 e2)
-        (`(,(multi arglist :if vectorp) ,(multi doc :if stringp) . ,body)
-         (list nil `(fn ,(seq-into arglist 'list) ,@body) doc 'mu-global-hierarchy))
-
-        ;; (mu-defmulti foo [a b &rest args] e1 e2)
-        (`(,(multi arglist :if vectorp) . ,body)
-         (list nil `(fn ,(seq-into arglist 'list) ,@body) "" 'mu-global-hierarchy))
-
-        ;; (mu-defmulti foo fn-returning-expr "doc" :in hierarchy)
-        (`(,f ,(multi doc :if stringp) :in ,hierarchy)
-         (list nil f doc hierarchy))
-
-        ;; (mu-defmulti foo fn-returning-expr :in hierarchy)
-        (`(,f :in ,hierarchy)
-         (list nil f "" hierarchy))
-
-        ;; (mu-defmulti foo fn-returning-expr "doc")
-        (`(,f ,(multi doc :if stringp))
-         (list nil f doc 'mu-global-hierarchy))
-
-        ;; (mu-defmulti foo fn-returning-expr)
-        (`(,f)
-         (list nil f "" 'mu-global-hierarchy))
-
-        (otherwise
-         ;; TODO If we signal an an error immediately no relevant `condition-case'
-         ;; would catch it, because IIUC it only traps runtime but we throw at
-         ;; macro expansion, so instead I need to generate code that throws.
-         ;; Wonder if there is a way to trap compile time errors?
-         (list `(mu-error "in mu-defmulti malformed arglist at %s" ',args) nil nil nil)))
-    (or
-     err
-     `(progn
-
-        ;; check if lexical binding is enabled
-        (mu-lexical-binding)
-
-        ;; create a dispatch function
-        (defun ,fun (&rest args)
-          ,doc
-          (let* ((val     (apply (get ',fun :mu-dispatch) args))
-                 (methods (mu-methods :for ',fun :matching val :in ,hierarchy))
-                 (method  (mu--select-preferred ',fun methods ,hierarchy val)))
-            (apply method args)))
-
-        ;; set fun value slot to return its quoted form, this lets us pass fun
-        ;; around as value and still not break functions that expect a symbol
-        (setf ,fun ',fun)
-
-        ;; reset dispatch prop to the dispatch function
-        (setf (get ',fun :mu-dispatch) ,dispatch)
-
-        ;; reset mu-methods prop to a fresh table with :default pre-installed
-        (setf (get ',fun :mu-methods) (ht))
-
-        ;; reset mu-prefers prop to a fresh table
-        (setf (get ',fun :mu-prefers) (ht))
-        (setf (mu-prefers ',fun ,hierarchy) (ht))
-
-        ;; pre-install default method
-        (setf (get ',fun :mu-default)
-              (fn (&rest args)
-                (mu-error
-                 "no mu-methods match dispatch value %s for dispatch %s "
-                 (apply (get ',fun :mu-dispatch) args)
-                 ',fun)))
-
-        ;; TODO Invalidate mu-methods cache here. Need to do this to catch
-        ;; cases where fun simply gets redefined and may hold cache for previous
-        ;; dispatch function
-        ))))
+;; TODO do I really need to take hierarchy as an argument? Can't I make
+;; hierarchies dynamic i.e. override `mu-global-hierarchy' before calling
+;; something and you're done? That would certainly decouple hierarchies from
+;; multi-dispatch making the whole thing less tangled (something IMO Clojure gets
+;; wrong here). Would simplify my implementation, too, since I won't have to keep
+;; track of hierarchies being used.
+;;
+;; (let ((mu-global-hierarchy custom-hierarchy))
+;;    (foo a b))
 
 
-(defun mu--dispatch-defun (fun dispatch doc hierarchy)
-  `(progn
+(defmacro mu-defmulti (name arglist &optional docstring &rest body)
+  "Define a new multi-dispatch function NAME. If ARGLIST and BODY
+follow an `mu-defun' single or multi-head calling convention use
+mu-lambda to create a dispatch function, else assume CL-arglist.
+If ARGLIST is itself a function, the BODY is ignored and that
+function is used to dispatch.
 
-     ;; check if lexical binding is enabled
-     (mu-lexical-binding)
+The following attributes can appear before the BODY:
 
-     ;; create a dispatch function
-     (defun ,fun (&rest args)
-       ,doc
-       (let* ((val (apply (get ',fun :mu-dispatch) args))
-              (methods (mu-methods :for ',fun :matching val :in ,hierarchy))
-              (method (mu--select-preferred ',fun methods ,hierarchy val)))
-         (apply method args)))
+  :in hierarchy (defaults to mu-global-hierarchy)"
+  (declare (indent defun))
 
-     ;; set fun value slot to return its quoted form, this lets us pass fun
-     ;; around as value and still not break functions that expect a symbol
-     (setf ,fun ',fun)
+  (unless (stringp docstring)
+    (push docstring body)
+    (setq docstring ""))
 
-     ;; reset dispatch prop to the dispatch function
-     (setf (get ',fun :mu-dispatch) ,dispatch)
+  (let* ((mu-multi-head? (mu--defun-multi-head-body body))
+         (attrs (car (mu--prefix-map body)))
+         (dispatch (cond
+                    ;; TODO testing for function at compile time feels off. Can we
+                    ;; really do it reliably or am I mixing the two phases? Do I
+                    ;; push it to runtime?
+                    ((mu-function? arglist) arglist)
+                    ((vectorp arglist)      `(mu ,arglist ,@body))
+                    (mu-multi-head?         `(mu ,arglist ,@body))
+                    ((listp arglist)        `(fn ,arglist ,@body))
+                    (:else
+                     `(mu-error "in mu-defmulti %s malformed arglist or body" ',name)))))
 
-     ;; reset mu-methods prop to a fresh table with :default pre-installed
-     (setf (get ',fun :mu-methods) (ht))
+    (with-gensyms (args hierarchy val methods method)
+      ;; TODO let-over-lambda breaks outside of `lexical-binding'. E.g.
+      ;; multi-methods don't work in *scratch*. I only move this hierarchy outside
+      ;; to avoid re-computing it if the user creates it at call site.
+      `(let ((,hierarchy (or ,(ht-get attrs :in) mu-global-hierarchy)))
 
-     ;; reset mu-prefers prop to a fresh table
-     (setf (get ',fun :mu-prefers) (ht))
-     (setf (mu-prefers ',fun ,hierarchy) (ht))
+         ;; check if lexical binding is enabled
+         (mu-lexical-binding)
 
-     ;; pre-install default method
-     (setf (get ',fun :mu-default)
-           (fn (&rest args)
-             (mu-error
-              "no mu-methods match dispatch value %s for dispatch %s "
-              (apply (get ',fun :mu-dispatch) args)
-              ',fun)))))
+         ;; create a dispatch function
+         (defun ,name (&rest ,args)
+           ,docstring
+           (let* ((,val     (apply (get ',name :mu-dispatch) ,args))
+                  (,methods (mu-methods :for ',name :matching ,val :in ,hierarchy))
+                  (,method  (mu--select-preferred ',name ,methods ,hierarchy ,val)))
+             (apply ,method ,args)))
 
+         ;; set fun value slot to return its quoted form, this lets us pass fun
+         ;; around as value and still not break functions that expect a symbol
+         (setf ,name ',name)
 
-(comment
- (mu-defmacro mu-defmulti (fun &rest args)
-   :doc "string"
-   :sig ""
-   :declare ((indent 2))
-   ([(multi arglist :if vectorp) (multi doc :if stringp) :in hierarchy &rest body]
-    (mu--dispatch-defun fun `(fn (seq-into ,arglist 'list) ,@body) doc hierarchy))
+         ;; reset dispatch prop to the dispatch function
+         (setf (get ',name :mu-dispatch) ,dispatch)
 
-   ([(multi arglist :if vectorp) :in hierarchy &rest body]
-    `(multi ,fun ,arglist "" :in ,hierarchy ,@body))
+         ;; reset mu-methods prop to a fresh table with :default pre-installed
+         (setf (get ',name :mu-methods) (ht))
 
-   ([(multi arglist :if vectorp) (multi doc :if stringp) &rest body]
-    `(multi ,fun ,arglist ,doc :in 'mu-global-hierarchy ,@body))
+         ;; reset mu-prefers prop to a fresh table
+         (setf (get ',name :mu-prefers) (ht))
+         (setf (mu-prefers ',name ,hierarchy) (ht))
 
-   ([(multi arglist :if vectorp) &rest body]
-    `(multi ,fun ,arglist "" :in 'mu-global-hierarchy ,@body))
+         ;; pre-install default method
+         (setf (get ',name :mu-default)
+               (lambda (&rest ,args)
+                 (mu-error
+                  "no mu-methods match dispatch value %s for dispatch %s "
+                  (apply (get ',name :mu-dispatch) ,args)
+                  ',name)))
 
-   ([f (multi doc :if stringp) :in hierarchy]
-    (mu--dispatch-defun fun f doc hierarchy))
-
-   ([f :in hierarchy]
-    (mu--dispatch-defun fun f "" hierarchy))
-
-   ([f (multi doc :if stringp)]
-    (mu--dispatch-defun fun f "" 'mu-global-hierarchy))
-
-   ([f]
-    (list nil f "" 'mu-global-hierarchy))
-
-   (otherwise
-    `(mu-error "in mu-defmulti malformed arglist at %s" 'args)))
- ;; comment
- )
+         ;; TODO Invalidate mu-methods cache here. Need to do this to catch
+         ;; cases where fun simply gets redefined and may hold cache for previous
+         ;; dispatch function
+         ))))
 
 
 ;; NOTE Far as I can tell if I were to define some methods with mu-defmethod then
@@ -940,55 +856,27 @@ a function.
 ;; compiled lambdas, not sure why.
 
 
-(cl-defmacro mu-defmethod (fun arglist &rest args)
-  "Creates a new mu-defmethod associated with the dispatch
-function FUN and dispatch value VAL. ARGLIST follows full Common
-Lisp conventions.
-
-\(fn fun arglist :when val body...)"
-  (pcase args
-    (`(:when ,val . ,body)
-     (let ((method `(fn ,arglist ,@body)))
-       `(progn
-
-          ;; check if lexical binding is enabled
-          (mu-lexical-binding)
-
-          ;; add new method to the mu-methods table
-          (setf (ht-get* (get ',fun :mu-methods) ,val) ,method)
-
-          ;; TODO invalidate mu-methods cache
-          )))
-    (otherwise
-     `(mu-error "in mu-defmethod malformed arglist at %s" ',args))))
-
-
-;;* Playground ---------------------------------------------------- *;;
-
-
-(comment
- ;; Syntax examples
- (mu-defmulti foo (lambda (a b &rest args) e1 e2) "doc" :in hierarchy)
- (mu-defmulti foo (lambda (a b &rest args) e1 e2) :in hierarchy)
- (mu-defmulti foo (lambda (a b &rest args) e1 e2) "doc")
- (mu-defmulti foo (lambda (a b &rest args) e1 e2))
-
- (mu-defmulti foo 'foo-fun "doc" :in hierarchy)
- (mu-defmulti foo 'foo-fun :in hierarchy)
- (mu-defmulti foo 'foo-fun "doc")
- (mu-defmulti foo 'foo-fun)
-
- (mu-defmulti foo [a b &rest args] "doc" :in hierarchy e1 e2)
- (mu-defmulti foo [a b &rest args] :in hierarchy e1 e2)
- (mu-defmulti foo [a b &rest args] "doc" e1 e2)
- (mu-defmulti foo [a b &rest args] e1 e2)
-
- ;; Same but pseudo-coded with &optional and &rest
- (mu-defmulti foo (lambda (a &rest args) body) &optional "doc" :in hierarchy)
- (mu-defmulti foo #'dispatch &optional "doc" :in hierarchy)
- (mu-defmulti foo [a &rest args] &optional "doc" :in hierarchy &rest body)
- ;; example
- )
+(defmacro mu-defmethod (name arglist :when val &rest body)
+  "Add a new method to multi-dispatch function NAME for dispatch
+value VAL. If ARGLIST and BODY follow an `mu-defun' single or
+multi-head calling convention use mu-lambda to create a method,
+else assume CL-arglist."
+  (declare (indent defun))
+  (let* ((mu-multi-head? (mu--defun-multi-head-body body))
+         (method (cond
+                  ((mu-function? arglist) arglist)
+                  ((vectorp arglist)      `(mu ,arglist ,@body))
+                  (mu-multi-head?         `(mu ,arglist ,@body))
+                  ((listp arglist)        `(fn ,arglist ,@body))
+                  (:else
+                   `(mu-error "in mu-defmethod %s malformed arglist or body" ',name)))))
+    `(progn
+       ;; check if lexical binding is enabled
+       (mu-lexical-binding)
+       ;; add new method to the mu-methods table
+       (setf (ht-get* (get ',name :mu-methods) ,val) ,method)
+       ;; TODO invalidate mu-methods cache
+       )))
 
 
 ;;* Provide ------------------------------------------------------- *;;
@@ -999,19 +887,11 @@ Lisp conventions.
 
 ;; TODO hoist all error messages to Error section
 
-;; TODO maybe `curry' and `rcurry'?
-
 ;; TODO Elisp specific idea is to allow supplying setters in mu-methods, so that
 ;; mu-defmethod invocation can be used with gv setters like `setf', `push', `callf'
 ;; etc. That makes perfect sence if your dispatch is for looking up some location
 ;; based on arguments. It may on occasion be quite natural to use the same syntax
 ;; to set new value to that location.
-
-;; TODO parsing all those defun args has become very tedious. I almost wish I
-;; didn't insist on optional keyword args so much. Bulk of the code here does this
-;; nonsence. Should drop this and go with the flow, or does Elisp has some hidden
-;; way of dealing with them? Or maybe my patterns are repetitive enough that I
-;; could abstract them into a macro?
 
 ;; TODO Using list as a set is dumb and f-ing slow for membership lookup. Could I
 ;; just fake a set as a hash-table {:member t, ...}? That would speed up
@@ -1034,10 +914,6 @@ Lisp conventions.
 ;; TODO dispatch cache
 
 ;; TODO hierarchy cache
-
-;; TODO Make `mu-test' available here to be used in comments and examples
-
-;; TODO Create Makefile (stick to ANSI make): ert batch test, measure perf
 
 ;; NOTE on caching. There are two obvious things we can cache.
 ;;
@@ -1149,7 +1025,6 @@ Lisp conventions.
 ;; applied even though this here val isn't a seq
 ;; (mu-defmethod foo (&rest args) :when (?  pred-p) body)
 
-
 ;; TODO Hierarchy is orthogonal to `multi' dispatch function. However in Clojure
 ;; you may change it (only?) in `defmulti', but IMO it makes more sence to be able
 ;; to pass it to mu-defmethod invocations (not even definitions). Need to think if
@@ -1159,15 +1034,3 @@ Lisp conventions.
 ;; practical benefit? When? How?
 ;; (mu-defmethod foo (a b) :isa :b body)
 ;; (mu-defmethod foo (a b) :parent-of :b body)
-
-;; TODO Should I overload (mu-rel x relates-to? x) to be used as predicate:
-;; (if (mu-rel y parent-of? x) do stuff) or define (mu-rel? ...)?
-
-;; TODO How hard would it be to add body from (example foo body) forms to the
-;; docstring of 'foo? Might be worth implementing something like:
-;;
-;;   (defun/example foo (&rest args)
-;;     :doc "docstring"
-;;     :example (example that runs whenever defun is evaled
-;;                       and its stringified copy appended to docstring)
-;;     body)

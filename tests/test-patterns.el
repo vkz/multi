@@ -668,8 +668,8 @@
     (mu-defun ht-and-seq= [[table1 seq1] [table2 seq2]]
       (and (equal seq1 seq2)
            (let* ((car->str (lambda (pair) (symbol-name (car pair))))
-                  (table1 (sort (ht->alist table1) (-on #'string< car->str)))
-                  (table2 (sort (ht->alist table2) (-on #'string< car->str))))
+                  (table1 (sort (ht->alist table1) (--by car->str :on #'string<)))
+                  (table2 (sort (ht->alist table2) (--by car->str :on #'string<))))
              (equal table1 table2))))
 
     (should (ht-and-seq= (list (ht (:b 2) (:a 1)) '(3 4 5))

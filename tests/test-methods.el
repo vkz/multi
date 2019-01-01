@@ -1,3 +1,6 @@
+;; -*- lexical-binding: t; -*-
+
+
 (load-file "test-prelude.el")
 
 
@@ -203,6 +206,91 @@
     (should (mu--set-equal? '(:default) (ht-keys (mu-methods :for 'foo :matching :a))))))
 
 
+(ert-deftest mu-test-multi-methods ()
+  "multi-methods should work"
+  (mu-test (foo)
+
+    ;; regular function dispatch
+    (mu-defmulti foo #'vector)
+
+    (mu-defmethod foo (a b) :when [:a :b] [:a :b])
+    (mu-defmethod foo (a b) :when [:c :d] [:c :d])
+
+    (should (equal [:a :b] (foo :a :b)))
+    (should (equal [:c :d] (foo :c :d)))
+    (should (mu--error-match "no mu-methods match" (foo :a :d)))
+
+
+    ;; regular defun dispatch
+    (mu-defmulti foo (&rest args)
+      "docstring"
+      :in mu-global-hierarchy
+      (apply #'vector args))
+
+    (mu-defmethod foo (a b) :when [:a :b] [:a :b])
+    (mu-defmethod foo (a b) :when [:c :d] [:c :d])
+
+    (should (equal [:a :b] (foo :a :b)))
+    (should (equal [:c :d] (foo :c :d)))
+
+
+    ;; single-head dispatch, simple methods
+    (mu-defmulti foo [_ [arg]]
+      "docstring"
+      :in mu-global-hierarchy
+      arg)
+
+    (mu-defmethod foo (a b) :when 1 1)
+    (mu-defmethod foo (a b) :when 2 2)
+
+    (should (eq 1 (foo 0 [1])))
+    (should (eq 2 (foo 0 [2])))
+    (should (mu--error-match "no mu-methods match" (foo 0 [3])))
+
+
+    ;; mu-lambda dispatch, destructuring methods
+    (mu-defmulti foo (mu [_ [arg]] arg)
+      "docstring"
+      :in mu-global-hierarchy)
+
+    (mu-defmethod foo [[a] _] :when 1 (list a))
+    (mu-defmethod foo (mu [[a b] _] (list a b)) :when 2)
+
+    (should (equal '(a) (foo [a] [1])))
+    (should (equal '(a b) (foo [a b] [2])))
+
+
+    ;; mu-lambda dispatch, multi-head method
+    (mu-defmulti foo (mu [_ [arg]] arg)
+      "docstring"
+      :in mu-global-hierarchy)
+
+    (mu-defmethod foo [[a] _] :when 1 (list a))
+    (mu-defmethod foo (a b) :when 2
+      ([[a] _] (list a))
+      ([[a b] _] (list a b)))
+
+    (should (equal '(a) (foo [a] [1])))
+    (should (equal '(a b) (foo [a b] [2])))
+
+
+    ;; multi-head dispatch, simple methods
+    (mu-defmulti foo (&rest args)
+      "docstring"
+      :in mu-global-hierarchy
+      ([a] a)
+      ([a b] b))
+
+    (mu-defmethod foo (&rest args) :when 1 1)
+    (mu-defmethod foo (&rest args) :when 2 2)
+
+    (should (eq 1 (foo 1)))
+    (should (eq 2 (foo 1 2)))
+
+    ;; example
+    ))
+
+
 ;;* dispatch ----------------------------------------------------- *;;
 
 
@@ -360,13 +448,7 @@
     ;; catch cycle relationships
     (should (mu--error-match "in mu-rel cyclic relationship" (mu-rel :shape isa :square)))
     ;; full cycle path should be reported
-    (should (equal '(:square :rect :shape) (mu--cycle? :shape :square)))
-
-    ;; catch malformed arglist in `multi' call
-    (should (mu--error-match "in mu-defmulti malformed arglist" (mu-defmulti bar :val [a b])))
-
-    ;; catch malformed arglist in `mu-method' call
-    (should (mu--error-match "in mu-defmethod malformed arglist" (mu-defmethod bar :val [a b])))))
+    (should (equal '(:square :rect :shape) (mu--cycle? :shape :square)))))
 
 
 ;;* custom-hierarchies ------------------------------------------- *;;

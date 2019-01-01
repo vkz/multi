@@ -91,6 +91,13 @@ message prefix matches PREFIX"
  )
 
 
+(mu-defun --by [field :on compare]
+  "Create a `sort' compatible comparator that COMPAREs object
+substructures extracted with FIELD."
+  (lambda (&rest args)
+    (apply compare (mapcar field args))))
+
+
 ;;* Perf --------------------------------------------------------- *;;
 
 

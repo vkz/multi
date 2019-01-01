@@ -827,10 +827,16 @@ Any []-pattern is permissive and assumes open-world collections."
 
 
 (defun mu-function? (obj)
+  "Like functionp but accounts for #'function and mu-lambda.
+Intended to be used at compile time on code objects. Not
+guaranteed to always do the right thing at runtime."
   (or (functionp obj)
       (when (listp obj)
-        (or (eq 'mu (car obj))
-            (eq 'μ (car obj))))))
+        (or (eq 'function (car obj))
+            (eq 'mu (car obj))
+            (eq 'μ (car obj))
+            (and (eq 'quote (car obj))
+                 (functionp (cadr obj)))))))
 
 
 (defun mu--defun-meta (body &optional map)
@@ -855,6 +861,15 @@ preamble"
   (and (listp body)
        (not (null body))
        (every #'mu--defun-clause? body)))
+
+
+(defun mu--defun-multi-head-body (body)
+  "If body is a list of :attr value pairs followed by
+mu-defun-clauses return the result of applying `mu--prefix-map'
+to it, else nil. Do not treat emty body as mu-defun-clauses."
+  (let ((attrs-clauses (mu--prefix-map body)))
+    (when (mu--defun-clauses? (cadr attrs-clauses))
+      attrs-clauses)))
 
 
 (defun mu--single-head-body (name case-expr-arg body)
