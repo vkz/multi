@@ -224,7 +224,7 @@
     ;; regular defun dispatch
     (mu-defmulti foo (&rest args)
       "docstring"
-      :in mu-global-hierarchy
+      :hierarchy mu-global-hierarchy
       (apply #'vector args))
 
     (mu-defmethod foo (a b) :when [:a :b] [:a :b])
@@ -237,7 +237,7 @@
     ;; single-head dispatch, simple methods
     (mu-defmulti foo [_ [arg]]
       "docstring"
-      :in mu-global-hierarchy
+      :hierarchy mu-global-hierarchy
       arg)
 
     (mu-defmethod foo (a b) :when 1 1)
@@ -251,7 +251,7 @@
     ;; mu-lambda dispatch, destructuring methods
     (mu-defmulti foo (mu [_ [arg]] arg)
       "docstring"
-      :in mu-global-hierarchy)
+      :hierarchy mu-global-hierarchy)
 
     (mu-defmethod foo [[a] _] :when 1 (list a))
     (mu-defmethod foo (mu [[a b] _] (list a b)) :when 2)
@@ -263,7 +263,7 @@
     ;; mu-lambda dispatch, multi-head method
     (mu-defmulti foo (mu [_ [arg]] arg)
       "docstring"
-      :in mu-global-hierarchy)
+      :hierarchy mu-global-hierarchy)
 
     (mu-defmethod foo [[a] _] :when 1 (list a))
     (mu-defmethod foo (a b) :when 2
@@ -277,7 +277,7 @@
     ;; multi-head dispatch, simple methods
     (mu-defmulti foo (&rest args)
       "docstring"
-      :in mu-global-hierarchy
+      :hierarchy mu-global-hierarchy
       ([a] a)
       ([a b] b))
 
@@ -363,7 +363,7 @@
     (mu-defmethod bar (x y) :when [:shape :rect] :shape-rect)
 
     ;; since no val is preferred, we start with an empty prefers table
-    (should (ht-empty? (mu-prefers bar mu-global-hierarchy)))
+    (should (ht-empty? (mu-prefers 'bar)))
 
     ;; and therefore report error when unable to choose a method
     (should (mu--error-match "multiple methods" (bar :rect :rect)))
@@ -372,33 +372,33 @@
     (mu-prefer 'bar [:rect :shape] :over [:shape :rect])
     (should (mu--set-equal?
              '([:shape :rect])
-             (mu-prefers bar mu-global-hierarchy [:rect :shape])))
+             (mu-prefers 'bar [:rect :shape])))
 
     ;; we should be able to register more than one prefer for the same value
     (mu-prefer 'bar [:rect :shape] :over [:parallelogram :rect])
     (should (mu--set-equal?
              '([:shape :rect] [:parallelogram :rect])
-             (mu-prefers bar mu-global-hierarchy [:rect :shape])))
+             (mu-prefers 'bar [:rect :shape])))
 
     ;; and the registered prefers should resolve the ambiguity
     (should (equal :rect-shape (bar :rect :rect)))
 
     ;; we should be able to remove a prefer
-    (mu-prefers-remove bar [:rect :shape] :over [:shape :rect])
+    (mu-prefers-remove 'bar [:rect :shape] :over [:shape :rect])
     (should (mu--set-equal?
              '([:parallelogram :rect])
-             (mu-prefers bar mu-global-hierarchy [:rect :shape])))
+             (mu-prefers 'bar [:rect :shape])))
 
     ;; and go back to ambiguity
     (should (mu--error-match "multiple methods" (bar :rect :rect)))
 
     ;; we should be able to remove all prefers for a value
-    (mu-prefers-remove bar [:rect :shape])
-    (should-not (mu-prefers bar mu-global-hierarchy [:rect :shape]))
+    (mu-prefers-remove 'bar [:rect :shape])
+    (should-not (mu-prefers 'bar [:rect :shape]))
 
     ;; we should be able to remove all registered prefers
-    (mu-prefers-remove bar :in mu-global-hierarchy)
-    (should (ht-empty? (mu-prefers bar mu-global-hierarchy)))
+    (mu-prefers-remove 'bar)
+    (should (ht-empty? (mu-prefers 'bar)))
 
     ;; inconsintent preferences shouldn't make it into mu-prefers
     (mu-prefer 'bar [:rect :shape] :over [:shape :rect])
@@ -455,122 +455,60 @@
 
 
 (ert-deftest mu-test-custom-hierarchy ()
-  "Mu-Methods should work with custom hierarchies"
-  ;; TODO Current implementation bakes the hierarchy at (mu-defmulti foo ...)
-  ;; definition, so every (foo ...) invocation will use the same hierarchy. In
-  ;; this respect we follow Clojure. My hunch, however, is this introduces
-  ;; unnecessary coupling between mu-methods and hierarchies. IMO hierarchies
-  ;; are in fact independent, so why marry the two linked but orthogonal concepts?
-  ;; Understandably, the case could be made that decoupling them doesn't add
-  ;; expressive power that would actually be used. That's certainly a good reason
-  ;; to follow Clojure.
+  "Should work with custom and overriden hierarchies"
+  (mu-test (bar)
 
-  ;; NOTE see note on lexical vs dynamic scope in `multi.el'
+    (let ((hierarchy-1 (make-mu-hierarchy))
+          (hierarchy-2 (make-mu-hierarchy)))
 
-  (eval
-   ;; NOTICE that we must `quote' the form for this to work!!!
-   '(mu-test (bar)
-      (let ((hierarchy (make-mu-hierarchy)))
-        ;; override :rect rel in custom hierarchy
-        (mu-rel :rect isa :parallelogram in hierarchy)
-        (mu-rel :square isa :rect in hierarchy)
-        ;; define mu-dispatch over the custom hierarchy
-        (mu-defmulti bar #'identity :in hierarchy)
-        (mu-defmethod bar (a) :when :parallelogram :parallelogram)
-        (let ((hierarchy (make-mu-hierarchy)))
-          (mu-rel :rect isa :shape in hierarchy)
-          (mu-rel :square isa :rect in hierarchy)
-          ;; Method calls should still use custom hierarchy, so that :rect and
-          ;; :square are :parallelograms
-          (should (equal :parallelogram (bar :rect)))
-          (should (equal :parallelogram (bar :square)))))
-      ;; even outside of both `let's we should get the same result
+      (mu-defmulti bar #'identity :hierarchy hierarchy-1)
+      (mu-defmethod bar (a) :when :parallelogram :parallelogram)
+      (mu-defmethod bar (a) :when :shape         :shape)
+
+      (mu-rel :rect isa :parallelogram in hierarchy-1)
+      (mu-rel :square isa :rect in hierarchy-1)
+
+      ;; should run with custom hierarchy-1
       (should (equal :parallelogram (bar :rect)))
-      (should (equal :parallelogram (bar :square))))
-   'lexical-scope))
+      (should (equal :parallelogram (bar :square)))
+
+      (mu-with-hierarchy hierarchy-2
+
+        ;; should extend hierarchy-2
+        (mu-rel :rect isa :shape)
+        (mu-rel :square isa :rect)
+
+        ;; should run with hierarchy-2 overriding hierarchy-1
+        (should (equal :shape (bar :rect)))
+        (should (equal :shape (bar :square))))
+
+      ;; should be back to the custom hierarchy-1
+      (should (equal :parallelogram (bar :rect)))
+      (should (equal :parallelogram (bar :square))))))
 
 
-;;* perf --------------------------------------------------------- *;;
+(ert-deftest mu-test-static-hierarchy ()
+  "Setting static-hierarchy should work"
+  (mu-test (bar)
 
+    (let ((hierarchy-1 (make-mu-hierarchy))
+          (hierarchy-2 (make-mu-hierarchy)))
 
-;; TODO Test mu-defmethod isa vs struct inheritance?
+      (mu-defmulti bar #'identity :static-hierarchy hierarchy-1)
+      (mu-defmethod bar (a) :when :parallelogram :parallelogram)
+      (mu-defmethod bar (a) :when :shape :shape)
 
-;; NOTE Rather ugly way to measure performance, but does the trick. We stack up
-;; mu-methods against built-in generic dispatch. Our generic dispatches on the
-;; type of its first argument, so to compare apples to apples we use #'type-of as
-;; our mu-dispatch. For mu-methods we run 10'000 repeats, each repeat
-;; performs 7 dispatches for a total of 70'000 dispatches. We do the same for
-;; generic dispatch.
-;;
-;; Without caching mu-methods are ~100x slower:
-;;
-;; (mu-test-perf)
-;; =>
-;; ((:mu-defmethod (:total . 2.364870071411133)
-;;                (:average . 3.3783858163016185e-05))
-;;  (:defmethod   (:total . 0.021378040313720703)
-;;                (:average . 3.0540057591029576e-07)))
+      (mu-rel :rect isa :parallelogram in hierarchy-1)
+      (mu-rel :square isa :rect in hierarchy-1)
 
+      ;; should run with custom hierarchy-1
+      (should (equal :parallelogram (bar :rect)))
+      (should (equal :parallelogram (bar :square)))
 
-(defun mu-test-perf ()
-  (mu-defmulti foo-test #'type-of)
-  (mu-defmethod foo-test (x) :when 'foo-struct-1 1)
-  (mu-defmethod foo-test (x) :when 'foo-struct-2 2)
-  (mu-defmethod foo-test (x) :when 'foo-struct-3 3)
-  (mu-defmethod foo-test (x) :when 'foo-struct-4 4)
-  (mu-defmethod foo-test (x) :when 'foo-struct-5 5)
-  (mu-defmethod foo-test (x) :when 'foo-struct-6 6)
-  (mu-defmethod foo-test (x) :when :default 0)
-
-  (cl-defstruct foo-struct-0)
-  (cl-defstruct foo-struct-1)
-  (cl-defstruct foo-struct-2)
-  (cl-defstruct foo-struct-3)
-  (cl-defstruct foo-struct-4)
-  (cl-defstruct foo-struct-5)
-  (cl-defstruct foo-struct-6)
-
-  (defgeneric foo-struct-test (s) 0)
-  (defmethod foo-struct-test ((s foo-struct-1)) 1)
-  (defmethod foo-struct-test ((s foo-struct-2)) 2)
-  (defmethod foo-struct-test ((s foo-struct-3)) 3)
-  (defmethod foo-struct-test ((s foo-struct-4)) 4)
-  (defmethod foo-struct-test ((s foo-struct-5)) 5)
-  (defmethod foo-struct-test ((s foo-struct-6)) 6)
-
-  (let ((s0 (make-foo-struct-0))
-        (s1 (make-foo-struct-1))
-        (s2 (make-foo-struct-2))
-        (s3 (make-foo-struct-3))
-        (s4 (make-foo-struct-4))
-        (s5 (make-foo-struct-5))
-        (s6 (make-foo-struct-6)))
-    (ht->alist
-     (ht
-      (:defmethod
-       (let* ((total (mu-test-time
-                       (cl-loop repeat 10000
-                                do (foo-struct-test s0)
-                                do (foo-struct-test s1)
-                                do (foo-struct-test s2)
-                                do (foo-struct-test s3)
-                                do (foo-struct-test s4)
-                                do (foo-struct-test s5)
-                                do (foo-struct-test s6))))
-              (average (/ total 7 10000)))
-         (list (cons :total total)
-               (cons :average average))))
-
-      (:mu-method
-       (let* ((total (mu-test-time
-                       (cl-loop repeat 10000
-                                do (foo-test s0)
-                                do (foo-test s1)
-                                do (foo-test s2)
-                                do (foo-test s3)
-                                do (foo-test s4)
-                                do (foo-test s5)
-                                do (foo-test s6))))
-              (average (/ total 7 10000)))
-         (list (cons :total total) (cons :average average))))))))
-
+      (mu-with-hierarchy hierarchy-2
+        ;; should extend hierarchy-2
+        (mu-rel :rect isa :shape)
+        (mu-rel :square isa :rect)
+        ;; should still run with hierarchy-1
+        (should (equal :parallelogram (bar :rect)))
+        (should (equal :parallelogram (bar :square)))))))

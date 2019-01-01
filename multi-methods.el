@@ -99,6 +99,33 @@ present. Without KEYS returns the entire table. Calls are
   (apply #'mu-hierarchy mu-global-hierarchy keys))
 
 
+(defvar mu--hierarchy-override nil)
+
+
+;; TODO another contender for caching. Cache would need to be invalidated whenever
+;; mu-defmulti for SYMBOL gets redefined, `mu--hierarchy-override' would need
+;; careful treatment - can't blindly memo here.
+(defsubst mu--hierarchy (&optional symbol)
+  "Return hierarchy attached to SYMBOL or `mu-global-hierarchy'"
+  (or
+   ;; static hierarchy tramps all and cannot be overriden
+   (when symbol (get symbol :static-hierarchy))
+   ;; dynamic hierarchy override trams both custom and global
+   mu--hierarchy-override
+   ;; custom hierarchy tramps global
+   (when symbol (get symbol :hierarchy))
+   ;; global hierarchy
+   mu-global-hierarchy))
+
+
+(defmacro mu-with-hierarchy (hierarchy &rest body)
+  "Use HIERARCHY for any multi-method calls for the dynamic
+extent of the body"
+  (declare (indent 1))
+  `(let ((mu--hierarchy-override ,hierarchy))
+     ,@body))
+
+
 ;; TODO is this code correct?
 (defun mu--cycle (child parent hierarchy)
   "Reports the cycle that the CHILD - PARENT relation would've
@@ -209,26 +236,9 @@ the global hierarchy.
          (list `(mu-error "in mu-rel malformed arglist at %s" ',args) nil nil nil)))
     (or
      err
-     (let ((hierarchy (or hierarchy 'mu-global-hierarchy)))
-       `(mu--rel ,child ,parent ,hierarchy)))))
-
-(comment
- (mu-defmacro mu-rel (&rest args)
-   :doc "docstring"
-   :sig "(fn child :isa parent &optional :in hierarchy)"
-   ([child (or 'isa :isa) parent]
-    (mu-rel child parent 'mu-global-hierarchy))
-
-   ([child (or 'isa :isa) parent (or 'in :in) hierarchy]
-    (mu-rel child parent hierarchy))
-
-   ([child parent hierarchy]
-    `(mu--rel ,child ,parent ,hierarchy))
-
-   (otherwise
-    `(mu-error "in mu-rel malformed arglist at %s" ',args)))
- ;; comment
- )
+     (with-gensyms (hier)
+       `(let ((,hier (or ,hierarchy (mu--hierarchy))))
+          (mu--rel ,child ,parent ,hier))))))
 
 
 (defun mu-isa? (x y &optional hierarchy)
@@ -236,7 +246,7 @@ the global hierarchy.
 HIERARCHY not supplied defaults to the global hierarchy
 
 \(fn child parent &optional hierarchy)"
-  (default hierarchy :to mu-global-hierarchy)
+  (default hierarchy :to (mu--hierarchy))
   (or (equal x y)
       (and (sequencep x)
            (sequencep y)
@@ -259,7 +269,7 @@ N signifies how far down generations PARENT is from CHILD. If
 HIERARCHY not supplied defaults to the global hierarchy
 
 \(fn child parent &optional hierarchy)"
-  (default hierarchy :to mu-global-hierarchy)
+  (default hierarchy :to (mu--hierarchy))
   (cond
    ((sequencep x)
     (and (sequencep y)
@@ -299,7 +309,7 @@ have duplicates."
   "Returns all ancestors of X such that (mu-isa? X ancestor).
 If HIERARCHY not supplied defaults to the global hierarchy. If
 COMPUTE? is t actually computes ancestors by walking the tree."
-  (default hierarchy :to mu-global-hierarchy)
+  (default hierarchy :to (mu--hierarchy))
   (default compute? :to nil)
   (if compute?
       (cl-delete-duplicates (mu--ancestors x hierarchy) :test #'equal)
@@ -322,7 +332,7 @@ may have duplicates."
 X). If HIERARCHY not supplied defaults to the global hierarchy.
 If COMPUTE? is t actually computes descendants by walking the
 tree."
-  (default hierarchy :to mu-global-hierarchy)
+  (default hierarchy :to (mu--hierarchy))
   (default compute? :to nil)
   (if compute?
       (cl-delete-duplicates (mu--descendants x hierarchy) :test #'equal)
@@ -361,8 +371,7 @@ is a (value . method) pair.
 
 When called with :for and :matching keywords limits the table to
 pairs where (mu-isa? VAL value) relationship holds or
-the (:default . method) if none match. If HIERARCHY not supplied
-defaults to the global hierarchy.
+the (:default . method) if none match.
 
 When called without :for and :matching keywords returns the
 entire table or the value nested in it if the sequence of KEYS is
@@ -370,11 +379,11 @@ supplied. This form is `setf'-able.
 
 May be called according to one of the following signatures:
 
-  (mu-methods :for fun-sym :matching val &optional :in hierarchy)
+  (mu-methods :for fun-sym :matching val)
   (mu-methods fun-sym &rest keys)
   (setf (mu-methods fun-sym &rest keys) val)
 
-\(fn :for fun-sym :matching val &optional :in hierarchy)"
+\(fn :for fun-sym :matching val)"
   (declare
    (gv-setter (lambda (val)
                 (pcase args
@@ -391,17 +400,14 @@ May be called according to one of the following signatures:
                    `(mu-error "in mu-methods malformed arglist at %s" ',args))))))
   ;; parse args
   (pcase args
+
     ;; (mu-methods :for 'fun :matching val)
     (`(:for ,fun :matching ,val)
-     (mu-methods :for fun :matching val :in mu-global-hierarchy))
-
-    ;; (mu-methods :for 'fun :matching val :in hierarchy)
-    (`(:for ,fun :matching ,val :in ,hierarchy)
      (let* ((mu-methods
              (get fun :mu-methods))
 
             (methods
-             (ht-select (fn (VAL _) (mu-isa? val VAL hierarchy)) mu-methods))
+             (ht-select (fn (VAL _) (mu-isa? val VAL (mu--hierarchy fun))) mu-methods))
 
             (methods
              (unless (ht-empty? methods) methods))
@@ -423,48 +429,6 @@ May be called according to one of the following signatures:
      (mu-error "in mu-methods malformed arglist at %s" args))))
 
 
-(comment
- (mu-defun mu-methods (&rest args)
-   :doc "docstring"
-   :sig "(fn :for fun-sym :matching val &optional :in hierarchy)"
-   ([:for fun :matching val]
-    (mu-methods :for fun :matching val :in mu-global-hierarchy))
-
-   ([:for fun :matching val :in hierarchy]
-    (let* ((mu-methods
-            (get fun :mu-methods))
-
-           (methods
-            (ht-select (fn (VAL _) (mu-isa? val VAL hierarchy)) mu-methods))
-
-           (methods
-            (unless (ht-empty? methods) methods))
-
-           (default-method
-             (unless methods
-               (ht
-                ;; Use custom :default if installed, fallback to the
-                ;; pre-installed default method otherwise
-                (:default (or (ht-get* mu-methods :default)
-                              (get fun :mu-default)))))))
-      (or methods default-method)))
-
-   ([(multi fun-symbol :if symbolp) &rest keys]
-    (apply #'mu--methods fun-symbol keys))
-
-   (otherwise
-    (mu-error "in mu-methods malformed arglist at %s" args))
-
-   :gv
-   ([(multi fun :if mu-rel?) &rest keys]
-    `(setf (mu--methods ',(sym fun) ,@keys) ,gv))
-
-   (otherwise
-    `(mu-error "in mu-methods malformed arglist at %s" ',args)))
- ;; comment
- )
-
-
 ;; NOTE this naming `mu-methods-remove' becomes more consistent if or when we
 ;; allow :before :after :around methods
 (defun mu-methods-remove (fun dispatch-value)
@@ -475,61 +439,33 @@ May be called according to one of the following signatures:
 ;;* Prefers ------------------------------------------------------- *;;
 
 
-;; TODO make hierarchy optional defaulting to the global hierarchy
-(defun mu-prefers (fun hierarchy &rest keys)
-  "Returns a table of (preferred value :over set of other values)
-in the hierarchy. If VAL supplied returns just tha set of other
-values over which VAL is preferred. This form is `setf'-able.
+(defun mu-prefers (fun &rest keys)
+  "Returns a table of preferred value :over set of other values.
+If VAL supplied returns just tha set of other values over which
+VAL is preferred. This form is `setf'-able.
 
-\(mu-prefers fun hierarchy &optional val)"
+\(mu-prefers fun &optional val)"
   (declare
    (gv-setter (lambda (val)
                 (if (cdr keys)
                     `(mu-error "in mu-prefers malformed arglist expected no more than one key, given %s" ',keys)
-                  `(setf (ht-get* (get ,fun :mu-prefers) (mu-hierarchy-id ,hierarchy) ,@keys) ,val)))))
+                  `(setf (ht-get* (get ,fun :mu-prefers) (mu-hierarchy-id (mu--hierarchy ,fun)) ,@keys) ,val)))))
   (if (cdr keys)
       ;; expect no more than one argument (VAL to prefer over others)
       (mu-error "in mu-prefers malformed arglist expected no more than one key, given %s" keys)
-    ;; return list of values over which (car keys) is preferred in hierarchy, or
-    ;; the entire prefers table for hierarchy if no keys supplied
-    (apply #'ht-get* (get fun :mu-prefers) (mu-hierarchy-id hierarchy) keys)))
+    ;; return list of values over which (car keys) is preferred, or the entire
+    ;; prefers table if no keys supplied
+    (apply #'ht-get* (get fun :mu-prefers) (mu-hierarchy-id (mu--hierarchy fun)) keys)))
 
 
-(comment
- (mu-defun mu-prefers (fun hierarchy &rest keys)
-   :doc "docstring"
-   :sig "(mu-prefers fun hierarchy &optional val)"
-   ([val]
-    (apply #'ht-get* (get fun :mu-prefers) (mu-hierarchy-id hierarchy) keys))
-
-   (otherwise
-    (mu-error
-     "in mu-prefers malformed arglist expected no more than one key, given %s"
-     keys))
-
-   :gv
-   ([val]
-    `(setf (ht-get* (get ,fun :mu-prefers) (mu-hierarchy-id ,hierarchy) ,@keys) ,gv))
-
-   (otherwise
-    (mu-error
-     "in mu-prefers malformed arglist expected no more than one key, given %s"
-     ',keys)))
- ;; comment
- )
-
-
-(defun mu--preference-cycle? (item parent fun &optional hierarchy)
-  "Checks if ITEM prefer over PARENT would form a cycle were the
-relationship added the mu-prefers of FUN assuming HIERARCHY
-and return that cycle. If HIERARCHY not supplied defaults to the
-global hierarchy"
-  (default hierarchy :to mu-global-hierarchy)
+(defun mu--preference-cycle? (item parent fun)
+  "Check if preferring ITEM over PARENT would form a cycle and
+return it."
   (if (equal item parent)
       (list parent)
     (when-let ((cycle (some
-                       (lambda (ancestor) (mu--preference-cycle? item ancestor fun hierarchy))
-                       (mu-prefers fun hierarchy parent))))
+                       (lambda (ancestor) (mu--preference-cycle? item ancestor fun))
+                       (mu-prefers fun parent))))
       (cons parent cycle))))
 
 
@@ -539,7 +475,7 @@ global hierarchy"
    (mu-prefer 'baz [:rect :shape] :over [:shape :rect])
    (mu-prefer 'baz [:shape :rect] :over [:parallelogram :rect])
    ;; (mu-prefer 'baz [:parallelogram :rect] :over [:rect :shape])
-   (mu--preference-cycle? [:parallelogram :rect] [:rect :shape] 'baz mu-global-hierarchy))
+   (mu--preference-cycle? [:parallelogram :rect] [:rect :shape] 'baz))
  ;; comment
  )
 
@@ -550,54 +486,32 @@ over dispatch VAL-Y when there is a conflict.
 
 May be called according to one of the following signatures:
 
-  (mu-prefer foo val-x :to val-y &optional :in hierarchy)
-  (mu-prefer foo val-x val-y &optional :in hierarchy)
+  (mu-prefer foo val-x :to val-y)
+  (mu-prefer foo val-x val-y)
 
-\(mu-prefer foo val-x :over val-y &optional :in hierarchy)"
+\(mu-prefer foo val-x :over val-y)"
   (destructuring-bind
-      (x y hierarchy)
+      (x y)
       (pcase args
 
-        ;; (mu-prefer foo x :over y :in hierarchy)
-        (`(,x ,(or :over :to) ,y . ,(or `(:in ,hierarchy) '()))
-         (list x y (or hierarchy mu-global-hierarchy)))
+        ;; (mu-prefer foo x :over y)
+        (`(,x ,(or :over :to) ,y)
+         (list x y))
 
-        ;; (mu-prefer foo x y :in hierarchy)
-        (`(,x ,y . ,(or `(:in ,hierarchy) '()))
-         (list x y (or hierarchy mu-global-hierarchy)))
+        ;; (mu-prefer foo x y)
+        (`(,x ,y)
+         (list x y))
 
         (otherwise
          (mu-error "in mu-prefer malformed arglist at %s" args)))
 
     ;; installing the preference mustn't create a cycle in mu-prefers
-    (when-let ((cycle (mu--preference-cycle? x y fun hierarchy)))
-      (mu-error "in mu-prefer cyclic preference %s over %s would form a cycle %s"
-                   x y cycle))
-
-    ;; install the preference x :over y
-    (pushnew y (mu-prefers fun hierarchy x))))
-
-
-(comment
- (mu-defun mu-prefer (fun &rest args)
-   :doc "string"
-   :sig "(mu-prefer foo val-x :over val-y &optional :in hierarchy)"
-   ([x (or :over :to) y :in hierarchy] (mu-prefer x y hierarchy))
-   ([x (or :over :to) y] (mu-prefer x y mu-global-hierarchy))
-
-   ([x y :in hierarchy] (mu-prefer x y hierarchy))
-   ([x y] (mu-prefer x y mu-global-hierarchy))
-   ([x y hierarchy]
-    (when-let ((cycle (mu--preference-cycle? x y fun hierarchy)))
+    (when-let ((cycle (mu--preference-cycle? x y fun)))
       (mu-error "in mu-prefer cyclic preference %s over %s would form a cycle %s"
                 x y cycle))
 
-    (pushnew y (mu-prefers fun hierarchy x)))
-
-   (otherwise
-    (mu-error "in mu-prefer malformed arglist at %s" args)))
- ;; comment
- )
+    ;; install the preference x :over y
+    (pushnew y (mu-prefers fun x))))
 
 
 ;; TODO We don't really need to implement `mu-prefers-remove' because we've
@@ -613,119 +527,52 @@ May be called according to one of the following signatures:
 (defun mu-prefers-remove (fun &rest args)
   "Causes the mu-method FUN to not prefer matches of dispatch
 VAL-X over dispatch VAL-Y when there is a conflict. If VAL-Y not
-supplied removes all prefers for VAL-X. If HIERARCHY not supplied
-defaults to the global hierarchy.
+supplied removes all prefers for VAL-X.
 
 May be called according to one of the following signatures:
 
-  (mu-prefers-remove foo val-x :to val-y &optional :in hierarchy)
-  (mu-prefers-remove foo val-x val-y &optional :in hierarchy)
-  (mu-prefers-remove foo val-x &optional :in hierarchy)
-  (mu-prefers-remove foo &optional :in hierarchy)
+  (mu-prefers-remove foo val-x :to val-y)
+  (mu-prefers-remove foo val-x val-y)
+  (mu-prefers-remove foo val-x)
+  (mu-prefers-remove foo)
 
-\(mu-prefers-remove foo val-x :over val-y &optional :in hierarchy)"
+\(mu-prefers-remove foo val-x :over val-y &optional)"
   (pcase args
 
-    ;; TODO fml matching order here matters! If we reorder earlier cases may fire.
-    ;; This adds complexity that I don't like. Do I really want to offer this
-    ;; calling freedom?
+    ;; (mu-prefers-remove foo)
+    (`()
+     (setf (mu-prefers fun) (ht)))
 
-    ;; (mu-prefers-remove foo &optional :in hierarchy)
-    ((or `(:in ,hierarchy) `())
-     (setf (mu-prefers fun (or hierarchy mu-global-hierarchy)) (ht)))
-
-    ;; (mu-prefers-remove foo x :over y &optional :in hierarchy)
-    (`(,x ,(or :over :to) ,y . ,(or `(:in ,hierarchy) '()))
+    ;; (mu-prefers-remove foo x :over y)
+    (`(,x ,(or :over :to) ,y)
      ;; remove just the Y value from X's prefers
-     (cl-callf2 remove y (mu-prefers fun (or hierarchy mu-global-hierarchy) x)))
+     (cl-callf2 remove y (mu-prefers fun x)))
 
-    ;; (mu-prefers-remove foo x &optional :in hierarchy)
-    (`(,x . ,(or `(:in ,hierarchy) '()))
+    ;; (mu-prefers-remove foo x)
+    (`(,x)
      ;; remove all prefers for X
-     (ht-remove! (mu-prefers fun (or hierarchy mu-global-hierarchy)) x))
+     (ht-remove! (mu-prefers fun) x))
 
-    ;; (mu-prefers-remove foo x y &optional :in hierarchy)
-    (`(,x ,y . ,(or `(:in ,hierarchy) '()))
+    ;; (mu-prefers-remove foo x y)
+    (`(,x ,y)
      ;; remove just the Y value from X's prefers
-     (cl-callf2 remove y (mu-prefers fun (or hierarchy mu-global-hierarchy) x)))
+     (cl-callf2 remove y (mu-prefers fun x)))
 
     (otherwise
      (mu-error "in mu-prefers-remove malformed arglist at %s" args))))
 
 
-(comment
- (mu-defun mu-prefers-remove (fun &rest args)
-   :doc "string"
-   :sig "(mu-prefers-remove foo val-x :over val-y &optional :in hierarchy)"
-   ([]
-    (setf (mu-prefers fun (or hierarchy mu-global-hierarchy)) (ht)))
-
-   ([x (or :over :to) y :in hierarchy]
-    (mu-prefers-remove fun x y hierarchy))
-
-   ([x (or :over :to) y]
-    (mu-prefers-remove fun x y mu-global-hierarchy))
-
-   ([x :in hierarchy]
-    (ht-remove! (mu-prefers fun hierarchy) x))
-
-   ([x]
-    (ht-remove! (mu-prefers fun mu-global-hierarchy) x))
-
-   ([x y :in hierarchy]
-    (mu-prefers-remove x y hierarchy))
-
-   ([x y]
-    (mu-prefers-remove x y mu-global-hierarchy))
-
-   ([x y hierarchy]
-    (cl-callf2 remove y (mu-prefers fun hierarchy x)))
-
-   (otherwise
-    (mu-error "in mu-prefers-remove malformed arglist at %s" args)))
- ;; comment
- )
-
-
-(comment
- (mu-defun mu-prefers-remove (fun &rest args)
-   :doc "string"
-   :sig "(mu-prefers-remove foo val-x :over val-y &optional :in hierarchy)"
-   ((or [:in hierarchy] [])
-    (setf (mu-prefers fun (or hierarchy mu-global-hierarchy)) (ht)))
-
-   ([x (or :over :to) y &rest (or [:in hierarchy] [])]
-    (mu-prefers-remove fun x y (or hierarchy mu-global-hierarchy)))
-
-   ([(x &rest (or [:in hierarchy] []))]
-    ;; remove all prefers for X
-    (ht-remove! (mu-prefers fun (or hierarchy mu-global-hierarchy)) x))
-
-   ;; (mu-prefers-remove foo x y &optional :in hierarchy)
-   ([x y &rest (or [:in hierarchy] [])]
-    ;; remove just the Y value from X's prefers
-    (mu-prefers-remove fun x y (or hierarchy mu-global-hierarchy)))
-
-   ([x y hierarchy]
-    (cl-callf2 remove y (mu-prefers fun (or hierarchy mu-global-hierarchy) x)))
-
-   (otherwise
-    (mu-error "in mu-prefers-remove malformed arglist at %s" args)))
- ;; comment
- )
-
-
-(defun mu--select-preferred (fun methods hierarchy dispatch-val)
+(defun mu--select-preferred (fun methods dispatch-val)
   "Narrows METHODS matching DISPATCH-VAL down to a single method
-based on preferences registered for multidispatch FUN and
-HIERARCHY. Returns that method or signals an error."
+based on preferences registered for multidispatch FUN. Returns
+that method or signals an error."
   (if (= (ht-size methods) 1)
 
       ;; just one method, no ambiguity
       (car (ht-values methods))
 
     ;; multiple methods matching dispatch-val, use preferences to resolve
-    (let* ((prefers (mu-prefers fun hierarchy))
+    (let* ((prefers (mu-prefers fun))
 
            ;; for all keys in methods collect all values they prefer away
            (filter-set (seq-mapcat (lambda (val) (ht-get prefers val)) (ht-keys methods)))
@@ -765,17 +612,6 @@ HIERARCHY. Returns that method or signals an error."
 ;;* Multi --------------------------------------------------------- *;;
 
 
-;; TODO do I really need to take hierarchy as an argument? Can't I make
-;; hierarchies dynamic i.e. override `mu-global-hierarchy' before calling
-;; something and you're done? That would certainly decouple hierarchies from
-;; multi-dispatch making the whole thing less tangled (something IMO Clojure gets
-;; wrong here). Would simplify my implementation, too, since I won't have to keep
-;; track of hierarchies being used.
-;;
-;; (let ((mu-global-hierarchy custom-hierarchy))
-;;    (foo a b))
-
-
 (defmacro mu-defmulti (name arglist &optional docstring &rest body)
   "Define a new multi-dispatch function NAME. If ARGLIST and BODY
 follow an `mu-defun' single or multi-head calling convention use
@@ -785,7 +621,8 @@ function is used to dispatch.
 
 The following attributes can appear before the BODY:
 
-  :in hierarchy (defaults to mu-global-hierarchy)"
+  :hierarchy         custom-hierarchy
+  :static-hierarchy  static-hierarchy"
   (declare (indent defun))
 
   (unless (stringp docstring)
@@ -805,11 +642,8 @@ The following attributes can appear before the BODY:
                     (:else
                      `(mu-error "in mu-defmulti %s malformed arglist or body" ',name)))))
 
-    (with-gensyms (args hierarchy val methods method)
-      ;; TODO let-over-lambda breaks outside of `lexical-binding'. E.g.
-      ;; multi-methods don't work in *scratch*. I only move this hierarchy outside
-      ;; to avoid re-computing it if the user creates it at call site.
-      `(let ((,hierarchy (or ,(ht-get attrs :in) mu-global-hierarchy)))
+    (with-gensyms (args val methods method)
+      `(progn
 
          ;; check if lexical binding is enabled
          (mu-lexical-binding)
@@ -818,8 +652,8 @@ The following attributes can appear before the BODY:
          (defun ,name (&rest ,args)
            ,docstring
            (let* ((,val     (apply (get ',name :mu-dispatch) ,args))
-                  (,methods (mu-methods :for ',name :matching ,val :in ,hierarchy))
-                  (,method  (mu--select-preferred ',name ,methods ,hierarchy ,val)))
+                  (,methods (mu-methods :for ',name :matching ,val))
+                  (,method  (mu--select-preferred ',name ,methods ,val)))
              (apply ,method ,args)))
 
          ;; set fun value slot to return its quoted form, this lets us pass fun
@@ -832,9 +666,16 @@ The following attributes can appear before the BODY:
          ;; reset mu-methods prop to a fresh table with :default pre-installed
          (setf (get ',name :mu-methods) (ht))
 
+         ;; set hierarchy prop if passed, reset it to nil even if not passed, so
+         ;; that if ever symbol gets redefined we don't get stale data
+         (setf (get ',name :hierarchy) ,(ht-get attrs :hierarchy))
+
+         ;; set or reset static-hierarchy prop
+         (setf (get ',name :static-hierarchy) ,(ht-get attrs :static-hierarchy))
+
          ;; reset mu-prefers prop to a fresh table
          (setf (get ',name :mu-prefers) (ht))
-         (setf (mu-prefers ',name ,hierarchy) (ht))
+         (setf (mu-prefers ',name) (ht))
 
          ;; pre-install default method
          (setf (get ',name :mu-default)

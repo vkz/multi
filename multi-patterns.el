@@ -602,7 +602,12 @@ ht seq-tail) for further pattern-matching."
           (if vector? (apply #'vector body) body))))
 
 
-;; TODO Should I rename this pattern into (: pat.. tail-pat)?
+;; TODO I'd like to be able to capture prefix-map as hash-table and bind it, so
+;; maybe ht| should accept two arguments each a mu-pattern (:& instead of ht|):
+;;
+;; (:& ht-pat rest-seq-pat)
+;; (:& table rest)
+;; (:& (ht a b) [foo bar])
 
 
 (mu-defpattern ht| (&rest patterns)
