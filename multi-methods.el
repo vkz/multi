@@ -31,10 +31,10 @@
 
 
 (defcustom mu-lexical-binding 'error
-  "Control if mu-methods can be defined when `lexical-binding'
- is disabled. Default to signaling an error if an attempt is made
- to define a new multi dispatch or method while in a dynamically
- scoped environment.")
+  "multi-methods may not work correctly without
+`lexical-binding'. By default check and signal an error if an
+attempt is made to use multi-methods in dynamic scope.")
+
 
 ;; TODO (mu-lexical-binding) check is somehow subtly broken when you
 ;; byte-compile-file that defines multimethods and then load. With lexical-binding
@@ -44,6 +44,7 @@
 ;; environment. Until I figure this out, I am disabling this check. See:
 ;; https://emacs.stackexchange.com/questions/46812/byte-compile-and-lexical-binding
 (setq mu-lexical-binding nil)
+
 
 (defun mu-lexical-binding ()
   "Signal an error depending on the setting of
@@ -59,14 +60,14 @@
 (defstruct mu-hierarchy
   ;; TODO should this be an UUID or gensym is enough to avoid collisions?
   (id (gensym "mu-hierarchy"))
+  ;; table: dispatch-val => (ht :parents :children :ancestors :descendants)
   (table (ht))
   (cache (ht)))
 
 
 (defun mu-hierarchy (hierarchy &rest keys)
-  "Returns the value in the HIERARCHY's nested table, where KEYS
-is a sequence of keys. Returns nil if the key is not present.
-Without KEYS returns the entire table. Calls are `setf'-able."
+  "Lookup a value at KEYS in HIERARCHY or return the entire
+table. Allow use as gv-variable."
   (declare
    (gv-setter (lambda (val)
                 `(setf (ht-get* (mu-hierarchy-table ,hierarchy) ,@keys) ,val))))
@@ -76,31 +77,15 @@ Without KEYS returns the entire table. Calls are `setf'-able."
 
 
 (defconst mu-global-hierarchy (make-mu-hierarchy)
-  "Global table that holds global hierachy. Has the following
-structure:
-
-  (ht (VAL (ht (:parents (p ...)) (:children (c ...)))) ...)")
+  "Global hierarchy")
 
 
-(defun mu-global-hierarchy (&rest keys)
-  "Returns the value in the global hierarchy nested table, where
-KEYS is a sequence of keys. Returns nil if the key is not
-present. Without KEYS returns the entire table. Calls are
-`setf'-able."
-  (declare
-   (gv-setter (lambda (val)
-                `(setf (mu-hierarchy mu-global-hierarchy ,@keys) ,val))))
-  (apply #'mu-hierarchy mu-global-hierarchy keys))
+(defvar mu--hierarchy-override nil
+  "Hierarchy that overrides the global if set")
 
 
-(defvar mu--hierarchy-override nil)
-
-
-;; TODO another contender for caching. Cache would need to be invalidated whenever
-;; mu-defmulti for SYMBOL gets redefined, `mu--hierarchy-override' would need
-;; careful treatment - can't blindly memo here.
 (defsubst mu--hierarchy (&optional symbol)
-  "Return hierarchy attached to SYMBOL or `mu-global-hierarchy'"
+  "Return the hierarchy active in the current dynamic extent."
   (or
    ;; static hierarchy tramps all and cannot be overriden
    (when symbol (get symbol :static-hierarchy))
@@ -113,17 +98,13 @@ present. Without KEYS returns the entire table. Calls are
 
 
 (defmacro mu-with-hierarchy (hierarchy &rest body)
-  "Use HIERARCHY for any multi-method calls for the dynamic
-extent of the body"
+  "Prefer HIERARCHY during the dynamic extent of the body."
   (declare (indent 1))
   `(let ((mu--hierarchy-override ,hierarchy))
      ,@body))
 
 
-;; TODO is this code correct?
 (defun mu--cycle (child parent hierarchy)
-  "Reports the cycle that the CHILD - PARENT relation would've
-created in HIERARCHY if installed, nil if no cycle."
   (if (equal child parent)
       (list parent)
     (when-let ((cycle (some
@@ -133,13 +114,9 @@ created in HIERARCHY if installed, nil if no cycle."
 
 
 (defun mu--cycle? (child parent &optional hierarchy compute?)
-  "Checks if CHILD and would be PARENT would form a cycle were
-the relationship added to the HIERARCHY. If HIERARCHY not
-supplied defaults to the global hierarchy. If COMPUTE? is t
-actually computes PARENT's ancestors for the check instead of
-using already stored in the HIERARCHY."
-  (default hierarchy :to mu-global-hierarchy)
-  (default compute? :to nil)
+  "Check if CHILD and PARENT would create a cycle in the
+currently active hierarchy and return it."
+  (default hierarchy :to (mu--hierarchy))
   (when (or (equal child parent)
             (member child
                     (if compute?
@@ -149,9 +126,21 @@ using already stored in the HIERARCHY."
     (mu--cycle child parent hierarchy)))
 
 
+;; NOTE `mu--rel' may seem intimidating and very easy to get wrong. It ends up
+;; what it is more out of curiousity than necessity. We pre-compute ancestors so
+;; that `mu-isa?' requires a single `member' lookup. Children, parents,
+;; descendants are redundant but we may as well pre-compute them so we do. This
+;; implementation trades off time pre-computing relations whever a hierarchy gets
+;; extended for the the time required to perform `mu-isa?' check, obviously
+;; favoring the latter. We could, and the initial implementation did, re-compute
+;; relations every time `mu-isa?' is called. Seemingly wasteful it could be made
+;; asymptotically as performant as the pre-computed one by caching its calls,
+;; invalidating the cache whenever a hierarchy gets extended.
+
+
 (defun mu--rel (child parent hierarchy)
-  "Install CHILD - PARENT relation in HIERARCHY, propagate any
-necessary :descendant - :ancestor relations up and down the
+  "Extend HIERARCHY with a new CHILD - PARENT relation, propagate
+any necessary :descendant - :ancestor relations up and down the
 HIERARCHY tree. Return updated HIERARCHY."
 
   ;; there's no meaningful semantics to relate structured data
@@ -166,15 +155,6 @@ HIERARCHY tree. Return updated HIERARCHY."
   ;; don't allow cyclic relations
   (when-let ((cycle (mu--cycle? child parent hierarchy)))
     (mu-error :rel-cycle child parent cycle))
-
-  ;; TODO fixing :ancestors and :descendants is too easy to get wrong, as should
-  ;; be obvious from the code below. Another thing we could do is to recompute
-  ;; :ancestors and :descendants for every item in hierarchy by invoking e.g.
-  ;; (mu-ancestors item hierarchy 'compute). That'd result in a ton of
-  ;; redundant computation, but we could simply memoize `mu-ancestors' and
-  ;; `mu-descendants'. Their cache would have to be wiped every new relation
-  ;; installed with mu-rel, naturally. IMO it'd be performant enough and much
-  ;; more readable than the code below.
 
   ;; Update child and its descendants
   (progn
@@ -217,19 +197,60 @@ HIERARCHY tree. Return updated HIERARCHY."
   `(mu--rel ,child ,parent (or ,hierarchy (mu--hierarchy))))
 
 
-(defun mu-isa? (x y &optional hierarchy)
-  "Checks if CHILD is isa? related to PARENT in HIERARCHY. If
-HIERARCHY not supplied defaults to the global hierarchy
-
-\(fn child parent &optional hierarchy)"
+(defun mu-isa? (child parent &optional hierarchy)
+  "Check if CHILD is isa? related to PARENT."
   (default hierarchy :to (mu--hierarchy))
-  (or (equal x y)
-      (and (sequencep x)
-           (sequencep y)
-           (equal (length x) (length y))
-           (every (lambda (x y) (mu-isa? x y hierarchy)) x y))
-      (and (not (sequencep y))
-           (member y (mu-ancestors x hierarchy)))))
+  (or (equal child parent)
+      (and (sequencep child)
+           (sequencep parent)
+           (equal (length child) (length parent))
+           (every (lambda (child parent) (mu-isa? child parent hierarchy)) child parent))
+      (and (not (sequencep parent))
+           (member parent (mu-ancestors child hierarchy)))))
+
+
+;; NOTE Since we pre-compute ancestors and descendants we can simply return them
+;; by looking up in the hierarchy. We keep `mu--descendants' and `mu--ancestors'
+;; around for testing and debugging in case our `mu--rel' implemantation turns out
+;; to be buggy. Ditto `mu-isa/generations?'.
+
+
+(defun mu--ancestors (x hierarchy)
+  "Return ancestors of X by walking the HIERARCHY tree."
+  (let ((parents (mu-hierarchy hierarchy x :parents)))
+    ;; TODO instead of append I could cl-union to avoid cl-delete-duplicates use
+    ;; later, but this is fine too?
+    (append parents
+            (seq-mapcat
+             (lambda (parent)
+               (mu--ancestors parent hierarchy))
+             parents))))
+
+
+(defun mu--descendants (x hierarchy)
+  "Return descendants of X by walking the HIERARCHY tree."
+  (let ((children (mu-hierarchy hierarchy x :children)))
+    (append children
+            (seq-mapcat
+             (lambda (child)
+               (mu--descendants child hierarchy))
+             children))))
+
+
+(defun mu-ancestors (x &optional hierarchy compute?)
+  "Return all ancestors of X such that (mu-isa? X ancestor)."
+  (default hierarchy :to (mu--hierarchy))
+  (if compute?
+      (cl-delete-duplicates (mu--ancestors x hierarchy) :test #'equal)
+    (mu-hierarchy hierarchy x :ancestors)))
+
+
+(defun mu-descendants (x &optional hierarchy compute?)
+  "Return all descendants of X such that (mu-isa? descendant X)."
+  (default hierarchy :to (mu--hierarchy))
+  (if compute?
+      (cl-delete-duplicates (mu--descendants x hierarchy) :test #'equal)
+    (mu-hierarchy hierarchy x :descendants)))
 
 
 (cl-defun mu--generations (seqx seqy hierarchy)
@@ -239,12 +260,8 @@ HIERARCHY not supplied defaults to the global hierarchy
 
 
 (cl-defun mu-isa/generations? (x y &optional (hierarchy) (generation 0))
-  "Returns (generation 0) if (equal CHILD PARENT), or (generation
-N) if CHILD is directly or indirectly derived from PARENT, where
-N signifies how far down generations PARENT is from CHILD. If
-HIERARCHY not supplied defaults to the global hierarchy
-
-\(fn child parent &optional hierarchy)"
+  "Like `mu-isa?' but return the generation gap between CHILD and
+PARENT."
   (default hierarchy :to (mu--hierarchy))
   (cond
    ((sequencep x)
@@ -266,53 +283,6 @@ HIERARCHY not supplied defaults to the global hierarchy
     (some
      (lambda (parent) (mu-isa/generations? parent y hierarchy (1+ generation)))
      (mu-hierarchy hierarchy x :parents)))))
-
-
-(defun mu--ancestors (x hierarchy)
-  "Returns ancestors of X by walking the HIERARCHY tree. List may
-have duplicates."
-  (let ((parents (mu-hierarchy hierarchy x :parents)))
-    ;; TODO instead of append I could cl-union to avoid cl-delete-duplicates use
-    ;; later, but this is fine too?
-    (append parents
-            (seq-mapcat
-             (lambda (parent)
-               (mu--ancestors parent hierarchy))
-             parents))))
-
-
-(defun mu-ancestors (x &optional hierarchy compute?)
-  "Returns all ancestors of X such that (mu-isa? X ancestor).
-If HIERARCHY not supplied defaults to the global hierarchy. If
-COMPUTE? is t actually computes ancestors by walking the tree."
-  (default hierarchy :to (mu--hierarchy))
-  (default compute? :to nil)
-  (if compute?
-      (cl-delete-duplicates (mu--ancestors x hierarchy) :test #'equal)
-    (mu-hierarchy hierarchy x :ancestors)))
-
-
-(defun mu--descendants (x hierarchy)
-  "Returns descendants of X by walking the HIERARCHY tree. List
-may have duplicates."
-  (let ((children (mu-hierarchy hierarchy x :children)))
-    (append children
-            (seq-mapcat
-             (lambda (child)
-               (mu--descendants child hierarchy))
-             children))))
-
-
-(defun mu-descendants (x &optional hierarchy compute?)
-  "Returns all descendants of X such that (mu-isa? descendant
-X). If HIERARCHY not supplied defaults to the global hierarchy.
-If COMPUTE? is t actually computes descendants by walking the
-tree."
-  (default hierarchy :to (mu--hierarchy))
-  (default compute? :to nil)
-  (if compute?
-      (cl-delete-duplicates (mu--descendants x hierarchy) :test #'equal)
-    (mu-hierarchy hierarchy x :descendants)))
 
 
 ;;* Methods ------------------------------------------------------- *;;

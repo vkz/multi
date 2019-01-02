@@ -59,9 +59,9 @@
       (should (ht? (mu-hierarchy h))))
 
     ;; same should be true of the `mu-global-hierarchy'
-    (setf (mu-global-hierarchy :rect :parents) '(:shape))
-    (should (mu--set-equal? '(:shape) (mu-global-hierarchy :rect :parents)))
-    (should (ht? (mu-global-hierarchy)))
+    (setf (mu-hierarchy mu-global-hierarchy :rect :parents) '(:shape))
+    (should (mu--set-equal? '(:shape) (mu-hierarchy mu-global-hierarchy :rect :parents)))
+    (should (ht? (mu-hierarchy mu-global-hierarchy)))
 
     ;; TODO dispatch cache
     ;; (should (ht? (get 'foo :mu-cache)))
@@ -76,9 +76,9 @@
   (mu-test ()
     (should (mu--set-equal? '(:rect :shape) (ht-keys (mu-hierarchy (mu-rel :rect isa :shape)))))
     (should (mu--set-equal? '(:rect :shape :square) (ht-keys (mu-hierarchy (mu-rel :square isa :rect)))))
-    (should (member :shape (mu-global-hierarchy :rect :parents)))
-    (should (member :rect (mu-global-hierarchy :square :parents)))
-    (should (member :square (mu-global-hierarchy :rect :children)))))
+    (should (member :shape (mu-hierarchy mu-global-hierarchy :rect :parents)))
+    (should (member :rect (mu-hierarchy mu-global-hierarchy :square :parents)))
+    (should (member :square (mu-hierarchy mu-global-hierarchy :rect :children)))))
 
 
 (ert-deftest mu-test-ancestors-descendants ()
