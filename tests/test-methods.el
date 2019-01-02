@@ -436,9 +436,6 @@
     (mu-defmethod foo (a) :when :square :square)
     (mu-defmethod foo (a) :when :shape :shape)
 
-    ;; catch malformed arglist in `mu-rel' call
-    (should (mu--error-match "in mu-rel malformed arglist" (mu-rel :foo :bar)))
-
     ;; signal ambiguous methods
     (should (mu--error-match "multiple methods" (foo :square)))
 
@@ -465,8 +462,8 @@
       (mu-defmethod bar (a) :when :parallelogram :parallelogram)
       (mu-defmethod bar (a) :when :shape         :shape)
 
-      (mu-rel :rect isa :parallelogram in hierarchy-1)
-      (mu-rel :square isa :rect in hierarchy-1)
+      (mu-rel :rect isa :parallelogram hierarchy-1)
+      (mu-rel :square isa :rect hierarchy-1)
 
       ;; should run with custom hierarchy-1
       (should (equal :parallelogram (bar :rect)))
@@ -498,8 +495,8 @@
       (mu-defmethod bar (a) :when :parallelogram :parallelogram)
       (mu-defmethod bar (a) :when :shape :shape)
 
-      (mu-rel :rect isa :parallelogram in hierarchy-1)
-      (mu-rel :square isa :rect in hierarchy-1)
+      (mu-rel :rect isa :parallelogram hierarchy-1)
+      (mu-rel :square isa :rect hierarchy-1)
 
       ;; should run with custom hierarchy-1
       (should (equal :parallelogram (bar :rect)))

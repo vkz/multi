@@ -195,8 +195,6 @@ partitions."
 
    (:rel-cycle               '("in mu-rel cyclic relationship between %s and %s: %s"))
 
-   (:malformed-rel           '("in mu-rel malformed arglist at %s"))
-
    (:malformed-methods       '("in mu-methods malformed arglist at %s"))
 
    (:cyclic-prefer           '("in mu-prefer cyclic preference %s over %s "

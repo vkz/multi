@@ -150,9 +150,9 @@ using already stored in the HIERARCHY."
 
 
 (defun mu--rel (child parent hierarchy)
-  "Installs CHILD - PARENT relation in HIERARCHY, propagates any
+  "Install CHILD - PARENT relation in HIERARCHY, propagate any
 necessary :descendant - :ancestor relations up and down the
-HIERARCHY tree. Returns updated HIERARCHY."
+HIERARCHY tree. Return updated HIERARCHY."
 
   ;; there's no meaningful semantics to relate structured data
   (when (or (ht-p child)
@@ -212,25 +212,9 @@ HIERARCHY tree. Returns updated HIERARCHY."
   hierarchy)
 
 
-(defmacro mu-rel (&rest args)
-  "Establishes an isa? (parent/child) relationship between PARENT
-and CHILD. If HIERARCHY not supplied defaults to, and modifies,
-the global hierarchy.
-
-\(fn child :isa parent &optional :in hierarchy)"
-  (declare (debug t))
-  (destructuring-bind
-      (err child parent hierarchy)
-      (pcase args
-        (`(,child ,(or 'isa :isa) ,parent) (list nil child parent nil))
-        (`(,child ,(or 'isa :isa) ,parent ,(or 'in :in) ,hierarchy) (list nil child parent hierarchy))
-        (otherwise
-         (list `(mu-error :malformed-rel ',args) nil nil nil)))
-    (or
-     err
-     (with-gensyms (hier)
-       `(let ((,hier (or ,hierarchy (mu--hierarchy))))
-          (mu--rel ,child ,parent ,hier))))))
+(defmacro mu-rel (child :isa parent &optional hierarchy)
+  "Establish an isa relationship between CHILD and PARENT."
+  `(mu--rel ,child ,parent (or ,hierarchy (mu--hierarchy))))
 
 
 (defun mu-isa? (x y &optional hierarchy)
@@ -474,13 +458,13 @@ return it."
 
 
 (mu-defun mu-prefer (fun &rest args)
-  "Prefer dispatch VAL-X over VAL-Y when resolving a method. May
-be called according to one of the following signatures:
+  "Prefer dispatch X over Y when resolving a method. May be
+called according to one of the following signatures:
 
-  (mu-prefer foo val-x :to val-y)
-  (mu-prefer foo val-x val-y)
+  (mu-prefer foo x :to y)
+  (mu-prefer foo x y)
 
-\(mu-prefer foo val-x :over val-y)"
+\(mu-prefer foo x :over y)"
   ([_ x y] (if-let ((cycle (mu--preference-cycle? x y fun)))
                (mu-error :cyclic-prefer x y cycle)
              (pushnew y (mu-prefers fun x))))
@@ -515,9 +499,9 @@ be called according to one of the following signatures:
 ;; TODO this ought to be part of the `mu-methods' call, so I don't have to cache
 ;; multiple functions
 (defun mu--select-preferred (fun methods val)
-  "Narrow METHODS matching DISPATCH-VAL down to a single method
-based on preferences registered for multi-dispatch FUN or signal
-an error."
+  "Narrow METHODS matching dispatch value VAL down to a single
+method based on preferences registered for multi-dispatch FUN or
+signal an error."
   (if (= (ht-size methods) 1)
 
       ;; just one method, no ambiguity
