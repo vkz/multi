@@ -187,23 +187,22 @@
     (mu-defmethod foo (x) :when :b :b)
     (should (mu--set-equal? '(:a :b) (ht-keys (mu-methods 'foo))))
 
-    ;; one method for every match
-    (should (mu--set-equal? '(:a) (ht-keys (mu-methods :for 'foo :matching :a))))
-    (should (mu--set-equal? '(:b) (ht-keys (mu-methods :for 'foo :matching :b))))
-
-    ;; :default method when no match installed
-    (should (mu--set-equal? '(:default) (ht-keys (mu-methods :for 'foo :matching :c))))
-
-    ;; but no longer :default when installed
-    (mu-defmethod foo (x) :when :c :c)
-    (should (mu--set-equal? '(:c) (ht-keys (mu-methods :for 'foo :matching :c))))
-
     ;; methods must be functions
     (should (cl-every #'functionp (ht-values (mu-methods 'foo))))
 
+    (should (eq :a (foo :a)))
+    (should (eq :b (foo :b)))
+
+    ;; default when no matching method
+    (should (mu--error-match "no mu-methods match" (foo :c)))
+
+    ;; no longer default when installed
+    (mu-defmethod foo (x) :when :c :c)
+    (should (eq :c (foo :c)))
+
     ;; removing a method should work
-    (mu-methods-remove foo :a)
-    (should (mu--set-equal? '(:default) (ht-keys (mu-methods :for 'foo :matching :a))))))
+    (mu-undefmethod foo :a)
+    (should (mu--error-match "no mu-methods match" (foo :a)))))
 
 
 (ert-deftest mu-test-multi-methods ()
@@ -345,7 +344,7 @@
     (should (equal :c (foo :c)))
 
     ;; removing custom :default should restore pre-installed :default
-    (mu-methods-remove 'foo :default)
+    (mu-undefmethod 'foo :default)
     (should (mu--error-match "no mu-methods match" (foo :d)))))
 
 

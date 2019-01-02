@@ -288,98 +288,43 @@ PARENT."
 ;;* Methods ------------------------------------------------------- *;;
 
 
-(defun mu--methods (fun-symbol &rest keys)
-  "Returns the mu-methods hash-table of FUN-SYMBOL or the
-value nested in that table if the sequence of KEYS is supplied.
-This form is `setf'-able."
-  (declare
-   (gv-setter (lambda (val)
-                (if keys
-                    ;; with keys set corresponding value in :mu-methods table
-                    `(setf (ht-get* (get ,fun-symbol :mu-methods) ,@keys) ,val)
-                  ;; without keys set :mu-methods prop itself to a new table
-                  `(setf (get ,fun-symbol :mu-methods) ,val)))))
+(defun mu-methods (symbol &rest keys)
+  "Return multi-methods hash-table for SYMBOL or lookup a method
+when KEYS are supplied. Allow use as gv-variable."
+  (declare (gv-setter
+            (lambda (val)
+              (if keys
+                  ;; with keys set corresponding value in :mu-methods table
+                  `(setf (ht-get* (get ,symbol :mu-methods) ,@keys) ,val)
+                ;; without keys set :mu-methods prop itself to a new table
+                `(setf (get ,symbol :mu-methods) ,val)))))
   (if keys
-      (apply #'ht-get* (get fun-symbol :mu-methods) keys)
-    (get fun-symbol :mu-methods)))
+      ;; with keys lookup the method
+      (apply #'ht-get* (get symbol :mu-methods) keys)
+    ;; without keys return the entire :mu-methods table
+    (get symbol :mu-methods)))
 
 
-;; TODO mu-methods is probably the most perf sensitivy function, so we shouldn't
-;; overload it. IMO better extract into a separate mu-dispatch: fun val hier ->
-;; methods, so it cane cache as needed. Also definitely don't need that argument
-;; parsing overhead or recursion. May keep this implementation around to let users
-;; reflect the dispatch as it happens, but use mu-dispatch for actual dispatch?
+(defun mu-select-method (symbol val)
+  "Select a multi-method whose value (isa? VAL value)."
+  (let* ((all-methods (get symbol :mu-methods))
+         (hierarchy   (mu--hierarchy symbol))
+         (isa-methods (ht-select
+                       (lambda (VAL method) (mu-isa? val VAL hierarchy))
+                       all-methods)))
+    (if (ht-empty? isa-methods)
+
+        ;; user-installed or pre-installed default
+        (or (ht-get* all-methods :default)
+            (get symbol :mu-default))
+
+      ;; narrow to just one method or throw
+      (mu--select-preferred symbol isa-methods val))))
 
 
-(defun mu-methods (&rest args)
-  "Returns a hash-table of FUN-SYM mu-methods, where each entry
-is a (value . method) pair.
-
-When called with :for and :matching keywords limits the table to
-pairs where (mu-isa? VAL value) relationship holds or
-the (:default . method) if none match.
-
-When called without :for and :matching keywords returns the
-entire table or the value nested in it if the sequence of KEYS is
-supplied. This form is `setf'-able.
-
-May be called according to one of the following signatures:
-
-  (mu-methods :for fun-sym :matching val)
-  (mu-methods fun-sym &rest keys)
-  (setf (mu-methods fun-sym &rest keys) val)
-
-\(fn :for fun-sym :matching val)"
-  (declare
-   (gv-setter (lambda (val)
-                (pcase args
-
-                  ;; (setf (mu-methods 'foo &rest keys) val)
-                  (`((quote ,(multi fun-symbol :if symbolp)) . ,keys)
-                   `(setf (mu--methods ',fun-symbol ,@keys) ,val))
-
-                  ;; (setf (mu-methods foo &rest keys) val)
-                  (`(,(multi fun-symbol :if symbolp) . ,keys)
-                   `(setf (mu--methods ,fun-symbol ,@keys) ,val))
-
-                  (otherwise
-                   `(mu-error :malformed-methods ',args))))))
-  ;; parse args
-  (pcase args
-
-    ;; (mu-methods :for 'fun :matching val)
-    (`(:for ,fun :matching ,val)
-     (let* ((mu-methods
-             (get fun :mu-methods))
-
-            (methods
-             (ht-select (fn (VAL _) (mu-isa? val VAL (mu--hierarchy fun))) mu-methods))
-
-            (methods
-             (unless (ht-empty? methods) methods))
-
-            (default-method
-              (unless methods
-                (ht
-                 ;; Use custom :default if installed, fallback to the
-                 ;; pre-installed default method otherwise
-                 (:default (or (ht-get* mu-methods :default)
-                               (get fun :mu-default)))))))
-       (or methods default-method)))
-
-    ;; (mu-methods 'fun :rect)
-    (`(,(multi fun-symbol :if symbolp) . ,keys)
-     (apply #'mu--methods fun-symbol keys))
-
-    (otherwise
-     (mu-error :malformed-methods args))))
-
-
-;; NOTE this naming `mu-methods-remove' becomes more consistent if or when we
-;; allow :before :after :around methods
-(defun mu-methods-remove (fun dispatch-value)
-  "Removes the mu-method FUN associated with DISPATCH-VALUE."
-  (ht-remove! (mu-methods fun) dispatch-value))
+(defun mu-undefmethod (symbol val)
+  "Remove multi-method for SYMBOL and dispatch value VAL"
+  (ht-remove! (mu-methods symbol) val))
 
 
 ;;* Prefers ------------------------------------------------------- *;;
@@ -466,8 +411,6 @@ called according to one of the following signatures:
   (otherwise (mu-error :malformed-unprefer args)))
 
 
-;; TODO this ought to be part of the `mu-methods' call, so I don't have to cache
-;; multiple functions
 (defun mu--select-preferred (fun methods val)
   "Narrow METHODS matching dispatch value VAL down to a single
 method based on preferences registered for multi-dispatch FUN or
@@ -547,10 +490,8 @@ The following attributes can appear before the BODY:
          ;; create a dispatch function
          (defun ,name (&rest ,args)
            ,docstring
-           (let* ((,val     (apply (get ',name :mu-dispatch) ,args))
-                  (,methods (mu-methods :for ',name :matching ,val))
-                  (,method  (mu--select-preferred ',name ,methods ,val)))
-             (apply ,method ,args)))
+           (let* ((,val (apply (get ',name :mu-dispatch) ,args)))
+             (apply (mu-select-method ',name ,val) ,args)))
 
          ;; set fun value slot to return its quoted form, this lets us pass fun
          ;; around as value and still not break functions that expect a symbol
