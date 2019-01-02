@@ -993,6 +993,10 @@ METADATA is optional and may include the following attributes:
   nil)
 
 
+;; TODO [] in mu-defun should really be rewritten to l-pattern since we don't care
+;; to match sequences here - arglist is a list after all, no reason for overhead.
+
+
 (defmacro mu-defun (name arglist &rest body)
   (declare (indent 2))
   (mu--defun 'defun name arglist body #'mu--wrap-defun))

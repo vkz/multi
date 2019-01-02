@@ -384,7 +384,7 @@
     (should (equal :rect-shape (bar :rect :rect)))
 
     ;; we should be able to remove a prefer
-    (mu-prefers-remove 'bar [:rect :shape] :over [:shape :rect])
+    (mu-unprefer 'bar [:rect :shape] :over [:shape :rect])
     (should (mu--set-equal?
              '([:parallelogram :rect])
              (mu-prefers 'bar [:rect :shape])))
@@ -393,11 +393,11 @@
     (should (mu--error-match "multiple methods" (bar :rect :rect)))
 
     ;; we should be able to remove all prefers for a value
-    (mu-prefers-remove 'bar [:rect :shape])
+    (mu-unprefer 'bar [:rect :shape])
     (should-not (mu-prefers 'bar [:rect :shape]))
 
     ;; we should be able to remove all registered prefers
-    (mu-prefers-remove 'bar)
+    (mu-unprefer 'bar)
     (should (ht-empty? (mu-prefers 'bar)))
 
     ;; inconsintent preferences shouldn't make it into mu-prefers

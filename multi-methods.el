@@ -440,22 +440,23 @@ May be called according to one of the following signatures:
 
 
 (defun mu-prefers (fun &rest keys)
-  "Returns a table of preferred value :over set of other values.
-If VAL supplied returns just tha set of other values over which
-VAL is preferred. This form is `setf'-able.
+  "Return a table of registered value preferences. When VAL is
+supplied return just the set of all values over which VAL is
+preferred. This form is `setf'-able.
 
 \(mu-prefers fun &optional val)"
   (declare
    (gv-setter (lambda (val)
-                (if (cdr keys)
-                    `(mu-error "in mu-prefers malformed arglist expected no more than one key, given %s" ',keys)
-                  `(setf (ht-get* (get ,fun :mu-prefers) (mu-hierarchy-id (mu--hierarchy ,fun)) ,@keys) ,val)))))
-  (if (cdr keys)
-      ;; expect no more than one argument (VAL to prefer over others)
-      (mu-error "in mu-prefers malformed arglist expected no more than one key, given %s" keys)
-    ;; return list of values over which (car keys) is preferred, or the entire
-    ;; prefers table if no keys supplied
-    (apply #'ht-get* (get fun :mu-prefers) (mu-hierarchy-id (mu--hierarchy fun)) keys)))
+                `(setf (ht-get* (get ,fun :mu-prefers)
+                                (mu-hierarchy-id (mu--hierarchy ,fun))
+                                ,@keys)
+                       ,val))))
+
+  ;; return set of values VAL tramps or the entire prefers table
+  (apply #'ht-get*
+         (get fun :mu-prefers)
+         (mu-hierarchy-id (mu--hierarchy fun))
+         keys))
 
 
 (defun mu--preference-cycle? (item parent fun)
@@ -469,103 +470,64 @@ return it."
       (cons parent cycle))))
 
 
-(comment
+(example
  (mu-test (baz)
-   (multi baz #'identity)
+   (mu-defmulti baz #'identity)
    (mu-prefer 'baz [:rect :shape] :over [:shape :rect])
    (mu-prefer 'baz [:shape :rect] :over [:parallelogram :rect])
    ;; (mu-prefer 'baz [:parallelogram :rect] :over [:rect :shape])
    (mu--preference-cycle? [:parallelogram :rect] [:rect :shape] 'baz))
- ;; comment
+ ;; example
  )
 
 
-(defun mu-prefer (fun &rest args)
-  "Causes the mu-method FUN to prefer matches of dispatch VAL-X
-over dispatch VAL-Y when there is a conflict.
-
-May be called according to one of the following signatures:
+(mu-defun mu-prefer (fun &rest args)
+  "Prefer dispatch VAL-X over VAL-Y when resolving a method. May
+be called according to one of the following signatures:
 
   (mu-prefer foo val-x :to val-y)
   (mu-prefer foo val-x val-y)
 
 \(mu-prefer foo val-x :over val-y)"
-  (destructuring-bind
-      (x y)
-      (pcase args
+  ([_ x y] (if-let ((cycle (mu--preference-cycle? x y fun)))
+               (mu-error
+                "in mu-prefer cyclic preference %s over %s would form a cycle %s"
+                x y cycle)
+             (pushnew y (mu-prefers fun x))))
 
-        ;; (mu-prefer foo x :over y)
-        (`(,x ,(or :over :to) ,y)
-         (list x y))
+  ([_ x (or :to :over 'to 'over) y] (mu-prefer fun x y))
 
-        ;; (mu-prefer foo x y)
-        (`(,x ,y)
-         (list x y))
-
-        (otherwise
-         (mu-error "in mu-prefer malformed arglist at %s" args)))
-
-    ;; installing the preference mustn't create a cycle in mu-prefers
-    (when-let ((cycle (mu--preference-cycle? x y fun)))
-      (mu-error "in mu-prefer cyclic preference %s over %s would form a cycle %s"
-                x y cycle))
-
-    ;; install the preference x :over y
-    (pushnew y (mu-prefers fun x))))
+  (otherwise
+   (mu-error "in mu-prefer malformed arglist at %s" args)))
 
 
-;; TODO We don't really need to implement `mu-prefers-remove' because we've
-;; already made `mu-prefers' `setf'-able, so the following should work:
-;;
-;; (setf (mu-prefers foo hierachy [:rect :shape]) '(some-values)
-;; (ht-remove! (mu-prefers foo hierachy) [:rect :shape])
-;;
-;; Does providing `mu-prefers-remove' make things more consistent? I should
-;; make a note about removing prefers in documentation regardless.
+(mu-defun mu-unprefer (fun &rest args)
+  "Remove registered preferences for FUN multi-dispatch function:
+
+  (mu-unprefer foo x :to y) do not prefer X over Y
+  (mu-unprefer foo x y)     do not prefer X over Y
+  (mu-unprefer foo x)       remove all X preferences
+  (mu-unprefer foo)         remove all preferences
+
+\(fn foo x :over y)"
+  ;; remove all prefers
+  ([_] (setf (mu-prefers fun) (ht)))
+  ;; remove prefers for value X
+  ([_ x] (ht-remove! (mu-prefers fun) x))
+  ;; remove value Y from X's prefers
+  ([_ x y] (cl-callf2 remove y (mu-prefers fun x)))
+  ;; remove value Y from X's prefers
+  ([_ x (or :over :to 'over 'to) y] (cl-callf2 remove y (mu-prefers fun x)))
+  ;; malformed call
+  (otherwise (mu-error "in mu-unprefer malformed arglist at %s" args)))
 
 
-(defun mu-prefers-remove (fun &rest args)
-  "Causes the mu-method FUN to not prefer matches of dispatch
-VAL-X over dispatch VAL-Y when there is a conflict. If VAL-Y not
-supplied removes all prefers for VAL-X.
-
-May be called according to one of the following signatures:
-
-  (mu-prefers-remove foo val-x :to val-y)
-  (mu-prefers-remove foo val-x val-y)
-  (mu-prefers-remove foo val-x)
-  (mu-prefers-remove foo)
-
-\(mu-prefers-remove foo val-x :over val-y &optional)"
-  (pcase args
-
-    ;; (mu-prefers-remove foo)
-    (`()
-     (setf (mu-prefers fun) (ht)))
-
-    ;; (mu-prefers-remove foo x :over y)
-    (`(,x ,(or :over :to) ,y)
-     ;; remove just the Y value from X's prefers
-     (cl-callf2 remove y (mu-prefers fun x)))
-
-    ;; (mu-prefers-remove foo x)
-    (`(,x)
-     ;; remove all prefers for X
-     (ht-remove! (mu-prefers fun) x))
-
-    ;; (mu-prefers-remove foo x y)
-    (`(,x ,y)
-     ;; remove just the Y value from X's prefers
-     (cl-callf2 remove y (mu-prefers fun x)))
-
-    (otherwise
-     (mu-error "in mu-prefers-remove malformed arglist at %s" args))))
-
-
+;; TODO this ought to be part of the `mu-methods' call, so I don't have to cache
+;; multiple functions
 (defun mu--select-preferred (fun methods dispatch-val)
-  "Narrows METHODS matching DISPATCH-VAL down to a single method
-based on preferences registered for multidispatch FUN. Returns
-that method or signals an error."
+  "Narrow METHODS matching DISPATCH-VAL down to a single method
+based on preferences registered for multi-dispatch FUN or signal
+an error."
   (if (= (ht-size methods) 1)
 
       ;; just one method, no ambiguity
@@ -577,7 +539,7 @@ that method or signals an error."
            ;; for all keys in methods collect all values they prefer away
            (filter-set (seq-mapcat (lambda (val) (ht-get prefers val)) (ht-keys methods)))
 
-           ;; trimp methods by removing all entries with keys in the filter-set
+           ;; trim methods by removing all entries with keys in the filter-set
            (preferred (ht-reject (lambda (k v) (member k filter-set)) methods))
 
            ;; size is one of 0, 1, 2...
