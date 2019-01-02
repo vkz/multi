@@ -50,13 +50,7 @@
 `mu-lexical-binding' and `lexical-binding'."
   (when mu-lexical-binding
     (unless lexical-binding
-      (mu-error
-       (string-join
-        (list
-         "mu-methods require `lexical-binding' to work properly."
-         "If you know what you are doing you may disable this check"
-         "by unsetting `mu-lexical-binding'.")
-        " ")))))
+      (mu-error :lexical-binding))))
 
 
 ;;* Hierarchies --------------------------------------------------- *;;
@@ -167,13 +161,11 @@ HIERARCHY tree. Returns updated HIERARCHY."
             (and (seqp parent) (not (null parent)))
             (cl-struct-p child)
             (cl-struct-p parent))
-    (mu-error "in mu-rel no meaningful semantics relate structured data\n  %s\n  %s"
-                 child parent))
+    (mu-error :rel-semantics child parent))
 
   ;; don't allow cyclic relations
   (when-let ((cycle (mu--cycle? child parent hierarchy)))
-    (mu-error "in mu-rel cyclic relationship between %s and %s: %s"
-                 child parent cycle))
+    (mu-error :rel-cycle child parent cycle))
 
   ;; TODO fixing :ancestors and :descendants is too easy to get wrong, as should
   ;; be obvious from the code below. Another thing we could do is to recompute
@@ -233,7 +225,7 @@ the global hierarchy.
         (`(,child ,(or 'isa :isa) ,parent) (list nil child parent nil))
         (`(,child ,(or 'isa :isa) ,parent ,(or 'in :in) ,hierarchy) (list nil child parent hierarchy))
         (otherwise
-         (list `(mu-error "in mu-rel malformed arglist at %s" ',args) nil nil nil)))
+         (list `(mu-error :malformed-rel ',args) nil nil nil)))
     (or
      err
      (with-gensyms (hier)
@@ -397,7 +389,7 @@ May be called according to one of the following signatures:
                    `(setf (mu--methods ,fun-symbol ,@keys) ,val))
 
                   (otherwise
-                   `(mu-error "in mu-methods malformed arglist at %s" ',args))))))
+                   `(mu-error :malformed-methods ',args))))))
   ;; parse args
   (pcase args
 
@@ -426,7 +418,7 @@ May be called according to one of the following signatures:
      (apply #'mu--methods fun-symbol keys))
 
     (otherwise
-     (mu-error "in mu-methods malformed arglist at %s" args))))
+     (mu-error :malformed-methods args))))
 
 
 ;; NOTE this naming `mu-methods-remove' becomes more consistent if or when we
@@ -490,15 +482,13 @@ be called according to one of the following signatures:
 
 \(mu-prefer foo val-x :over val-y)"
   ([_ x y] (if-let ((cycle (mu--preference-cycle? x y fun)))
-               (mu-error
-                "in mu-prefer cyclic preference %s over %s would form a cycle %s"
-                x y cycle)
+               (mu-error :cyclic-prefer x y cycle)
              (pushnew y (mu-prefers fun x))))
 
   ([_ x (or :to :over 'to 'over) y] (mu-prefer fun x y))
 
   (otherwise
-   (mu-error "in mu-prefer malformed arglist at %s" args)))
+   (mu-error :malformed-prefer args)))
 
 
 (mu-defun mu-unprefer (fun &rest args)
@@ -519,12 +509,12 @@ be called according to one of the following signatures:
   ;; remove value Y from X's prefers
   ([_ x (or :over :to 'over 'to) y] (cl-callf2 remove y (mu-prefers fun x)))
   ;; malformed call
-  (otherwise (mu-error "in mu-unprefer malformed arglist at %s" args)))
+  (otherwise (mu-error :malformed-unprefer args)))
 
 
 ;; TODO this ought to be part of the `mu-methods' call, so I don't have to cache
 ;; multiple functions
-(defun mu--select-preferred (fun methods dispatch-val)
+(defun mu--select-preferred (fun methods val)
   "Narrow METHODS matching DISPATCH-VAL down to a single method
 based on preferences registered for multi-dispatch FUN or signal
 an error."
@@ -537,7 +527,7 @@ an error."
     (let* ((prefers (mu-prefers fun))
 
            ;; for all keys in methods collect all values they prefer away
-           (filter-set (seq-mapcat (lambda (val) (ht-get prefers val)) (ht-keys methods)))
+           (filter-set (seq-mapcat (lambda (v) (ht-get prefers v)) (ht-keys methods)))
 
            ;; trim methods by removing all entries with keys in the filter-set
            (preferred (ht-reject (lambda (k v) (member k filter-set)) methods))
@@ -551,24 +541,14 @@ an error."
 
        ;; more than one method remains
        ((> size 1)
-        (mu-error
-         "multiple methods match dispatch value %s for dispatch %s:\n%s\n%s"
-         dispatch-val fun
-         (string-join
-          (ht-map (fn (VAL _) (format "  %s :isa %s" dispatch-val VAL)) preferred)
-          "\n")
-         "and neither is preferred"))
+        (let ((fmt (lambda (v) (format "  %s :isa %s" val v))))
+          (mu-error :ambiguous-methods fun val (mapconcat fmt (ht-keys preferred) "\n"))))
 
        ;; no methods at all can only ever happen if the user managed to register
        ;; preferences that are mutually inconsitent i.e. create a cycle. If this
        ;; ever happens, our `mu--preference-cycle?' must be buggy.
        ((= size 0)
-        (mu-error
-         (string-join
-          (list "inconsintency in registered mu-prefers unable to prefer any of" "  %s"
-                "with registered preferences" "  %s") "\n")
-         (ht-keys methods)
-         prefers))))))
+        (mu-error :inconsistent-prefers fun val (mu--hierarchy fun) prefers))))))
 
 
 ;;* Multi --------------------------------------------------------- *;;
@@ -602,7 +582,7 @@ The following attributes can appear before the BODY:
                     (mu-multi-head?         `(mu ,arglist ,@body))
                     ((listp arglist)        `(fn ,arglist ,@body))
                     (:else
-                     `(mu-error "in mu-defmulti %s malformed arglist or body" ',name)))))
+                     `(mu-error :malformed-defmulti ',name)))))
 
     (with-gensyms (args val methods method)
       `(progn
@@ -642,10 +622,7 @@ The following attributes can appear before the BODY:
          ;; pre-install default method
          (setf (get ',name :mu-default)
                (lambda (&rest ,args)
-                 (mu-error
-                  "no mu-methods match dispatch value %s for dispatch %s "
-                  (apply (get ',name :mu-dispatch) ,args)
-                  ',name)))
+                 (mu-error :no-methods (apply (get ',name :mu-dispatch) ,args) ',name)))
 
          ;; TODO Invalidate mu-methods cache here. Need to do this to catch
          ;; cases where fun simply gets redefined and may hold cache for previous
@@ -672,7 +649,7 @@ else assume CL-arglist."
                   (mu-multi-head?         `(mu ,arglist ,@body))
                   ((listp arglist)        `(fn ,arglist ,@body))
                   (:else
-                   `(mu-error "in mu-defmethod %s malformed arglist or body" ',name)))))
+                   `(mu-error :malformed-defmethod ',name)))))
     `(progn
        ;; check if lexical binding is enabled
        (mu-lexical-binding)
@@ -687,8 +664,6 @@ else assume CL-arglist."
 
 (provide 'multi-methods)
 
-
-;; TODO hoist all error messages to Error section
 
 ;; TODO Elisp specific idea is to allow supplying setters in mu-methods, so that
 ;; mu-defmethod invocation can be used with gv setters like `setf', `push', `callf'

@@ -104,46 +104,6 @@
   (&define mu-defun-arglist mu-defun-body))
 
 
-;;* mu-error ----------------------------------------------------- *;;
-
-
-;; Introduce a custom mu-error to differentiate signals specific to the multi
-;; feature. Consider raising mu-error whenever it relates to multi-pattern
-;; matching or multi-dispatch. `mu-error' function simplifies this by
-;; intentionally following the exact same calling convention as `error'. Please,
-;; use it.
-
-
-(define-error 'mu-error "mu-error")
-
-
-(defconst mu--errors
-  (ht
-   (:lst-pattern             '("in mu-case lst-pattern doesn't support &rest,"
-                               " use l-pattern instead in: %S"))
-   (:vec-pattern             '("in mu-case vec-pattern doesn't support &rest,"
-                               " use v-pattern instead in: %S"))
-   (:pattern                 '("in mu-case unrecognized pattern %S"))
-   (:ht-pattern              '("in mu-case malformed ht pattern in %S"))
-   (:seq-pattern             '("in mu-case seq pattern applied to unrecognized type %s"))
-   (:rest-pattern            '("in mu-case malformed &rest pattern %S"))
-   (:let-malformed           '("in mu-let malformed binding list in %S"))
-   (:defun-malformed-arglist '("in mu-defun malformed arglist %S"))
-   (:defun-no-match          '("in mu-defun no matching clause found for call %s"))
-   (:defun-malformed-body    '("in mu-defun malformed body %S"))
-   (:setter-no-match         '("in mu-setter no matching clause for %s")))
-  "Predefined error messages that can be used in `mu-error' by
-passing it an attribute as the first argument.")
-
-
-(defun mu-error (&rest args)
-  "Like `error' but raise a custom `mu-error'. Alternatively
-take a keyword as the first ARG to use a predefined message."
-  (let* ((mu-err (ht-get mu--errors (car args)))
-         (msg (if mu-err (list* (string-join mu-err "") (cdr args)) args)))
-    (signal 'mu-error (list (apply #'format-message msg)))))
-
-
 ;;* mu-patterns -------------------------------------------------- *;;
 
 

@@ -154,4 +154,85 @@ partitions."
            finally return (nconc partitions (list partition))))
 
 
+;;* mu-error ----------------------------------------------------- *;;
+
+
+;; Introduce a custom mu-error to differentiate signals specific to the multi
+;; feature. Consider raising mu-error whenever it relates to multi-pattern
+;; matching or multi-dispatch. `mu-error' function simplifies this by
+;; intentionally following the exact same calling convention as `error'. Please,
+;; use it.
+
+
+(define-error 'mu-error "mu-error")
+
+
+(defconst mu--errors
+  (ht
+
+   ;; multi-patterns
+   (:lst-pattern             '("in mu-case lst-pattern doesn't support &rest,"
+                               " use l-pattern instead in: %S"))
+   (:vec-pattern             '("in mu-case vec-pattern doesn't support &rest,"
+                               " use v-pattern instead in: %S"))
+   (:pattern                 '("in mu-case unrecognized pattern %S"))
+   (:ht-pattern              '("in mu-case malformed ht pattern in %S"))
+   (:seq-pattern             '("in mu-case seq pattern applied to unrecognized type %s"))
+   (:rest-pattern            '("in mu-case malformed &rest pattern %S"))
+   (:let-malformed           '("in mu-let malformed binding list in %S"))
+   (:defun-malformed-arglist '("in mu-defun malformed arglist %S"))
+   (:defun-no-match          '("in mu-defun no matching clause found for call %s"))
+   (:defun-malformed-body    '("in mu-defun malformed body %S"))
+   (:setter-no-match         '("in mu-setter no matching clause for %s"))
+
+   ;; multi-methods
+   (:lexical-binding         '("mu-methods require `lexical-binding' to work properly. "
+                               "If you know what you are doing you may disable this check "
+                               "by unsetting `mu-lexical-binding'."))
+
+   (:rel-semantics           '("in mu-rel no meaningful semantics "
+                               "relate structured data\n  %s\n  %s"))
+
+   (:rel-cycle               '("in mu-rel cyclic relationship between %s and %s: %s"))
+
+   (:malformed-rel           '("in mu-rel malformed arglist at %s"))
+
+   (:malformed-methods       '("in mu-methods malformed arglist at %s"))
+
+   (:cyclic-prefer           '("in mu-prefer cyclic preference %s over %s "
+                               "would form a cycle %s"))
+
+   (:malformed-prefer        '("in mu-prefer malformed arglist at %s"))
+
+   (:malformed-unprefer      '("in mu-unprefer malformed arglist at %s"))
+
+   (:ambiguous-methods       '("multiple methods match in multi-method call %s "
+                               "dispatch value %s:\n%s\n"))
+
+   (:inconsistent-prefers    '("possible cycle in prefers in multi-method call %s "
+                               "for dispatch value \n%s\n"
+                               "with hierarchy:\n%S\n"
+                               "with prefers:\n%S\n"))
+
+   (:malformed-defmulti      '("in mu-defmulti %s malformed arglist or body"))
+
+   (:no-methods              '("no mu-methods match dispatch value %s for dispatch %s "))
+
+   (:malformed-defmethod     '("in mu-defmethod %s malformed arglist or body")))
+
+  "Predefined error messages that can be used in `mu-error' by
+passing it an attribute as the first argument.")
+
+
+(defun mu-error (&rest args)
+  "Like `error' but raise a custom `mu-error'. Alternatively
+take a keyword as the first ARG to use a predefined message."
+  (let* ((mu-err (ht-get mu--errors (car args)))
+         (msg (if mu-err (list* (string-join mu-err "") (cdr args)) args)))
+    (signal 'mu-error (list (apply #'format-message msg)))))
+
+
+;;* Provide ------------------------------------------------------- *;;
+
+
 (provide 'multi-prelude)

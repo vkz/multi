@@ -366,7 +366,7 @@
     (should (ht-empty? (mu-prefers 'bar)))
 
     ;; and therefore report error when unable to choose a method
-    (should (mu--error-match "multiple methods" (bar :rect :rect)))
+    (should (mu--error-match "multiple methods match" (bar :rect :rect)))
 
     ;; we should be able to register a prefer
     (mu-prefer 'bar [:rect :shape] :over [:shape :rect])
@@ -390,7 +390,7 @@
              (mu-prefers 'bar [:rect :shape])))
 
     ;; and go back to ambiguity
-    (should (mu--error-match "multiple methods" (bar :rect :rect)))
+    (should (mu--error-match "multiple methods match" (bar :rect :rect)))
 
     ;; we should be able to remove all prefers for a value
     (mu-unprefer 'bar [:rect :shape])
