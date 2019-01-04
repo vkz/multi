@@ -8,25 +8,6 @@
 (require 'multi-patterns)
 
 
-;;* Prelude ------------------------------------------------------- *;;
-
-
-(pcase-defmacro multi (&rest patterns)
-  (pcase patterns
-    (`(,id :if ,predicate) `(and ,id (pred ,predicate)))
-    (otherwise
-     `(mu-error "malformed pcase multi pattern"))))
-
-
-(example
- (pcase '([a b] "doc")
-   (`(,(multi arglist :if vectorp) ,(multi doc :if stringp)) (list arglist doc))
-   (otherwise
-    (error "no match")))
- ;; example
- )
-
-
 ;;* Settings  ----------------------------------------------------- *;;
 
 
@@ -53,6 +34,75 @@ attempt is made to use multi-methods in dynamic scope.")
     (unless lexical-binding
       (mu-error :lexical-binding))))
 
+
+;;* Multi --------------------------------------------------------- *;;
+
+
+(cl-defstruct multi
+  name
+  dispatch
+  (methods (ht))
+  (prefers (ht))
+  default
+  hierarchy
+  static-hierarchy)
+
+
+(defmacro multi (struct slot &rest keys)
+  "Convenience macro to get and set slots in `multi' struct
+instances. For any slot that's a hash-table pass KEYS to get or
+set corresponding value."
+  (declare
+   (gv-setter
+    (lambda (val)
+      (if keys
+          ;; get table at SLOT and set the value at KEYS
+          `(setf (ht-get* (cl-struct-slot-value 'multi ',slot ,struct) ,@keys) ,val)
+        ;; set SLOT value
+        `(setf (cl-struct-slot-value 'multi ',slot ,struct) ,val)))))
+  (if keys
+      ;; get the table at SLOT and lookup value at KEYS
+      `(ht-get* (cl-struct-slot-value 'multi ',slot ,struct) ,@keys)
+    ;; get the value at SLOT
+    `(cl-struct-slot-value 'multi ',slot ,struct)))
+
+
+;; TODO multi-struct idea
+(comment
+
+ (mu-defmulti foo ...)
+ ;; =>
+ (setf foo (make-multi :name 'foo ...))
+
+ ;; then we can do all this
+ (multi foo name)
+ (setf (multi foo name) 'bar)
+ (setf (multi foo dispatch) (lambda (arg) 'foo))
+ (setf (multi foo methods :val) (lambda (arg) :val))
+ (setf (multi foo hierarchy) (make-mu-hierarchy))
+ (pushnew :shape (multi foo prefers (mu-hierarchy-id (multi-hierarchy foo))))
+ (setf (multi foo default) (lambda (&rest args) (mu-error "default")))
+
+ ;; getters v1
+ (multi foo name)
+ (multi foo dispatch)
+ (multi foo methods)
+ (multi foo prefers)
+ (multi foo default)
+ (multi foo hierarchy)
+ (multi foo static-hierarchy)
+
+ ;; getterns v2
+ (multi-name foo)
+ (multi-dispatch foo)
+ (multi-methods foo)
+ (multi-prefers foo)
+ (multi-default foo)
+ (multi-hierarchy foo)
+ (multi-static-hierarchy foo)
+
+ ;; comment
+ )
 
 ;;* Hierarchies --------------------------------------------------- *;;
 
@@ -130,8 +180,8 @@ currently active hierarchy and return it."
 ;; what it is more out of curiousity than necessity. We pre-compute ancestors so
 ;; that `mu-isa?' requires a single `member' lookup. Children, parents,
 ;; descendants are redundant but we may as well pre-compute them so we do. This
-;; implementation trades off time pre-computing relations whever a hierarchy gets
-;; extended for the the time required to perform `mu-isa?' check, obviously
+;; implementation trades off time pre-computing relations whenever a hierarchy
+;; gets extended for the the time required to perform `mu-isa?' check, obviously
 ;; favoring the latter. We could, and the initial implementation did, re-compute
 ;; relations every time `mu-isa?' is called. Seemingly wasteful it could be made
 ;; asymptotically as performant as the pre-computed one by caching its calls,
@@ -320,11 +370,6 @@ when KEYS are supplied. Allow use as gv-variable."
 
       ;; narrow to just one method or throw
       (mu--select-preferred symbol isa-methods val))))
-
-
-(defun mu-undefmethod (symbol val)
-  "Remove multi-method for SYMBOL and dispatch value VAL"
-  (ht-remove! (mu-methods symbol) val))
 
 
 ;;* Prefers ------------------------------------------------------- *;;
@@ -554,6 +599,11 @@ else assume CL-arglist."
        )))
 
 
+(defun mu-undefmethod (symbol val)
+  "Remove multi-method for SYMBOL and dispatch value VAL"
+  (ht-remove! (mu-methods symbol) val))
+
+
 ;;* Provide ------------------------------------------------------- *;;
 
 
@@ -698,12 +748,127 @@ else assume CL-arglist."
 ;; applied even though this here val isn't a seq
 ;; (mu-defmethod foo (&rest args) :when (?  pred-p) body)
 
-;; TODO Hierarchy is orthogonal to `multi' dispatch function. However in Clojure
-;; you may change it (only?) in `defmulti', but IMO it makes more sence to be able
-;; to pass it to mu-defmethod invocations (not even definitions). Need to think if
-;; that'd be consistent and whether it has any practical value.
-
 ;; TODO Could we allow arbitrary relations? E.g. `parent-of'. Would that have any
 ;; practical benefit? When? How?
 ;; (mu-defmethod foo (a b) :isa :b body)
 ;; (mu-defmethod foo (a b) :parent-of :b body)
+
+;; TODO some ideas for setters
+(comment
+
+ (mu-defstruct multi
+               dispatch
+               (methods (ht) :getter ht-get*)
+               (prefers (ht) :getter ht-get*)
+               default
+               (hierarchy :setter ht)
+               static-hierarchy
+               (mul :getter multi))
+
+ ;; setter
+ (lambda (val)
+   (if keys
+
+       `(case ',slot
+          ((mul)
+           (setf (multi (cl-struct-slot-value 'multi ',slot ,struct) ,@keys) ,val))
+
+          ((methods prefers hierarchy static-hierarchy)
+           (setf (ht-get* (cl-struct-slot-value 'multi ',slot ,struct) ,@keys) ,val)))
+
+     (setf (cl-struct-slot-value 'multi ',slot ,struct) ,val)))
+
+ ;; now we can even set slots of a sub-struct
+ (setf (multi foo mul methods :dispatch-val) 'val)
+
+ ;; alternatively
+ ;; -------------
+ (setf-> foo (multi mul) (multi methods :dispatch-val) 'val)
+ ;; =>
+ (setf (multi (multi foo mul) methods :dispatch-val) 'val)
+
+ (setf-> foo (multi methods) (ht-get :a) (ht-get :b) (ht-get :c) 'val)
+ ;; =>
+ (setf (ht-get (ht-get (ht-get (multi foo methods) :a) :b) :c) 'val)
+
+ (setf-> foo (multi methods) (ht-get* :a :b :c) 'val)
+ ;; =>
+ (setf (ht-get* (multi foo methods) :a :b :c) 'val)
+
+ (place-> foo
+          (multi prefers)
+          (ht-get (mu-hierarchy-id (multi-hierarchy foo)))
+          (pushnew :shape place))
+ ;; =>
+ (pushnew :shape (ht-get (multi foo prefers) (mu-hierarchy-id (multi-hierarchy foo))))
+
+ ;; else I could reimplement `-as->' so that it doesn't compute intermediate
+ ;; results, but only rewrites into a deeply nested call. It'd be somewhat more
+ ;; general than having a special place-> and setf->
+
+ (-as-> foo it
+        (multi it prefers)
+        (ht-get it (mu-hierarchy-id (multi-hierarchy foo)))
+        (pushnew :shape it))
+
+ (--> foo
+      (multi prefers)
+      (ht-get (mu-hierarchy-id (multi-hierarchy foo)))
+      (-->>
+       (pushnew :shape)))
+
+ ;; comment
+ )
+
+
+;; TODO bugs in gv.el. This most certainly plagues my `mu-defsetter', too
+(comment
+ (cl-defstruct baz name)
+
+ (setq foo (make-baz :name 'baz))
+
+ ;; just a getter
+ (defmacro bazzer (struct slot)
+   `(cl-struct-slot-value 'baz ',slot ,struct))
+
+ (bazzer foo name)
+
+ ;; Setter that doesn't work, because `gv--defsetter' is broken in at least two
+ ;; ways and it hits both in this case. We could fix it in this case by defining
+ ;; `multi' as a defun instead of a macro passing it slot as a quoted symbol.
+ (gv-define-setter bazzer (val struct slot)
+   `(setf (cl-struct-slot-value 'baz ',slot ,struct) ,val))
+
+ ;; this signals that `name' is not defined
+ (setf (bazzer foo name) 'bar)
+
+ ;; the expansion shows us exactly why: `gv--defsetter' is broken in at least two
+ ;; ways.
+ ;;   (let* ((v foo)
+ ;;          (v name))
+ ;;     (setf (cl-struct-slot-value 'baz 'v v) 'bar))
+ ;;
+ ;; 1. the variables it uses to let-bind args in the arglist all use the same
+ ;; symbol `v' so they end up shadowing each other when there's more than one
+ ;; argument.
+ ;;
+ ;; 2. If gv isn't a defun but a macro it unassumingly inserts its arguments as
+ ;; let-values so if like in our example your macro expects to receive an unquoted
+ ;; symbol which it'll correctly quote in the code it generates, well, tough luck.
+ ;; `gv--defsetter' will ignore that.
+
+ ;; Possible fix for problem 1. is something along these lines:
+ (defun gv--defsetter (name setter do args &optional vars)
+   ;; if-test and consequent unchanged from the original
+   (if (null args)
+       (let ((vars (nreverse vars)))
+         (funcall do `(,name ,@vars) (lambda (v) (apply setter v vars))))
+     ;; new code
+     (let ((v (gensym "v")))
+       `(let* ((,v ,(car args)))
+          ,(gv--defsetter name setter do (cdr args) (cons v vars))))))
+
+ ;; Dunno about problem 2.
+
+ ;; comment
+ )
