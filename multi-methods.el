@@ -78,17 +78,18 @@ get or set corresponding value."
   "Hierarchy that overrides the global if set")
 
 
-(defsubst mu--hierarchy (&optional fun)
+(defsubst mu-active-hierarchy (&optional fun id?)
   "Return the hierarchy active in the current dynamic extent."
-  (or
-   ;; static hierarchy tramps all and cannot be overriden
-   (when fun (multi fun static-hierarchy))
-   ;; dynamic hierarchy override trams both custom and global
-   mu--hierarchy-override
-   ;; custom hierarchy tramps global
-   (when fun (multi fun hierarchy))
-   ;; global hierarchy
-   mu-global-hierarchy))
+  (let ((hierarchy (or
+                    ;; static hierarchy tramps all and cannot be overriden
+                    (when fun (multi fun static-hierarchy))
+                    ;; dynamic hierarchy override trams both custom and global
+                    mu--hierarchy-override
+                    ;; custom hierarchy tramps global
+                    (when fun (multi fun hierarchy))
+                    ;; global hierarchy
+                    mu-global-hierarchy)))
+    (if id? (mu-hierarchy-id hierarchy) hierarchy)))
 
 
 (defmacro mu-with-hierarchy (hierarchy &rest body)
@@ -110,7 +111,7 @@ get or set corresponding value."
 (defun mu--cycle? (child parent &optional hierarchy compute?)
   "Check if CHILD and PARENT would create a cycle in the
 currently active hierarchy and return it."
-  (default hierarchy :to (mu--hierarchy))
+  (default hierarchy :to (mu-active-hierarchy))
   (when (or (equal child parent)
             (member child
                     (if compute?
@@ -188,12 +189,12 @@ HIERARCHY tree. Return updated HIERARCHY."
 
 (defmacro mu-rel (child :isa parent &optional hierarchy)
   "Establish an isa relationship between CHILD and PARENT."
-  `(mu--rel ,child ,parent (or ,hierarchy (mu--hierarchy))))
+  `(mu--rel ,child ,parent (or ,hierarchy (mu-active-hierarchy))))
 
 
 (defun mu-isa? (child parent &optional hierarchy)
   "Check if CHILD is isa? related to PARENT."
-  (default hierarchy :to (mu--hierarchy))
+  (default hierarchy :to (mu-active-hierarchy))
   (or (equal child parent)
       (and (sequencep child)
            (sequencep parent)
@@ -233,7 +234,7 @@ HIERARCHY tree. Return updated HIERARCHY."
 
 (defun mu-ancestors (x &optional hierarchy compute?)
   "Return all ancestors of X such that (mu-isa? X ancestor)."
-  (default hierarchy :to (mu--hierarchy))
+  (default hierarchy :to (mu-active-hierarchy))
   (if compute?
       (cl-delete-duplicates (mu--ancestors x hierarchy) :test #'equal)
     (mu-hierarchy hierarchy table x :ancestors)))
@@ -241,7 +242,7 @@ HIERARCHY tree. Return updated HIERARCHY."
 
 (defun mu-descendants (x &optional hierarchy compute?)
   "Return all descendants of X such that (mu-isa? descendant X)."
-  (default hierarchy :to (mu--hierarchy))
+  (default hierarchy :to (mu-active-hierarchy))
   (if compute?
       (cl-delete-duplicates (mu--descendants x hierarchy) :test #'equal)
     (mu-hierarchy hierarchy table x :descendants)))
@@ -256,7 +257,7 @@ HIERARCHY tree. Return updated HIERARCHY."
 (cl-defun mu-isa/generations? (x y &optional (hierarchy) (generation 0))
   "Like `mu-isa?' but return the generation gap between CHILD and
 PARENT."
-  (default hierarchy :to (mu--hierarchy))
+  (default hierarchy :to (mu-active-hierarchy))
   (cond
    ((sequencep x)
     (and (sequencep y)
@@ -282,7 +283,6 @@ PARENT."
 ;;* Prefers ------------------------------------------------------- *;;
 
 
-;; TODO feels redundant
 (defun mu-prefers (fun &rest keys)
   "Return a table of registered value preferences. When VAL is
 supplied return just the set of all values over which VAL is
@@ -292,12 +292,12 @@ preferred. This form is `setf'-able.
   (declare
    (gv-setter
     (lambda (val)
-      `(setf (multi ,fun prefers (mu-hierarchy-id (mu--hierarchy ,fun)) ,@keys) ,val))))
+      `(setf (multi ,fun prefers (mu-active-hierarchy ,fun :id) ,@keys) ,val))))
 
   ;; return set of values VAL tramps or the entire prefers table
-  (let* ((hierarchy-id (mu-hierarchy-id (mu--hierarchy fun)))
-         (prefers (or (multi fun prefers hierarchy-id)
-                      (setf (multi fun prefers hierarchy-id) (ht)))))
+  (let* ((id (mu-active-hierarchy fun :id))
+         (prefers (or (multi fun prefers id)
+                      (setf (multi fun prefers id) (ht)))))
     (if keys (apply #'ht-get* prefers keys) prefers)))
 
 
@@ -396,7 +396,7 @@ signal an error."
        ;; preferences that are mutually inconsitent i.e. create a cycle. If this
        ;; ever happens, our `mu--preference-cycle?' must be buggy.
        ((= size 0)
-        (mu-error :inconsistent-prefers fun val (mu--hierarchy fun) prefers))))))
+        (mu-error :inconsistent-prefers fun val (mu-active-hierarchy fun) prefers))))))
 
 
 ;;* Methods ------------------------------------------------------- *;;
@@ -406,7 +406,7 @@ signal an error."
 ;; `mu-select-method'.
 (defun mu-select-method (fun val)
   "Select a multi-method whose value (isa? VAL value)."
-  (let* ((hierarchy (mu--hierarchy fun))
+  (let* ((hierarchy (mu-active-hierarchy fun))
          (methods   (ht-select (lambda (VAL method) (mu-isa? val VAL hierarchy))
                                (multi fun methods))))
     (if (ht-empty? methods)
