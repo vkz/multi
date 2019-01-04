@@ -107,6 +107,39 @@
     (ht-get* :a :b))
 
 
+;; TODO generic associative getter
+
+(mu-get foo key1 key2)
+
+(mu-get (ht (key1 (ht (key2 'val)))) key1 key2)
+;; => 'val
+
+;; not sure about alists - alists are stupid - hate em
+(mu-get (ht (key1 ((key2 . 'val)))) key1 key2)
+;; => 'val
+
+(mu-get (ht (key1 (foo-struct :key2 'val))) key1 key2)
+;; => 'val
+
+(mu-get (ht (key1 (list 'val))) key1 0)
+;; => 'val
+
+(mu-get (ht (key1 [val])) key1 0)
+;; => 'val
+
+;; then setter could just be
+(setf (mu-get foo key1 key2) 'val)
+
+;; Getter could be implemented in terms of `mu->' I think
+
+(mu-get foo key1 key2)
+(mu-> foo
+      (mu--get it key1)
+      (mu--get it key2))
+;; where `mu--get' performs a single key lookup. Maybe we can even make it
+;; `defgeneric' or a multi-method so that users can extend it?
+
+
 ;; TODO my old custom defstruct that I might turn into mu-defstruct
 
 (defgeneric destruct (struct &rest args)
