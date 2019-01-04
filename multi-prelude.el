@@ -230,6 +230,30 @@ take a keyword as the first ARG to use a predefined message."
     (signal 'mu-error (list (apply #'format-message msg)))))
 
 
+(defcustom mu-lexical-binding 'error
+  "multi-methods may not work correctly without
+`lexical-binding'. By default check and signal an error if an
+attempt is made to use multi-methods in dynamic scope.")
+
+
+;; TODO (mu-lexical-binding) check is somehow subtly broken when you
+;; byte-compile-file that defines multimethods and then load. With lexical-binding
+;; set it remains on when you compile, but on load it appears nil. I don't know
+;; what's going on. Either byte-compile is subtly broken, or by the time we
+;; byte-compile every defun is already a closure and load happens in dynamic
+;; environment. Until I figure this out, I am disabling this check. See:
+;; https://emacs.stackexchange.com/questions/46812/byte-compile-and-lexical-binding
+(setq mu-lexical-binding nil)
+
+
+(defun mu-lexical-binding ()
+  "Signal an error depending on the setting of
+`mu-lexical-binding' and `lexical-binding'."
+  (when mu-lexical-binding
+    (unless lexical-binding
+      (mu-error :lexical-binding))))
+
+
 ;;* Provide ------------------------------------------------------- *;;
 
 

@@ -8,33 +8,6 @@
 (require 'multi-patterns)
 
 
-;;* Settings  ----------------------------------------------------- *;;
-
-
-(defcustom mu-lexical-binding 'error
-  "multi-methods may not work correctly without
-`lexical-binding'. By default check and signal an error if an
-attempt is made to use multi-methods in dynamic scope.")
-
-
-;; TODO (mu-lexical-binding) check is somehow subtly broken when you
-;; byte-compile-file that defines multimethods and then load. With lexical-binding
-;; set it remains on when you compile, but on load it appears nil. I don't know
-;; what's going on. Either byte-compile is subtly broken, or by the time we
-;; byte-compile every defun is already a closure and load happens in dynamic
-;; environment. Until I figure this out, I am disabling this check. See:
-;; https://emacs.stackexchange.com/questions/46812/byte-compile-and-lexical-binding
-(setq mu-lexical-binding nil)
-
-
-(defun mu-lexical-binding ()
-  "Signal an error depending on the setting of
-`mu-lexical-binding' and `lexical-binding'."
-  (when mu-lexical-binding
-    (unless lexical-binding
-      (mu-error :lexical-binding))))
-
-
 ;;* Multi --------------------------------------------------------- *;;
 
 
@@ -46,15 +19,6 @@ attempt is made to use multi-methods in dynamic scope.")
   default
   hierarchy
   static-hierarchy)
-
-
-;; TODO this points a curious pattern. Suppose we annotated struct slots with
-;; getters e.g. `ht-get*' for nested hash-tables, struct type e.g. `mu-hierarchy'
-;; for nested structs etc. Then we could generate getter/setter macro like `multi'
-;; here that would make getting and setting structured data nested in
-;; correstponding struct a trivial affair and make it quite readable. Notice that
-;; `mu-hierarchy' below is pretty much exactly like `multi'. So, should I abstract
-;; that into a `mu-defstruct', hm?
 
 
 (defmacro multi (struct slot &rest keys)
