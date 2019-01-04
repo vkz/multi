@@ -27,24 +27,24 @@
 
     ;; store mu-methods table on the symbol
     (mu-defmulti foo #'identity)
-    (should (ht? (mu-methods 'foo)))
+    (should (ht? (multi foo methods)))
 
     ;; store dispatch and default functions on the symbol
-    (should (functionp (get 'foo :mu-dispatch)))
-    (should (functionp (get 'foo :mu-default)))
+    (should (functionp (multi foo dispatch)))
+    (should (functionp (multi foo default)))
 
     ;; lookup a mu-defmethod by key
     (mu-defmethod foo (x) :when :rect :rect)
-    (should (functionp (mu-methods 'foo :rect)))
-    (should (equal :rect (funcall (mu-methods 'foo :rect) :rect)))
+    (should (functionp (multi foo methods :rect)))
+    (should (equal :rect (funcall (multi foo methods :rect) :rect)))
 
     ;; mu-methods should be setf-able when called with keys
-    (setf (mu-methods 'foo :rect) (lambda (x) :shape))
-    (should (equal :shape (funcall (mu-methods 'foo :rect) :rect)))
+    (setf (multi foo methods :rect) (lambda (x) :shape))
+    (should (equal :shape (funcall (multi foo methods :rect) :rect)))
 
     ;; mu-methods should be setf-able when called without keys
-    (setf (mu-methods 'foo) (ht))
-    (should (ht-empty? (mu-methods 'foo)))
+    (setf (multi foo methods) (ht))
+    (should (ht-empty? (multi foo methods)))
 
     ;; hierarchy is a struct that stores relationships in a table
     (let ((h (make-mu-hierarchy)))
@@ -52,16 +52,16 @@
       (should (symbolp (mu-hierarchy-id h)))
 
       ;; nested table values must be settable
-      (setf (mu-hierarchy h :rect :parents) '(:shape))
-      (should (mu--set-equal? '(:shape) (mu-hierarchy h :rect :parents)))
+      (setf (mu-hierarchy h table :rect :parents) '(:shape))
+      (should (mu--set-equal? '(:shape) (mu-hierarchy h table :rect :parents)))
 
       ;; table is a hash-table
-      (should (ht? (mu-hierarchy h))))
+      (should (ht? (mu-hierarchy h table))))
 
     ;; same should be true of the `mu-global-hierarchy'
-    (setf (mu-hierarchy mu-global-hierarchy :rect :parents) '(:shape))
-    (should (mu--set-equal? '(:shape) (mu-hierarchy mu-global-hierarchy :rect :parents)))
-    (should (ht? (mu-hierarchy mu-global-hierarchy)))
+    (setf (mu-hierarchy mu-global-hierarchy table :rect :parents) '(:shape))
+    (should (mu--set-equal? '(:shape) (mu-hierarchy mu-global-hierarchy table :rect :parents)))
+    (should (ht? (mu-hierarchy mu-global-hierarchy table)))
 
     ;; TODO dispatch cache
     ;; (should (ht? (get 'foo :mu-cache)))
@@ -74,11 +74,11 @@
 (ert-deftest mu-test-rel ()
   "Creating `mu-isa?' hierachy should work"
   (mu-test ()
-    (should (mu--set-equal? '(:rect :shape) (ht-keys (mu-hierarchy (mu-rel :rect isa :shape)))))
-    (should (mu--set-equal? '(:rect :shape :square) (ht-keys (mu-hierarchy (mu-rel :square isa :rect)))))
-    (should (member :shape (mu-hierarchy mu-global-hierarchy :rect :parents)))
-    (should (member :rect (mu-hierarchy mu-global-hierarchy :square :parents)))
-    (should (member :square (mu-hierarchy mu-global-hierarchy :rect :children)))))
+    (should (mu--set-equal? '(:rect :shape) (ht-keys (mu-hierarchy (mu-rel :rect isa :shape) table))))
+    (should (mu--set-equal? '(:rect :shape :square) (ht-keys (mu-hierarchy (mu-rel :square isa :rect) table))))
+    (should (member :shape (mu-hierarchy mu-global-hierarchy table :rect :parents)))
+    (should (member :rect (mu-hierarchy mu-global-hierarchy table :square :parents)))
+    (should (member :square (mu-hierarchy mu-global-hierarchy table :rect :children)))))
 
 
 (ert-deftest mu-test-ancestors-descendants ()
@@ -169,9 +169,9 @@
     (mu-defmulti foo #'identity)
 
     (should (functionp 'foo))
-    (should (mu-methods 'foo))
-    (should (null (ht-keys (mu-methods 'foo))))
-    (should (functionp (get 'foo :mu-default)))))
+    (should (multi foo methods))
+    (should (null (ht-keys (multi foo methods))))
+    (should (functionp (multi foo default)))))
 
 
 (ert-deftest mu-test-mu-defmethod ()
@@ -179,16 +179,16 @@
   (mu-test (foo)
 
     (mu-defmulti foo #'identity)
-    (should (ht? (mu-methods 'foo)))
+    (should (ht? (multi foo methods)))
 
     (mu-defmethod foo (x) :when :a :a)
-    (should (mu--set-equal? '(:a) (ht-keys (mu-methods 'foo))))
+    (should (mu--set-equal? '(:a) (ht-keys (multi foo methods))))
 
     (mu-defmethod foo (x) :when :b :b)
-    (should (mu--set-equal? '(:a :b) (ht-keys (mu-methods 'foo))))
+    (should (mu--set-equal? '(:a :b) (ht-keys (multi foo methods))))
 
     ;; methods must be functions
-    (should (cl-every #'functionp (ht-values (mu-methods 'foo))))
+    (should (cl-every #'functionp (ht-values (multi foo methods))))
 
     (should (eq :a (foo :a)))
     (should (eq :b (foo :b)))
@@ -344,7 +344,7 @@
     (should (equal :c (foo :c)))
 
     ;; removing custom :default should restore pre-installed :default
-    (mu-undefmethod 'foo :default)
+    (mu-undefmethod foo :default)
     (should (mu--error-match "no mu-methods match" (foo :d)))))
 
 
@@ -362,48 +362,48 @@
     (mu-defmethod bar (x y) :when [:shape :rect] :shape-rect)
 
     ;; since no val is preferred, we start with an empty prefers table
-    (should (ht-empty? (mu-prefers 'bar)))
+    (should (ht-empty? (mu-prefers bar)))
 
     ;; and therefore report error when unable to choose a method
     (should (mu--error-match "multiple methods match" (bar :rect :rect)))
 
     ;; we should be able to register a prefer
-    (mu-prefer 'bar [:rect :shape] :over [:shape :rect])
+    (mu-prefer bar [:rect :shape] :over [:shape :rect])
     (should (mu--set-equal?
              '([:shape :rect])
-             (mu-prefers 'bar [:rect :shape])))
+             (mu-prefers bar [:rect :shape])))
 
     ;; we should be able to register more than one prefer for the same value
-    (mu-prefer 'bar [:rect :shape] :over [:parallelogram :rect])
+    (mu-prefer bar [:rect :shape] :over [:parallelogram :rect])
     (should (mu--set-equal?
              '([:shape :rect] [:parallelogram :rect])
-             (mu-prefers 'bar [:rect :shape])))
+             (mu-prefers bar [:rect :shape])))
 
     ;; and the registered prefers should resolve the ambiguity
     (should (equal :rect-shape (bar :rect :rect)))
 
     ;; we should be able to remove a prefer
-    (mu-unprefer 'bar [:rect :shape] :over [:shape :rect])
+    (mu-unprefer bar [:rect :shape] :over [:shape :rect])
     (should (mu--set-equal?
              '([:parallelogram :rect])
-             (mu-prefers 'bar [:rect :shape])))
+             (mu-prefers bar [:rect :shape])))
 
     ;; and go back to ambiguity
     (should (mu--error-match "multiple methods match" (bar :rect :rect)))
 
     ;; we should be able to remove all prefers for a value
-    (mu-unprefer 'bar [:rect :shape])
-    (should-not (mu-prefers 'bar [:rect :shape]))
+    (mu-unprefer bar [:rect :shape])
+    (should-not (mu-prefers bar [:rect :shape]))
 
     ;; we should be able to remove all registered prefers
-    (mu-unprefer 'bar)
-    (should (ht-empty? (mu-prefers 'bar)))
+    (mu-unprefer bar)
+    (should (ht-empty? (mu-prefers bar)))
 
     ;; inconsintent preferences shouldn't make it into mu-prefers
-    (mu-prefer 'bar [:rect :shape] :over [:shape :rect])
-    (mu-prefer 'bar [:shape :rect] :over [:parallelogram :rect])
+    (mu-prefer bar [:rect :shape] :over [:shape :rect])
+    (mu-prefer bar [:shape :rect] :over [:parallelogram :rect])
     (mu--error-match "in mu-prefer cyclic preference "
-                     (mu-prefer 'bar [:parallelogram :rect] :over [:rect :shape]))
+                     (mu-prefer bar [:parallelogram :rect] :over [:rect :shape]))
 
     ;; TODO Maybe test the above with a custom hierarchy
     ))

@@ -48,6 +48,15 @@ attempt is made to use multi-methods in dynamic scope.")
   static-hierarchy)
 
 
+;; TODO this points a curious pattern. Suppose we annotated struct slots with
+;; getters e.g. `ht-get*' for nested hash-tables, struct type e.g. `mu-hierarchy'
+;; for nested structs etc. Then we could generate getter/setter macro like `multi'
+;; here that would make getting and setting structured data nested in
+;; correstponding struct a trivial affair and make it quite readable. Notice that
+;; `mu-hierarchy' below is pretty much exactly like `multi'. So, should I abstract
+;; that into a `mu-defstruct', hm?
+
+
 (defmacro multi (struct slot &rest keys)
   "Convenience macro to get and set slots in `multi' struct
 instances. For any slot that's a hash-table pass KEYS to get or
@@ -67,43 +76,6 @@ set corresponding value."
     `(cl-struct-slot-value 'multi ',slot ,struct)))
 
 
-;; TODO multi-struct idea
-(comment
-
- (mu-defmulti foo ...)
- ;; =>
- (setf foo (make-multi :name 'foo ...))
-
- ;; then we can do all this
- (multi foo name)
- (setf (multi foo name) 'bar)
- (setf (multi foo dispatch) (lambda (arg) 'foo))
- (setf (multi foo methods :val) (lambda (arg) :val))
- (setf (multi foo hierarchy) (make-mu-hierarchy))
- (pushnew :shape (multi foo prefers (mu-hierarchy-id (multi-hierarchy foo))))
- (setf (multi foo default) (lambda (&rest args) (mu-error "default")))
-
- ;; getters v1
- (multi foo name)
- (multi foo dispatch)
- (multi foo methods)
- (multi foo prefers)
- (multi foo default)
- (multi foo hierarchy)
- (multi foo static-hierarchy)
-
- ;; getterns v2
- (multi-name foo)
- (multi-dispatch foo)
- (multi-methods foo)
- (multi-prefers foo)
- (multi-default foo)
- (multi-hierarchy foo)
- (multi-static-hierarchy foo)
-
- ;; comment
- )
-
 ;;* Hierarchies --------------------------------------------------- *;;
 
 
@@ -115,15 +87,23 @@ set corresponding value."
   (cache (ht)))
 
 
-(defun mu-hierarchy (hierarchy &rest keys)
-  "Lookup a value at KEYS in HIERARCHY or return the entire
-table. Allow use as gv-variable."
+(defmacro mu-hierarchy (struct slot &rest keys)
+  "Convenience macro to get and set slots in `mu-hierarchy'
+struct instances. For any slot that's a hash-table pass KEYS to
+get or set corresponding value."
   (declare
-   (gv-setter (lambda (val)
-                `(setf (ht-get* (mu-hierarchy-table ,hierarchy) ,@keys) ,val))))
+   (gv-setter
+    (lambda (val)
+      (if keys
+          ;; get table at SLOT and set the value at KEYS
+          `(setf (ht-get* (cl-struct-slot-value 'mu-hierarchy ',slot ,struct) ,@keys) ,val)
+        ;; set SLOT value
+        `(setf (cl-struct-slot-value 'mu-hierarchy ',slot ,struct) ,val)))))
   (if keys
-      (apply #'ht-get* (mu-hierarchy-table hierarchy) keys)
-    (mu-hierarchy-table hierarchy)))
+      ;; get the table at SLOT and lookup value at KEYS
+      `(ht-get* (cl-struct-slot-value 'mu-hierarchy ',slot ,struct) ,@keys)
+    ;; get the value at SLOT
+    `(cl-struct-slot-value 'mu-hierarchy ',slot ,struct)))
 
 
 (defconst mu-global-hierarchy (make-mu-hierarchy)
@@ -134,15 +114,15 @@ table. Allow use as gv-variable."
   "Hierarchy that overrides the global if set")
 
 
-(defsubst mu--hierarchy (&optional symbol)
+(defsubst mu--hierarchy (&optional fun)
   "Return the hierarchy active in the current dynamic extent."
   (or
    ;; static hierarchy tramps all and cannot be overriden
-   (when symbol (get symbol :static-hierarchy))
+   (when fun (multi fun static-hierarchy))
    ;; dynamic hierarchy override trams both custom and global
    mu--hierarchy-override
    ;; custom hierarchy tramps global
-   (when symbol (get symbol :hierarchy))
+   (when fun (multi fun hierarchy))
    ;; global hierarchy
    mu-global-hierarchy))
 
@@ -159,7 +139,7 @@ table. Allow use as gv-variable."
       (list parent)
     (when-let ((cycle (some
                        (lambda (ancestor) (mu--cycle child ancestor hierarchy))
-                       (mu-hierarchy hierarchy parent :parents))))
+                       (mu-hierarchy hierarchy table parent :parents))))
       (cons parent cycle))))
 
 
@@ -209,34 +189,34 @@ HIERARCHY tree. Return updated HIERARCHY."
   ;; Update child and its descendants
   (progn
     ;; add parent to child's :parents
-    (pushnew parent (mu-hierarchy hierarchy child :parents))
+    (pushnew parent (mu-hierarchy hierarchy table child :parents))
     ;; add parent to child's :ancestors
-    (pushnew parent (mu-hierarchy hierarchy child :ancestors))
+    (pushnew parent (mu-hierarchy hierarchy table child :ancestors))
     ;; extend child's :ancestors with parent's :ancestors
-    (callf cl-union (mu-hierarchy hierarchy child :ancestors)
-      (mu-hierarchy hierarchy parent :ancestors))
+    (callf cl-union (mu-hierarchy hierarchy table child :ancestors)
+      (mu-hierarchy hierarchy table parent :ancestors))
     ;; propagate now extended child's :ancestors down the family tree by
     ;; extending every child descendant's :ancestors with child's
     ;; :ancestors
-    (dolist (descendant (mu-hierarchy hierarchy child :descendants))
-      (callf cl-union (mu-hierarchy hierarchy descendant :ancestors)
-        (mu-hierarchy hierarchy child :ancestors))))
+    (dolist (descendant (mu-hierarchy hierarchy table child :descendants))
+      (callf cl-union (mu-hierarchy hierarchy table descendant :ancestors)
+        (mu-hierarchy hierarchy table child :ancestors))))
 
   ;; Update parent and its ancestors
   (progn
     ;; add child to parent's :children
-    (pushnew child (mu-hierarchy hierarchy parent :children))
+    (pushnew child (mu-hierarchy hierarchy table parent :children))
     ;; add child to parent's :descendants
-    (pushnew child (mu-hierarchy hierarchy parent :descendants))
+    (pushnew child (mu-hierarchy hierarchy table parent :descendants))
     ;; extend parent's :descendants with child's :descendants
-    (callf cl-union (mu-hierarchy hierarchy parent :descendants)
-      (mu-hierarchy hierarchy child :descendants))
+    (callf cl-union (mu-hierarchy hierarchy table parent :descendants)
+      (mu-hierarchy hierarchy table child :descendants))
     ;; propagate now extended parent's :descendants up the family tree by
     ;; extending every parent ancestor's :descendants with parent's
     ;; :descendants
-    (dolist (ancestor (mu-hierarchy hierarchy parent :ancestors))
-      (callf cl-union (mu-hierarchy hierarchy ancestor :descendants)
-        (mu-hierarchy hierarchy parent :descendants))))
+    (dolist (ancestor (mu-hierarchy hierarchy table parent :ancestors))
+      (callf cl-union (mu-hierarchy hierarchy table ancestor :descendants)
+        (mu-hierarchy hierarchy table parent :descendants))))
 
   ;; return hierarchy
   hierarchy)
@@ -267,7 +247,7 @@ HIERARCHY tree. Return updated HIERARCHY."
 
 (defun mu--ancestors (x hierarchy)
   "Return ancestors of X by walking the HIERARCHY tree."
-  (let ((parents (mu-hierarchy hierarchy x :parents)))
+  (let ((parents (mu-hierarchy hierarchy table x :parents)))
     ;; TODO instead of append I could cl-union to avoid cl-delete-duplicates use
     ;; later, but this is fine too?
     (append parents
@@ -279,7 +259,7 @@ HIERARCHY tree. Return updated HIERARCHY."
 
 (defun mu--descendants (x hierarchy)
   "Return descendants of X by walking the HIERARCHY tree."
-  (let ((children (mu-hierarchy hierarchy x :children)))
+  (let ((children (mu-hierarchy hierarchy table x :children)))
     (append children
             (seq-mapcat
              (lambda (child)
@@ -292,7 +272,7 @@ HIERARCHY tree. Return updated HIERARCHY."
   (default hierarchy :to (mu--hierarchy))
   (if compute?
       (cl-delete-duplicates (mu--ancestors x hierarchy) :test #'equal)
-    (mu-hierarchy hierarchy x :ancestors)))
+    (mu-hierarchy hierarchy table x :ancestors)))
 
 
 (defun mu-descendants (x &optional hierarchy compute?)
@@ -300,7 +280,7 @@ HIERARCHY tree. Return updated HIERARCHY."
   (default hierarchy :to (mu--hierarchy))
   (if compute?
       (cl-delete-duplicates (mu--descendants x hierarchy) :test #'equal)
-    (mu-hierarchy hierarchy x :descendants)))
+    (mu-hierarchy hierarchy table x :descendants)))
 
 
 (cl-defun mu--generations (seqx seqy hierarchy)
@@ -326,55 +306,19 @@ PARENT."
    ((equal x y)
     (cons :generation generation))
 
-   ((member y (mu-hierarchy hierarchy x :parents))
+   ((member y (mu-hierarchy hierarchy table x :parents))
     (cons :generation (1+ generation)))
 
    (:else
     (some
      (lambda (parent) (mu-isa/generations? parent y hierarchy (1+ generation)))
-     (mu-hierarchy hierarchy x :parents)))))
-
-
-;;* Methods ------------------------------------------------------- *;;
-
-
-(defun mu-methods (symbol &rest keys)
-  "Return multi-methods hash-table for SYMBOL or lookup a method
-when KEYS are supplied. Allow use as gv-variable."
-  (declare (gv-setter
-            (lambda (val)
-              (if keys
-                  ;; with keys set corresponding value in :mu-methods table
-                  `(setf (ht-get* (get ,symbol :mu-methods) ,@keys) ,val)
-                ;; without keys set :mu-methods prop itself to a new table
-                `(setf (get ,symbol :mu-methods) ,val)))))
-  (if keys
-      ;; with keys lookup the method
-      (apply #'ht-get* (get symbol :mu-methods) keys)
-    ;; without keys return the entire :mu-methods table
-    (get symbol :mu-methods)))
-
-
-(defun mu-select-method (symbol val)
-  "Select a multi-method whose value (isa? VAL value)."
-  (let* ((all-methods (get symbol :mu-methods))
-         (hierarchy   (mu--hierarchy symbol))
-         (isa-methods (ht-select
-                       (lambda (VAL method) (mu-isa? val VAL hierarchy))
-                       all-methods)))
-    (if (ht-empty? isa-methods)
-
-        ;; user-installed or pre-installed default
-        (or (ht-get* all-methods :default)
-            (get symbol :mu-default))
-
-      ;; narrow to just one method or throw
-      (mu--select-preferred symbol isa-methods val))))
+     (mu-hierarchy hierarchy table x :parents)))))
 
 
 ;;* Prefers ------------------------------------------------------- *;;
 
 
+;; TODO feels redundant
 (defun mu-prefers (fun &rest keys)
   "Return a table of registered value preferences. When VAL is
 supplied return just the set of all values over which VAL is
@@ -382,17 +326,15 @@ preferred. This form is `setf'-able.
 
 \(mu-prefers fun &optional val)"
   (declare
-   (gv-setter (lambda (val)
-                `(setf (ht-get* (get ,fun :mu-prefers)
-                                (mu-hierarchy-id (mu--hierarchy ,fun))
-                                ,@keys)
-                       ,val))))
+   (gv-setter
+    (lambda (val)
+      `(setf (multi ,fun prefers (mu-hierarchy-id (mu--hierarchy ,fun)) ,@keys) ,val))))
 
   ;; return set of values VAL tramps or the entire prefers table
-  (apply #'ht-get*
-         (get fun :mu-prefers)
-         (mu-hierarchy-id (mu--hierarchy fun))
-         keys))
+  (let* ((hierarchy-id (mu-hierarchy-id (mu--hierarchy fun)))
+         (prefers (or (multi fun prefers hierarchy-id)
+                      (setf (multi fun prefers hierarchy-id) (ht)))))
+    (if keys (apply #'ht-get* prefers keys) prefers)))
 
 
 (defun mu--preference-cycle? (item parent fun)
@@ -493,7 +435,22 @@ signal an error."
         (mu-error :inconsistent-prefers fun val (mu--hierarchy fun) prefers))))))
 
 
-;;* Multi --------------------------------------------------------- *;;
+;;* Methods ------------------------------------------------------- *;;
+
+
+;; TODO `mu--select-preferred' feels redundant now, should just move its code into
+;; `mu-select-method'.
+(defun mu-select-method (fun val)
+  "Select a multi-method whose value (isa? VAL value)."
+  (let* ((hierarchy (mu--hierarchy fun))
+         (methods   (ht-select (lambda (VAL method) (mu-isa? val VAL hierarchy))
+                               (multi fun methods))))
+    (if (ht-empty? methods)
+        ;; user-installed or pre-installed default
+        (or (multi fun methods :default)
+            (multi fun default))
+      ;; narrow to just one method or throw
+      (mu--select-preferred fun methods val))))
 
 
 (defmacro mu-defmulti (name arglist &optional docstring &rest body)
@@ -524,50 +481,36 @@ The following attributes can appear before the BODY:
                     (mu-multi-head?         `(mu ,arglist ,@body))
                     ((listp arglist)        `(fn ,arglist ,@body))
                     (:else
-                     `(mu-error :malformed-defmulti ',name)))))
+                     `(mu-error :malformed-defmulti ',name))))
+         (args (gensym "args"))
+         (val (gensym "val"))
+         (default `(lambda (&rest ,args)
+                     (mu-error :no-methods (apply (multi ,name dispatch) ,args) ',name))))
+    `(progn
 
-    (with-gensyms (args val methods method)
-      `(progn
+       ;; check if lexical binding is enabled
+       (mu-lexical-binding)
 
-         ;; check if lexical binding is enabled
-         (mu-lexical-binding)
+       ;; create a dispatch function for NAME
+       (defun ,name (&rest ,args)
+         ,docstring
+         (let* ((,val (apply (multi ,name dispatch) ,args)))
+           (apply (mu-select-method ,name ,val) ,args)))
 
-         ;; create a dispatch function
-         (defun ,name (&rest ,args)
-           ,docstring
-           (let* ((,val (apply (get ',name :mu-dispatch) ,args)))
-             (apply (mu-select-method ',name ,val) ,args)))
+       ;; create a multi struct for NAME and set NAME value to that struct
+       (setf ,name (make-multi
+                    :name            ',name
+                    :dispatch         ,dispatch
+                    :methods          (ht)
+                    :prefers          (ht)
+                    :default          ,default
+                    :hierarchy        ,(ht-get attrs :hierarchy)
+                    :static-hierarchy ,(ht-get attrs :static-hierarchy)))
 
-         ;; set fun value slot to return its quoted form, this lets us pass fun
-         ;; around as value and still not break functions that expect a symbol
-         (setf ,name ',name)
-
-         ;; reset dispatch prop to the dispatch function
-         (setf (get ',name :mu-dispatch) ,dispatch)
-
-         ;; reset mu-methods prop to a fresh table with :default pre-installed
-         (setf (get ',name :mu-methods) (ht))
-
-         ;; set hierarchy prop if passed, reset it to nil even if not passed, so
-         ;; that if ever symbol gets redefined we don't get stale data
-         (setf (get ',name :hierarchy) ,(ht-get attrs :hierarchy))
-
-         ;; set or reset static-hierarchy prop
-         (setf (get ',name :static-hierarchy) ,(ht-get attrs :static-hierarchy))
-
-         ;; reset mu-prefers prop to a fresh table
-         (setf (get ',name :mu-prefers) (ht))
-         (setf (mu-prefers ',name) (ht))
-
-         ;; pre-install default method
-         (setf (get ',name :mu-default)
-               (lambda (&rest ,args)
-                 (mu-error :no-methods (apply (get ',name :mu-dispatch) ,args) ',name)))
-
-         ;; TODO Invalidate mu-methods cache here. Need to do this to catch
-         ;; cases where fun simply gets redefined and may hold cache for previous
-         ;; dispatch function
-         ))))
+       ;; TODO Invalidate mu-methods cache here. Need to do this to catch
+       ;; cases where fun simply gets redefined and may hold cache for previous
+       ;; dispatch function
+       )))
 
 
 ;; NOTE Far as I can tell if I were to define some methods with mu-defmethod then
@@ -593,15 +536,15 @@ else assume CL-arglist."
     `(progn
        ;; check if lexical binding is enabled
        (mu-lexical-binding)
-       ;; add new method to the mu-methods table
-       (setf (ht-get* (get ',name :mu-methods) ,val) ,method)
+       ;; add new method
+       (setf (multi ,name methods ,val) ,method)
        ;; TODO invalidate mu-methods cache
        )))
 
 
-(defun mu-undefmethod (symbol val)
-  "Remove multi-method for SYMBOL and dispatch value VAL"
-  (ht-remove! (mu-methods symbol) val))
+(defun mu-undefmethod (fun val)
+  "Remove multi-method for FUN and dispatch value VAL"
+  (ht-remove! (multi fun methods) val))
 
 
 ;;* Provide ------------------------------------------------------- *;;
@@ -609,30 +552,9 @@ else assume CL-arglist."
 
 (provide 'multi-methods)
 
-
-;; TODO Elisp specific idea is to allow supplying setters in mu-methods, so that
-;; mu-defmethod invocation can be used with gv setters like `setf', `push', `callf'
-;; etc. That makes perfect sence if your dispatch is for looking up some location
-;; based on arguments. It may on occasion be quite natural to use the same syntax
-;; to set new value to that location.
-
 ;; TODO Using list as a set is dumb and f-ing slow for membership lookup. Could I
 ;; just fake a set as a hash-table {:member t, ...}? That would speed up
 ;; membership lookup in methods, hierarchies, prefers.
-
-;; TODO Instead of poluting symbol slots maybe I should have a multi struct. This
-;; may make code quite a bit cleaner
-;;
-;;   (defstruct multi
-;;     (methods (ht))
-;;     default
-;;     dispatch)
-;;
-;; I'll have to overload mu-methods accessor function so it can do what current
-;; `mu-methods' can do. One interesting aspect is that the value of foo then
-;; becomes a struct and predicate (mu-p foo) works as expected, this however
-;; necessitates passing quoted foo where expected, but we could work around this
-;; by adding an extra :name or :id or :symbol slot, what would carry 'foo.
 
 ;; TODO dispatch cache
 
@@ -724,6 +646,12 @@ else assume CL-arglist."
 
 ;; Extras
 ;; --------
+
+;; TODO Elisp specific idea is to allow supplying setters in mu-methods, so that
+;; mu-defmethod invocation can be used with gv setters like `setf', `push', `callf'
+;; etc. That makes perfect sence if your dispatch is for looking up some location
+;; based on arguments. It may on occasion be quite natural to use the same syntax
+;; to set new value to that location.
 
 ;; TODO the (mu-methods 'fun &rest keys) interface suggests an interesting
 ;; feature. We could go a bit further than Clojure and allow :before, :after,
