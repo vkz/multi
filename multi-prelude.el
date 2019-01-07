@@ -6,6 +6,13 @@
 (require 'ht)
 
 
+;; TODO I want both to behave as if I actually commented some sections out, that
+;; is I'd like to avoid eval of either of these because I'd like in cases where
+;; comment is the last expression to return value of the previous one, not the
+;; comment, e.g.: (progn 'foo (comment 'bar)) should return 'foo rather than nil.
+;; Normally I could probably do this at reader level, but not in elisp, so maybe I
+;; could walk the body and somehow hoist every example and comment to the
+;; beginning of the "file"?
 (defmacro example (&rest body) nil)
 (defmacro comment (&rest body) nil)
 
@@ -58,6 +65,8 @@ SYM."
 (gv-define-simple-setter ht-get ht-set! t)
 
 
+;; TODO we could make it a generic that works on hash-tables, alists and plists
+;; simply by dispatching on the TABLE argument.
 (defun ht--set* (table keys val)
   (if (cdr keys)
 
@@ -108,6 +117,34 @@ not exist tables will be created.
 ;; `ht-get*' setter
 (gv-define-setter ht-get* (val table &rest keys)
   `(ht--set* ,table (list ,@keys) ,val))
+
+
+(example
+ (let ((tb (ht)))
+   (setf (ht-get tb :foo) '(0))
+   (push 1 (ht-get tb :foo))
+   tb)
+ ;; => (ht (:foo '(1 0)))
+
+ (let ((tb (ht (:foo (ht (:bar 1))))))
+   (ht-set* tb (:foo :bar) 2)
+   (incf (ht-get* tb :foo :bar))
+   tb)
+ ;; => (ht (:foo (ht (:bar 3))))
+
+ (let ((tb (ht)))
+   (setf (ht-get* tb :foo :bar :baz) 3)
+   tb)
+ ;; => (ht (:foo (ht (:bar (ht (:baz 3))))))
+
+ (let ((tb (ht)))
+   (push 3 (ht-get* tb :foo :bar :baz))
+   (pushnew 4 (ht-get* tb :foo :bar :baz))
+   tb)
+ ;; => (ht (:foo (ht (:bar (ht (:baz 4 3))))))
+
+ ;; example
+ )
 
 
 (defmacro eval-when-compile-let (bindings &rest body)
