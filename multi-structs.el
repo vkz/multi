@@ -93,6 +93,37 @@
 (setf (foo-struct foo sub table :a :b) 'val)
 
 
+;; TODO In the most typical case local variables of type foo-struct would be
+;; called foo-struct. It is only naturaly and I also do it, after all names should
+;; be meaningful. Examples: drill of type dr/drill, session of type dr/session,
+;; hierarchy of type mu-hierarchy. This introduces unnecessary repetition. IMO
+;; there's value in being able to linearly read what's being extracted, so perhaps
+;; instead of:
+;;
+;;   (dr/session session scope files)
+;;   (dr/drill drill meta props)
+;;
+;; we should implement >> or mu. or mu: (latter better conveys associativity?)
+;;
+;;   (>> session scope files)
+;;   (>> drill meta props)
+;;
+;; No reason this wouldn't work for hash-tables. All it takes is looking up the
+;; type with `type-of'. So it could either be a generic or a multi method that can
+;; be further extended: (defgeneric mu. (struct &rest keys)). Still worth having a
+;; getter macro for every struct IMO for cases when there're multiple objects of
+;; the same type or you want short names that don't necessarily convey the type of
+;; the object.
+
+
+;; IDEA if we are going the route of this generic associative mu: getter, maybe we
+;; should go all the way and define all typical associative functions in a generic
+;; way so that e.g. mu:keys mu:select mu:map etc would work for structs,
+;; hash-tables and whatever.
+;;
+;; Since `type-of' is built-in C function that we can't extend, at least not
+;; easily. Wonder if there's a way to implement an extensible `mu-type' somehow.
+
 ;; We could of course just use threading macro, but the `dash' ones won't work
 ;; with `setf' and friends:
 
