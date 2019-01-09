@@ -417,6 +417,9 @@ signal an error."
       (mu--select-preferred fun methods val))))
 
 
+;; TODO defmulti should allow :interactive declaration, maybe others
+
+
 (defmacro mu-defmulti (name arglist &optional docstring &rest body)
   "Define a new multi-dispatch function NAME. If ARGLIST and BODY
 follow an `mu-defun' single or multi-head calling convention use
@@ -627,6 +630,25 @@ else assume CL-arglist."
 ;;     (:main #'main-fun))
 ;;
 ;; Can I come up with interesting semantics?
+;;
+;; First mu-defmulti should support :before :after that fire no matter what method
+;; except perhaps :default. Every method should also allow :before that runs after
+;; defmulti's :before and :after that runs before defmulti's :after. In simplest
+;; case :before and :after aren't separate methods but attributes on the multi and
+;; methods that simply specify a lisp-form to execute with args in scope. We can
+;; also define full-fledged before and after methods like so:
+(comment
+ (mu-defmulti  foo #'vector
+   :before (do before)
+   :after (do after))
+ (mu-defmethod foo (arg) :when [:foo]
+   :after (do after))
+ (mu-defmethod foo (arg) :before [:bla] body)
+ (mu-defmethod foo (arg) :when [:bla] body)
+ (mu-defmethod foo (arg) :after [:bla] body)
+ ;; comment
+ )
+;; Naturally makes sense to have :before and :after in multi-head `mu-defun', too.
 
 ;; TODO Think about reasonable and practical global-hierarchy, e.g. one that works
 ;; for structs, isa relationship between predicates, maybe even eieio classes
