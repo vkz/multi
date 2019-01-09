@@ -576,13 +576,19 @@
 
     (mu-defun foo (a)
       :before (princ (format ":before %s" a))
+      ([0] (setf a 1))
+      ([1] (setf a 2)))
+
+    (should (eq 1 (foo 0)))
+    (should (eq 2 (foo 1)))
+    (should (equal ":before 0" (with-output-to-string (foo 0))))
+    (should (equal ":before 1" (with-output-to-string (foo 1))))
+
+    (mu-defun foo (a)
       :return ret
       :after (princ (format ":after %s" ret))
       ([0] 0)
       ([1] 1))
-
-    (should (equal ":before 0" (with-output-to-string (foo 0))))
-    (should (equal ":before 1" (with-output-to-string (foo 1))))
 
     (should (equal ":after 0" (with-output-to-string (foo 0))))
     (should (equal ":after 1" (with-output-to-string (foo 1))))))

@@ -828,6 +828,8 @@ preamble"
        (every #'mu--defun-clause? body)))
 
 
+;; TODO used in `mu-defmulti' but really confusingly named and probably doesn't
+;; belong here!
 (defun mu--defun-multi-head-body (body)
   "If body is a list of :attr value pairs followed by
 mu-defun-clauses return the result of applying `mu--prefix-map'
@@ -837,49 +839,78 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
       attrs-clauses)))
 
 
-(defun mu--single-head-body (name case-expr-arg body)
-  `(mu--case seq ,case-expr-arg
-     ,@body
-     (otherwise (mu-error :defun-no-match ',name))))
+;; NOTE :before and :after "methods" are tricky. Both are essentially for side
+;; effects which makes them (:after in particular) dangerous. Think carefully how
+;; they play out especially when the defun recursively calls itself say in tail
+;; position. Effect would be that :after of the very first call fires last. If
+;; that :after call manages to close over some stale state and then mutate
+;; something at top-level, it may override whatever more recent data the "later"
+;; :after code installed. Can't think of any dangerous examples atm, but they are
+;; certain to exist. There is use for :before and :after, but IMO more in a :setup
+;; :teardown sense. I'm on the fence about the whole thing now.
 
 
-(defun mu--multi-head-body (name lambda-arglist case-expr-arg body)
-  (let ((body `(mu-case ,case-expr-arg
-                 ,@body
-                 (otherwise
-                  (mu-error :defun-no-match ',name)))))
+;; :before expr
+(defun mu--add-before-call (body attrs)
+  "If ATTRS has :before code alter BODY to run it first."
+  ;; NOTE we expect BODY to be a mu-case expr
+  (if-let ((before (and (ht-p attrs) (ht-get attrs :before))))
+      ;; NOTE user can mutate arglist before the BODY runs, they better know what
+      ;; they're doing - not stopping them
+      `(progn ,before ,body)
+    body))
+
+
+;; :after expr
+(defun mu--add-after-call (body attrs)
+  "If ATTRS has :after CODE alter BODY to run it last. With
+:return VAR in ATTRS bind VAR to the result of BODY when running
+:after code."
+  ;; NOTE we expect BODY to be a mu-case expr
+  (let (return after)
+
+    (when (ht-p attrs)
+      (setq return (ht-get attrs :return)
+            after (ht-get attrs :after)))
+
+    (when (and return (not (symbolp return)))
+      (mu-error :defun-return))
+
+    (if after
+        ;; extend body with after code
+        (let ((return (or return (gensym "return"))))
+          `(let ((,return ,body))
+             ;; NOTE not stopping user from mutating the returned result but we
+             ;; could with: ,(funcall (lambda (,return) ,after) ,return)
+             ,after
+             ,return))
+      ;; body unchanged
+      body)))
+
+
+(defun mu--single-head-body (name case-expr-arg body &optional attrs)
+  (let* ((body `(mu--case seq ,case-expr-arg
+                  ,@body
+                  (otherwise (mu-error :defun-no-match ',name))))
+         (body (mu--add-before-call body attrs))
+         (body (mu--add-after-call body attrs)))
+    body))
+
+
+(defun mu--multi-head-body (name lambda-arglist case-expr-arg body &optional attrs)
+  (let* ((body `(mu-case ,case-expr-arg
+                  ,@body
+                  (otherwise
+                   (mu-error :defun-no-match ',name))))
+         (body (mu--add-before-call body attrs))
+         (body (mu--add-after-call body attrs)))
     (if lambda-arglist
         `(apply (lambda ,lambda-arglist ,body) ,case-expr-arg)
       body)))
 
 
-(defun mu--add-after-call (body return after)
-  (if after
-      ;; extend body with after code
-      (let ((return (or return (gensym "return"))))
-        `(let ((,return ,body))
-           ;; NOTE technically nothing stops :after code from setf-ing the return
-           ;; here and overriding what the entire call returns. I take the view
-           ;; the user should know better. We could disallow it by wrapping in
-           ;; lambda: ,(funcall (lambda (,return) ,after) ,return)
-           ,after
-           ,result))
-    ;; body unchanged
-    body))
-
-
-(defun mu--add-before-call (body before)
-  ;; we expect body hasn't been wrapped in lambda, i.e. it's a mu-case expression
-  ;; that has access to the original arglist, then so will before
-  (if before
-      ;; extend body with before code
-      `(progn ,before ,body)
-    ;; body unchanged
-    body))
-
-
 (defun mu--wrap-defun (fun-type name arglist docstring attrs &rest body)
-  (mu-let (((ht ret debug test
+  (mu-let (((ht debug test before return after
                 (:declare dspec)
                 (:interactive ispec))
             attrs))
@@ -913,7 +944,8 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
                            fun-type name `(&rest ,args) docstring attrs
                            (mu--single-head-body
                             name args
-                            `(((lv ,@(seq-into arglist 'list)) ,@body))))))
+                            `(((lv ,@(seq-into arglist 'list)) ,@body))
+                            attrs))))
 
      ;; arglist is '()
      ((null arglist) `(mu-error :defun-malformed-arglist ',arglist))
@@ -926,7 +958,7 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
           (funcall
            wrap-body
            fun-type name `(&rest ,args) docstring attrs
-           (mu--multi-head-body name nil args body)))))
+           (mu--multi-head-body name nil args body attrs)))))
 
      ;; arglist is (a b &rest args)
      ((listp arglist)
@@ -936,7 +968,7 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
           (funcall
            wrap-body
            fun-type name `(&rest ,args) docstring attrs
-           (mu--multi-head-body name arglist args body)))))
+           (mu--multi-head-body name arglist args body attrs)))))
 
      ;; arglist is matches no call-pattern
      (:unrecognized-call-pattern
@@ -967,11 +999,18 @@ every clause has the entire ARGLIST in scope.
 
 METADATA is optional and may include the following attributes:
 
-  :doc dostring - a docstring to attach to the NAME function,
-
   :declare dspec - a list of `declare' SPECS,
 
   :interactive ispec - t or `interactive' ARG-DESCRIPTOR,
+
+  :before expr - expression to execute before the body,
+
+  :return var - bind VAR to defun's result in :after code,
+
+  :after expr -  expression to execute after the body.
+
+EXPR in :before and :after have access to ARGLIST. With :return
+declaration :after EXPR also has VAR in scope.
 
 \(fn NAME ARGLIST METADATA &rest BODY)"
         fun-type fun-type))

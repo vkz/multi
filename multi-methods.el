@@ -648,7 +648,6 @@ else assume CL-arglist."
  (mu-defmethod foo (arg) :after [:bla] body)
  ;; comment
  )
-;; Naturally makes sense to have :before and :after in multi-head `mu-defun', too.
 
 ;; TODO Think about reasonable and practical global-hierarchy, e.g. one that works
 ;; for structs, isa relationship between predicates, maybe even eieio classes

@@ -220,6 +220,7 @@ partitions."
    (:defun-malformed-arglist '("in mu-defun malformed arglist %S"))
    (:defun-no-match          '("in mu-defun no matching clause found for call %s"))
    (:defun-malformed-body    '("in mu-defun malformed body %S"))
+   (:defun-return            '("in mu-defun :return attribute must be a variable name"))
    (:setter-no-match         '("in mu-setter no matching clause for %s"))
 
    ;; multi-methods
