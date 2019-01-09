@@ -570,6 +570,24 @@
              (foo-macro :a))))))
 
 
+(ert-deftest mu-test-mu-defun-after ()
+  "mu-defun :before and :after should work"
+  (mu-test (foo)
+
+    (mu-defun foo (a)
+      :before (princ (format ":before %s" a))
+      :return ret
+      :after (princ (format ":after %s" ret))
+      ([0] 0)
+      ([1] 1))
+
+    (should (equal ":before 0" (with-output-to-string (foo 0))))
+    (should (equal ":before 1" (with-output-to-string (foo 1))))
+
+    (should (equal ":after 0" (with-output-to-string (foo 0))))
+    (should (equal ":after 1" (with-output-to-string (foo 1))))))
+
+
 (ert-deftest mu-test-mu-defsetter ()
   "mu-defsetter should work"
 

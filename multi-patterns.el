@@ -853,6 +853,31 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
       body)))
 
 
+(defun mu--add-after-call (body return after)
+  (if after
+      ;; extend body with after code
+      (let ((return (or return (gensym "return"))))
+        `(let ((,return ,body))
+           ;; NOTE technically nothing stops :after code from setf-ing the return
+           ;; here and overriding what the entire call returns. I take the view
+           ;; the user should know better. We could disallow it by wrapping in
+           ;; lambda: ,(funcall (lambda (,return) ,after) ,return)
+           ,after
+           ,result))
+    ;; body unchanged
+    body))
+
+
+(defun mu--add-before-call (body before)
+  ;; we expect body hasn't been wrapped in lambda, i.e. it's a mu-case expression
+  ;; that has access to the original arglist, then so will before
+  (if before
+      ;; extend body with before code
+      `(progn ,before ,body)
+    ;; body unchanged
+    body))
+
+
 (defun mu--wrap-defun (fun-type name arglist docstring attrs &rest body)
   (mu-let (((ht ret debug test
                 (:declare dspec)
