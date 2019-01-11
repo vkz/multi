@@ -8,6 +8,19 @@
 (require 'multi-patterns)
 
 
+;;* edebug-specs -------------------------------------------------- *;;
+
+
+;; TODO spec all macros in here espcially `mu-defmulti' and `mu-defmethod'
+
+
+;; TODO first attempt at debug decl. Missing ARGLIST is a `mu-function?' case
+(def-edebug-spec mu-defmethod
+  (&define name mu-defun-arglist
+           [&rest [keywordp sexp]]
+           mu-defun-body))
+
+
 ;;* Multi --------------------------------------------------------- *;;
 
 
