@@ -207,6 +207,58 @@
 ;; Only annoyance is that mu--slots slot makes printed representation of every
 ;; mu-struct terribly busy. But then again (pp struct) isn't much better.
 
+;; TODO Generic `mu--get' above points at a cool generalization: `mu-protocols'.
+;; Here's a brief outline of how it could be implemented. Every protocol is just a
+;; set of methods that need to be implemented, where each method is a defgeneric
+;; that dispatches on one the type of one of its arguments:
+(defmacro mu-defprotocol (name &rest methods)
+  (declare (indent 1)))
+(defmacro mu-extend (protocol &rest body)
+  (declare (indent 1)))
+;;
+;; define new protocol
+(mu-defprotocol map-proto
+  ;; self is special - its the arg whose type we dispatch on
+  (mu.meth-1 (_ self _))
+  (mu.meth-2 (self _)))
+;; Simply registers a new protocol
+;;
+;;     (ht-set mu-protocols 'map-proto (ht ('mu.meth-1 '(_ self _))
+;;                                         ('mu.meth-2 '(self _))))
+;;
+;; Nowe we can extend map-proto to a foo-struct type
+(mu-extend map-proto
+  :to foo-struct
+  (mu.meth-1 (a foo b) body)
+  (mu.meth-2 (foo arg) body))
+;; Does two things:
+;; 1. add 'foo-struct type to mu-proto-registry
+;;
+;;     (ht-set mu-proto-registry 'foo-struct 'map-proto)
+;;
+;; 2. define generic methods for each protocol method
+;;
+;;     (cl-defmethod mu.meth-1 (a (foo foo-struct) b) body)
+;;     (cl-defmethod mu.meth-2 ((foo foo-struct) arg) body)
+;;
+;; Suppose now we have protocols:
+;;
+;;   map-proto - associative data
+;;   seq-proto - sequential data (e.g. vectors, lists etc)
+;;   gv-proto - place like data (rewrites into existing gv)
+;;
+;; then we could implement generic functions e.g.:
+;;
+;; (mu. map :key1 :key2)
+;; (mu.keys map)
+;; (mu.vals map)
+;; (mu.map    function map)
+;; (mu.reduce function map)
+;; (setf (mu. map :key1 :key2) val)
+;; (mu. seq 42)
+;; (mu.conj seq val)
+;; (mu.cons val seq)
+
 ;; IDEA if we are going the route of this generic associative mu: getter, maybe we
 ;; should go all the way and define all typical associative functions in a generic
 ;; way so that e.g. mu:keys mu:select mu:map etc would work for structs,
