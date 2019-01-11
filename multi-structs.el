@@ -163,6 +163,49 @@
     (mu. bar :props :a :props :c)))
  ;; example
  )
+;;
+;; But we also need to handle missing slots somehow that is I'd like an
+;; associative (Clojure like) behavior we should be able to set a missing property
+;; on the struct as key.
+;;
+;; Here's how we could go about it: have every `mu-defstruct' inherit from a
+;; `mu-prototype-struct':
+;;
+(cl-defstruct baz-struct a b)
+(cl-struct-slot-value 'baz-struct 'foo (make-baz-struct :a 1))
+;;   => error (cl-struct-unknown-slot foo-struct :foo)
+;;
+;; But I'd like an associative (Clojure like) behavior where we can set a missing
+;; property on the struct as key.
+;;
+(cl-defstruct mu--proto-struct (mu--slots (ht)))
+;; or maybe
+;;   (cl-defstruct mu-struct (-slots (ht)))
+;;   (mu-struct--slots (make-mu-struct))
+(defun mu-struct? (obj)
+  (mu--proto-struct-p obj))
+;;
+(cl-defstruct (baz-struct (:include mu--proto-struct)) a b)
+(cl-defmethod mu--get ((obj baz-struct) key)
+  (condition-case err
+      (cl-struct-slot-value 'baz-struct (sym key) obj)
+    ;; else lookup in mu--slots
+    (cl-struct-unknown-slot (mu--get
+                             (cl-struct-slot-value 'baz-struct 'mu--slots obj)
+                             key))))
+(setq bazzer (make-baz-struct :a 1))
+(mu-struct? bazzer)
+(mu--get bazzer :foo)
+;; => nil
+(setf (ht-get (cl-struct-slot-value 'baz-struct 'mu--slots bazzer) :foo) 42)
+(mu--get bazzer :foo)
+;; => 42
+;;
+;; So now our `mu--set' implementation could simply add slots that aren't struct
+;; props to mu--slots table of every mu-struct.
+;;
+;; Only annoyance is that mu--slots slot makes printed representation of every
+;; mu-struct terribly busy. But then again (pp struct) isn't much better.
 
 ;; IDEA if we are going the route of this generic associative mu: getter, maybe we
 ;; should go all the way and define all typical associative functions in a generic
