@@ -668,6 +668,28 @@ else assume CL-arglist."
 
 ;; TODO Allow isa? with "_" patterns
 ;; (mu-defmethod foo (&rest args) :when [a b _] body)
+;;
+;; Here's a possible semantics:
+;;
+;; Any value V isa _. Then suppose we have two methods:
+;;
+;;   (mu-defmulti foo #'vector)
+;;   (mu-defmethod foo _ :when [a b])
+;;   (mu-defmethod foo _ :when [a '_])
+;;
+;; (foo a b) isa [a b] and
+;; (foo a b) isa [a '_] because b isa '_.
+;;
+;; We can resolve this ambiguity by always choosing the most precise match. To
+;; that effect we must flag any dispatch values with '_ we store in mu-methods so
+;; we can tell them from other values. Then the can resolve above ambiguity:
+;; 1. drop all flagged dispatch values with '_
+;; 2-a. if a single method left ([a b] here) use that,
+;; 2-b. if more than one methods left, resolve with preferred methods
+;; 2-c. if no methods left then go-to 3
+;; 3-a. if only one method with '_ match, use that
+;; 3-b. if more than one method with '_, resolve with preferred methods,
+;; 3-c. no method is preferred - raise error
 
 ;; TODO Allow predicates in patterns
 ;; degenerate case where computed multi val maybe a seq, pred-p should still be
