@@ -108,6 +108,8 @@ not exist tables will be created.
 (defun ht-get* (table &rest keys)
   "Returns the value in a nested TABLE for a sequence of KEYS.
   Returns nil if any key is not present."
+  ;; TODO oops bug if no keys then we'll end up with (ht-get table nil), we should
+  ;; check with (if keys ...) first
   (when-let ((table (ht-get table (car keys))))
     (if (cdr keys)
         (apply #'ht-get* table (cdr keys))
