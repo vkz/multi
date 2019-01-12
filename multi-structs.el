@@ -1,121 +1,25 @@
 ;; -*- lexical-binding: t; -*-
 
+
 (require 'multi-prelude)
 
-;; TODO What do I want from `mu-defstruct'
 
-;; generic `mu-destruct' that converts struct into hash-table
-
-;; register a mu-pattern for `struct-name' that works just like ht-pattern but
-;; also tests with `struct-name-p'
-
-(mu-defstruct multi name )
-(setq m (make-multi :name 'foo))
-
-(mu-case m
-  ((multi name) name))
-;; => 'foo
-
-(mu-destruct m)
-;; =>
-(ht (:name 'foo))
-
-;; generates getter/setter macro `struct-name' that can customize getter and
-;; setter for slots based on annotations provided.
-
-(mu-defstruct foo-struct
-              (methods (ht) :type 'ht)
-              (prefers (ht) :type 'ht)
-              (hierarchy    :type 'ht)
-              (sub          :type 'bar-struct))
-
-(mu-defstruct bar-struct
-              name
-              (table (ht) :type 'ht))
-
-(defmacro foo-struct (struct slot &rest keys)
-  (declare
-   (gv-setter
-    (lambda (val)
-      (if keys
-          ;; setf nested value
-          `(case ',slot
-             ((mul)
-              ;; 'bar-struct sub-struct
-              (setf (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val))
-
-             ((methods prefers hierarchy static-hierarchy)
-              ;; hash-table
-              (setf (ht-get* (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val)))
-        ;; set the slot
-        (setf (cl-struct-slot-value 'foo-struct ',slot ,struct) ,val)))))
-  (if keys
-      ;; nested lookup
-      `(case ',slot
-         ((sub)
-          ;; 'bar-struct sub-struct
-          (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys))
-
-         ((methods prefers hierarchy)
-          ;; hash-table
-          (ht-get* (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys)))
-    ;; slot only lookup
-    `(cl-struct-slot-value 'foo-struct ',slot ,struct)))
-
-;; I could simplify the above setters and getters if I were to implement a
-;; threading macro `as->' so that it doesn't compute intermediate steps but simply
-;; rewrites into nested calls. Then we could thread `setf' and friends
-
-;; macro getter
-`(mu-> ,struct it
-       (cl-struct-slot-value 'foo-struct ',slot it)
-       (bar-struct it ,@keys))
-;; ==
-`(bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys)
-
-;; macro setter
-`(mu-> ,struct it
-       (cl-struct-slot-value 'foo-struct ',slot it)
-       (bar-struct it ,@keys)
-       (setf it 'val))
-;; ==
-`(setf (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val)
-
-
-;; With our getter/setter `foo-struct' macro above, we can:
-
-;; get stuff
-(foo-struct foo methods :a :b)
-(foo-struct foo sub table :a :b)
-
-;; set stuff
-(setf (foo-struct foo methods :a :b) 'val)
-(setf (foo-struct foo sub table :a :b) 'val)
-
-
-;; TODO In the most typical case local variables of type foo-struct would be
-;; called foo-struct. It is only naturaly and I also do it, after all names should
-;; be meaningful. Examples: drill of type dr/drill, session of type dr/session,
-;; hierarchy of type mu-hierarchy. This introduces unnecessary repetition. IMO
-;; there's value in being able to linearly read what's being extracted, so perhaps
-;; instead of:
+;; TODO Implement a generic `mu.' getter that works for any associative value.
+;; Motivation: local variable names typically signal the type of thing they hold,
+;; so e.g. var holding foo-struct would be called foo, then these become verbose:
 ;;
 ;;   (dr/session session scope files)
 ;;   (dr/drill drill meta props)
 ;;
-;; we should implement >> or mu. or mu: (latter better conveys associativity?)
+;; may as well make them shorter and work even we don't know the type of struct:
 ;;
-;;   (>> session scope files)
-;;   (>> drill meta props)
+;;   (mu. session :scope :files)
+;;   (mu. drill :meta :props)
 ;;
-;; No reason this wouldn't work for hash-tables. All it takes is looking up the
-;; type with `type-of'. So it could either be a generic or a multi method that can
-;; be further extended: (defgeneric mu. (struct &rest keys)). Still worth having a
-;; getter macro for every struct IMO for cases when there're multiple objects of
-;; the same type or you want short names that don't necessarily convey the type of
-;; the object.
+;; When local var holding struct doesn't convey what it is, we should still prefer
+;; (foo-struct var ...) getter.
 ;;
-;; Here's we could implement a generic getter `mu.':
+;; Here's we could implement a generic getter `mu.' or call it `mu--val-at'
 (cl-defgeneric mu--get (obj key))
 ;;
 ;; default method
@@ -163,10 +67,24 @@
     (mu. bar :props :a :props :c)))
  ;; example
  )
+
+
+;; TODO generates getter/setter function `struct-name' by e.g. rewriting into
+;; `mu.' call
 ;;
-;; But we also need to handle missing slots somehow that is I'd like an
-;; associative (Clojure like) behavior we should be able to set a missing property
-;; on the struct as key.
+;; get stuff
+(foo-struct foo methods :a :b)
+(foo-struct foo sub table :a :b)
+;;
+;; set stuff
+(setf (foo-struct foo methods :a :b) 'val)
+(setf (foo-struct foo sub table :a :b) 'val)
+
+
+;; TODO Handle missing slots gracefully. Actually lets differentiate :key from a
+;; struct :slot. (mu. struct :slot) should work, but also (mu. struct :key)
+;; shouln't raise. (setf (mu. struct :key) 42) should assoc this :key with 42 as
+;; expected, so that then (mu. struct :key) => 42.
 ;;
 ;; Here's how we could go about it: have every `mu-defstruct' inherit from a
 ;; `mu-prototype-struct':
@@ -205,21 +123,38 @@
 ;; props to mu--slots table of every mu-struct.
 ;;
 ;; Only annoyance is that mu--slots slot makes printed representation of every
-;; mu-struct terribly busy. But then again (pp struct) isn't much better.
+;; mu-struct terribly busy. But then they are already ugly.
+
+
+;; TODO register a mu-pattern for `struct-name' that works just like ht-pattern
+;; but also tests with `struct-name-p'
+(mu-defstruct multi name)
+(setq m (make-multi :name 'foo))
+;;
+(mu-case m
+  ((multi name) name))
+;; => 'foo
+
+
+;; TODO corollary to that extend ht-pattern so that it works on any associative
+;; e.g. should work for any mu-struct?
+
 
 ;; TODO Generic `mu--get' above points at a cool generalization: `mu-protocols'.
-;; Here's a brief outline of how it could be implemented. Every protocol is just a
-;; set of methods that need to be implemented, where each method is a defgeneric
-;; that dispatches on one the type of one of its arguments:
-(defmacro mu-defprotocol (name &rest methods)
-  (declare (indent 1)))
-(defmacro mu-extend (protocol &rest body)
-  (declare (indent 1)))
+;; Conceptually protocol is just mete-data - set of methods to implement, each a
+;; defgeneric that dispatches on a pre-defined arg type (not just first arg!):
+(defmacro mu-defprotocol (name &rest methods) (declare (indent 1)))
+(defmacro mu-extend (protocol &rest body) (declare (indent 1)))
 ;;
 ;; define new protocol
 (mu-defprotocol map-proto
-  ;; self is special - its the arg whose type we dispatch on
-  (mu.meth-1 (_ self _))
+  ;; self is special - its the arg whose type we dispatch on. It absolutely has to
+  ;; be one of required args. Instead of allowing multiple definitions of the same
+  ;; method for different arrities like Clojure, I'd rather allow multi-head defun
+  ;; body in method implementation. That way we can reuse `cl-defmethod' machinery
+  ;; (that doesn't allow multiple arrities for the same generic) and already
+  ;; implemented `mu-defun':
+  (mu.meth-1 (_ self &rest args))
   (mu.meth-2 (self _)))
 ;; Simply registers a new protocol
 ;;
@@ -229,7 +164,9 @@
 ;; Nowe we can extend map-proto to a foo-struct type
 (mu-extend map-proto
   :to foo-struct
-  (mu.meth-1 (a foo b) body)
+  (mu.meth-1 (_ self &rest args)
+             ([a self]   (do body))
+             ([a self b] (do body)))
   (mu.meth-2 (foo arg) body))
 ;; Does two things:
 ;; 1. add 'foo-struct type to mu-proto-registry
@@ -259,63 +196,95 @@
 ;; (mu.conj seq val)
 ;; (mu.cons val seq)
 
-;; IDEA if we are going the route of this generic associative mu: getter, maybe we
-;; should go all the way and define all typical associative functions in a generic
-;; way so that e.g. mu:keys mu:select mu:map etc would work for structs,
-;; hash-tables and whatever.
+
+;; TODO If we go the generic route with mu-struct and mu-protocols, then it is
+;; worth thinking about visually telling generic functions from all others. Maybe
+;; a `mu.' prefix or more generally `namespace.generic-function':
+(mu. a b)
+(mu.get a b c)
+(mu.keys a)
+;; private
+(mu.-val-at)
+;; or
+(mu..val-at)
+
+
+;; TODO Equivalent of ISeqable but for objects that can be queried like
+;; associative structures, so like (mu.seq obj) but for maps (mu.ht obj). Above
+;; mentioned `mu--slots' being the first meaningful slot marks the beginning of
+;; slots, so we could implement the equivalent of `destruct' without macros:
 ;;
-;; Since `type-of' is built-in C function that we can't extend, at least not
-;; easily. Wonder if there's a way to implement an extensible `mu-type' somehow.
-
-;; We could of course just use threading macro, but the `dash' ones won't work
-;; with `setf' and friends:
-
-(-> foo
-    (foo-struct methods)
-    (ht-get* :a :b))
-
-(-> foo
-    (foo-struct sub)
-    ;; notice we need to remember sub is 'bar-struct here
-    (bar-struct table)
-    (ht-get* :a :b))
+;;   (seq-drop (cl-struct-slot-info 'baz-struct)
+;;             (1+ (cl-struct-slot-offset 'baz-struct 'mu--slots)))
+;;
+;; Of course pre-generating `destruct' function at mu-defstruct expansion time may
+;; have some perf benefit at the cost of heavier macro-code.
 
 
-;; TODO generic associative getter
-
-(mu-get foo key1 key2)
-
-(mu-get (ht (key1 (ht (key2 'val)))) key1 key2)
-;; => 'val
-
-;; not sure about alists - alists are stupid - hate em
-(mu-get (ht (key1 ((key2 . 'val)))) key1 key2)
-;; => 'val
-
-(mu-get (ht (key1 (foo-struct :key2 'val))) key1 key2)
-;; => 'val
-
-(mu-get (ht (key1 (list 'val))) key1 0)
-;; => 'val
-
-(mu-get (ht (key1 [val])) key1 0)
-;; => 'val
-
-;; then setter could just be
-(setf (mu-get foo key1 key2) 'val)
-
-;; Getter could be implemented in terms of `mu->' I think
-
-(mu-get foo key1 key2)
-(mu-> foo
-      (mu--get it key1)
-      (mu--get it key2))
-;; where `mu--get' performs a single key lookup. Maybe we can even make it
-;; `defgeneric' or a multi-method so that users can extend it?
+;; TODO I could simplify some setters and getters if I were to implement a
+;; threading macro `as->' so that it doesn't compute intermediate steps but simply
+;; rewrites into nested calls. Then we could thread `setf' and friends
+;;
+;; macro getter
+`(mu-> ,struct it
+       (cl-struct-slot-value 'foo-struct ',slot it)
+       (bar-struct it ,@keys))
+;; ==
+`(bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys)
+;;
+;; macro setter
+`(mu-> ,struct it
+       (cl-struct-slot-value 'foo-struct ',slot it)
+       (bar-struct it ,@keys)
+       (setf it 'val))
+;; ==
+`(setf (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val)
 
 
-;; TODO my old custom defstruct that I might turn into mu-defstruct
+;; TODO annotate slots with possible getters. NOTE this is subsumed by generic
+;; `mu--get' or `mu--val-at' alike, no immediate need for annotations. At least
+;; not as long as we can dispatch on the type of slot value.
+(mu-defstruct foo-struct
+              (methods (ht) :type 'ht)
+              (prefers (ht) :type 'ht)
+              (hierarchy    :type 'ht)
+              (sub          :type 'bar-struct))
+;;
+(mu-defstruct bar-struct
+              name
+              (table (ht) :type 'ht))
+;;
+(defmacro foo-struct (struct slot &rest keys)
+  (declare
+   (gv-setter
+    (lambda (val)
+      (if keys
+          ;; setf nested value
+          `(case ',slot
+             ((mul)
+              ;; 'bar-struct sub-struct
+              (setf (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val))
 
+             ((methods prefers hierarchy static-hierarchy)
+              ;; hash-table
+              (setf (ht-get* (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val)))
+        ;; set the slot
+        (setf (cl-struct-slot-value 'foo-struct ',slot ,struct) ,val)))))
+  (if keys
+      ;; nested lookup
+      `(case ',slot
+         ((sub)
+          ;; 'bar-struct sub-struct
+          (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys))
+
+         ((methods prefers hierarchy)
+          ;; hash-table
+          (ht-get* (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys)))
+    ;; slot only lookup
+    `(cl-struct-slot-value 'foo-struct ',slot ,struct)))
+
+
+;; TODO leverage my old custom defstruct implementation to guide mu-defstruct
 (defgeneric destruct (struct &rest args)
   "Generic method to turn a STRUCT into an alist of (:slot .
   value).")
