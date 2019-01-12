@@ -275,6 +275,54 @@
 ;; (mu.cons val seq)
 
 
+;; TODO mu-callable protocol that effectively makes structs callable
+(mu-defprotocol mu-callable-protocol
+  (mu-call (f &rest args))
+  (mu-apply (f &rest args)))
+;; where
+(cl-defgeneric mu-call (obj &rest args))
+(cl-defgeneric mu-apply (obj &rest args))
+;; lets make struct callable (assume it defines some lambda in :call slot)
+(mu-extend mu-callable-protocol
+  :to foo-struct
+  (mu-call  (foo &rest args) (apply (mu. foo :mu-call) args))
+  (mu-apply (foo &rest args) (apply #'apply (mu. obj :call) args)))
+;;
+;; IMO `mu-apply' is redundant and can be derived from `m-call':
+(mu-apply foo arg (list a b))
+;; =>
+(apply #'apply #'mu-call foo args)
+;; ==
+(apply #'apply #'mu-call foo (list arg (list a b)))
+;; =>
+(apply #'mu-call foo arg (list a b))
+;; =>
+(mu-call foo arg a b)
+;;
+;; In fact I can extend mu-callable-protocol to every mu-struct simply by adding a
+;; :mu-call slot to `mu--proto-struct', so that every mu-struct inherits it, then
+;; unless user overrides the default `mu-call' should work:
+(cl-defmethod mu-call ((obj t) &rest args)
+  (if (mu-struct? obj)
+      (apply (mu. obj :mu-call) args)
+    (apply obj args)))
+;;
+(cl-defmethod mu-apply ((obj t) &rest args)
+  (if (mu-struct? obj)
+      (apply #'apply (mu. obj :mu-call) args)
+    (apply #'apply obj args)))
+
+
+;; NOTE interesting pattern is dispatching to a multi-method inside a generic
+;; method when dispatching on type is too coarse:
+(cl-defmethod some-method ((obj t) arg)
+  (cond
+   ;; ... earlier branches ...
+   ((pred? obj) (mu--multi-get obj arg))
+   ;; ... later   branches ...
+   (:else       (some default action))))
+
+
 ;; TODO If we go the generic route with mu-struct and mu-protocols, then it is
 ;; worth thinking about visually telling generic functions from all others. Maybe
 ;; a `mu.' prefix or more generally `namespace.generic-function':
