@@ -10,6 +10,14 @@
   ;; (sym key) will turn any of 'key, :key, "key" into 'key, which IMO is a
   ;; reasonable convention for structs if not for hash-tables!
   (cl-struct-slot-value 'foo-struct (sym key) obj))
+;;
+;; NOTE actually, this maybe a IGet (or something) protocol from which we generate
+;; the `mu-get' or whatever:
+(mu-defprotocol mu-get-protocol
+  (mu--get (obj key)))
+(mu-extend mu-get-protocol
+  :to hash-table
+  (mu--get #'ht-get))
 
 
 ;; TODO Implement a generic `mu.' getter that works for any associative value.
