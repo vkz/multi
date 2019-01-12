@@ -4,6 +4,14 @@
 (require 'multi-prelude)
 
 
+;; TODO Every mu-defstruct must define a generic getter `mu--get' (or `mu--val-at'
+;; or whatever)
+(cl-defmethod mu--get ((obj foo-struct) key)
+  ;; (sym key) will turn any of 'key, :key, "key" into 'key, which IMO is a
+  ;; reasonable convention for structs if not for hash-tables!
+  (cl-struct-slot-value 'foo-struct (sym key) obj))
+
+
 ;; TODO Implement a generic `mu.' getter that works for any associative value.
 ;; Motivation: local variable names typically signal the type of thing they hold,
 ;; so e.g. var holding foo-struct would be called foo, then these become verbose:
@@ -69,14 +77,76 @@
  )
 
 
-;; TODO generates getter/setter function `struct-name' by e.g. rewriting into
-;; `mu.' call
+(defun mu--set (val obj key &rest keys)
+  (if keys
+      (apply #'mu--set val `(mu--get ,obj ,key) keys)
+    `(setf (mu--get ,obj ,key) ,val)))
+
+
+(example
+ (mu--set 42 'foo :props :a :b)
+ ;; =>
+ (setf (mu--get (mu--get (mu--get foo :props) :a) :b) 42)
+ ;; example
+ )
+
+
+(gv-define-setter mu. (val table key &rest keys)
+  (apply #'mu--set val table key keys))
+
+
+;; NOTE setter isn't generic like `mu--get' proper. This asymmetry is unfortunate
+;; but can't be helped (at least I can't think of a way) since we only discover
+;; obj type at runtime but setter needs to rewrite at compile time. This may
+;; actually be ok, since it would work for structs out of the box, any missing
+;; case would likely be some native type, which user shouldn't really touch. It'd
+;; be like overriding some core Clojure protocol on a native type with your own
+;; implementation. It may work but may also break other code.
+(gv-define-setter mu--get (val obj key)
+  (let ((table (gensym "table")))
+    `(let ((,table ,obj))
+       (cond
+        ;; hash-table
+        ((ht-p ,table)
+         (setf (ht-get ,table ,key) ,val))
+        ;; struct
+        ((recordp ,table)
+         (setf (cl-struct-slot-value (type-of ,table) (sym ,key)) ,val))))))
 ;;
-;; get stuff
+;;  cond in mu--get setter above suggests one possible strategy that's more
+;; dynamic: alongside `mu--get' cl-defmethod user can register a pair
+;;
+;;   (type      => setf-expr)
+;; or
+;;   (predicate => setf-expr)
+;;
+;; Then we can simply generate as many branches as there're registered pairs. We
+;; should probably pre-register a bunch of obvious ones: lists, vectors, records,
+;; hash-tables, etc? GOOD: we avoid hard-coding the setter, BAD: anyone can
+;; clobber and break other people's code by overriding say a setter for lists.
+;; This could also be a feature not a bug though if every such defsetter specified
+;; a dynamic defvar and the above main setter would use whatever setter is bound
+;; by that var at any given time: unpredictable but works.
+(mu-deftypesetter (val obj key) :type 'cons :body `(setf (nth ,key ,obj) ,val))
+;; or more generic
+(mu-defpredsetter (val obj key) :pred `(listp ,obj) :body `(setf (nth ,key ,obj) ,val))
+
+
+(example
+ ;; setter
+ (let ((foo (make-foo-struct :props (ht (:a (ht (:b 1)))))))
+   (setf (mu. foo :props :a :b) 2)
+   (mu. foo :props :a :b))
+ ;; example
+ )
+
+
+;; TODO generate getter named `struct-name' rewriting into `mu.' call
 (foo-struct foo methods :a :b)
 (foo-struct foo sub table :a :b)
-;;
-;; set stuff
+
+
+;; TODO generate defsetter for `struct-name' by re-writing into `mu.'
 (setf (foo-struct foo methods :a :b) 'val)
 (setf (foo-struct foo sub table :a :b) 'val)
 
