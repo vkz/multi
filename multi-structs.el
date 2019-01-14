@@ -4,15 +4,7 @@
 (require 'multi-prelude)
 
 
-;; TODO looking at the above implementation IMO it tries to be too generic about
-;; `self' and misses out on being able to dispatch on arity. Now I think that
-;; protocols are fundamentally "low-level" that is the methods aren't used
-;; directly by the user but rather the developer extends them to their internal
-;; types so that users can call higher-level functions like `conj', `assoc-in' etc
-;; on those types and they will be dispatched correctly to appropriate methods. We
-;; therefore can simply demand that e.g. `self' is always the first argument. This
-;; should simplify things quite a bit. Not only this, but since they're low-level
-;; we can dispence with &optional and &rest in arglists and dispatch only on arity
+;;* protocols ---------------------------------------------------- *;;
 
 
 ;; NOTE every METHOD declared in protocol NAME must be unique just like a function
@@ -23,63 +15,62 @@
                            (:types (ht))))
 
 (example
- (ht (:protocols (ht ('protocol-name (ht ('method-name '(_ self _))))))
-     ;; NOTE atm every type maps to a list of protocols it implements, so with
-     ;; many protocols the lookup may become costly, may want either a properly
-     ;; implemented set or a hash-table at some point
-     (:types (ht ('type '(protocol-name...)))))
+ (ht (:protocols (ht ('protocol-name (ht ('method-name '(arglist...))))))
+     (:types (ht ('type (ht ('protocol-name t))))))
  ;; example
  )
 
 
 (defmacro mu-defprotocol (name &rest methods)
   (declare (indent 1))
-  (let* ((quote-decl (fn ((method arglist)) `(',method ',arglist)))
-         (generics   (mapcar (lambda (method) `(cl-defgeneric ,@method)) methods))
-         (quoted     (mapcar quote-decl methods)))
+  (let ((by-length (lambda (a b) (> (length a) (length b)))))
     `(progn
-       ;; register protocol and method declarations
-       (setf (ht-get* mu-protocols :protocols ',name) (ht ,@quoted))
-       ;; generate cl-defgenerics
-       ,@generics)))
+       ,@(loop for (_ sym . rest) in methods
+               with arglists
+               with docstring
+               do (setf arglists (seq-take-while #'listp rest)) and
+               do (setf docstring (seq-drop-while #'listp rest)) and
+               collect
+               `(progn
+                  (setf (ht-get* mu-protocols :protocols ',name ',sym)
+                        ',(sort arglists by-length))
+                  (cl-defgeneric ,sym (self &rest args) ,@docstring))))))
 
 
-;; TODO raises arrity when called (mu--specialize-method 'proto '() 'type) which
-;; imo is misleading, maybe I should be checking for malformed calls earlier
-(cl-defun mu--specialize-method (protocol-sym (method-sym arglist &rest body) type)
-  ;; TODO shouldn't this entire let be pushed to runtime?
-  (let (protocol method self)
+(cl-defun mu--method-to-pcase-clause ((arglist . body))
+  (let ((pattern (list '\` (mapcar (lambda (s) (list '\, s)) arglist))))
+    `(,pattern ,@body)))
 
-    ;; check if protocol is known
-    (setq protocol (ht-get mu-protocols :protocols protocol-sym))
-    (unless protocol (mu-error "in mu-extend no such protocol %S" protocol-sym))
 
-    ;; check if method is in protocol
-    (setq method (ht-get* protocol protocol-sym method-sym))
-    (unless method (mu-error "in mu-extend no such method %S in protocol %S" method-sym protocol-sym))
+(defun mu--cl-defmethod (sym obj type rest methods)
+  `(cl-defmethod ,sym ((,obj ,type) &rest ,rest)
+     (pcase (cons ,obj ,rest)
+       ,@(mapcar #'mu--method-to-pcase-clause methods)
+       (otherwise
+        (mu-error "in protocol method %s arity error" ',sym)))))
 
-    ;; add type specializer to self-argument
-    (setq self (cl-position 'self method))
-    (callf list (nth self arglist) type)
 
-    ;; return defmethod declaration specialized for TYPE
-    `(cl-defmethod ,method-sym ,arglist ,@body)))
+(defun mu--cl-defmethods (type methods)
+  (loop for (sym . methods) in (seq-group-by #'second methods)
+        with obj = (gensym "obj")
+        with rest = (gensym "rest")
+        collect
+        (mu--cl-defmethod
+         sym obj type rest (mapcar #'cddr methods))))
 
 
 (defmacro mu-extend (protocol &rest body)
   (declare (indent 1))
+  ;; TODO check for malformed body and that protocol/methods match existing
   (let* ((decl? (lambda (item) (eq :to item)))
          (decls (seq-remove #'null (mu--split-when decl? body))))
     `(progn
        ,@(loop for (type . methods) in decls
-               ;; map type to protocol
-               collect `(setf (ht-get* mu-protocols :types ',type ',protocol) t)
-               into type-regs
-               ;; generate cl-defmethods specialiazed for type
-               collect (loop for method in methods
-                             collect (mu--specialize-method protocol method type))
+               collect
+               `((setf (ht-get* mu-protocols :types ',type ',protocol) t)
+                 ,@(mu--cl-defmethods type methods))
                into defmethods
-               finally return (apply #'append type-regs defmethods)))))
+               finally return (apply #'append defmethods)))))
 
 
 (defun mu-implements (obj &optional protocol)
@@ -91,47 +82,64 @@
 
 (example
 
+ (mu-defprotocol foo-protocol
+   (defmethod foo-stringify (self) (self format) "docstring")
+   (defmethod foo-symbolify (self) "docstring"))
+
+
+ (mu-extend foo-protocol
+
+   :to foo-struct
+
+   (defmethod foo-stringify (foo fmt)
+     (format fmt (foo-struct-name foo) (foo-struct-value foo)))
+
+   (defmethod foo-stringify (foo)
+     (foo-stringify foo "%S => %S"))
+
+   (defmethod foo-symbolify (foo)
+     (sym (foo-struct-name foo)))
+
+   :to bar-struct
+
+   (defmethod foo-stringify (bar fmt)
+     (format fmt (bar-struct-nm bar) (bar-struct-val bar)))
+
+   (defmethod foo-stringify (bar)
+     (foo-stringify bar "%S => %S"))
+
+   (defmethod foo-symbolify (bar)
+     (sym (bar-struct-nm bar))))
+
  (cl-defstruct foo-struct (type :foo) name (value "always foo"))
  (cl-defstruct bar-struct (type :bar) nm (val "always bar"))
 
- (mu-defprotocol foo-protocol
-   (foo-stringify (format self &rest args))
-   (foo-symbolify (self)))
-
- (mu-extend foo-protocol
-   :to foo-struct
-   (foo-stringify (fmt foo &rest args) (format fmt (foo-struct-name foo) (foo-struct-value foo)))
-   (foo-symbolify (foo) (sym (foo-struct-name foo)))
-
-   :to bar-struct
-   (foo-stringify (fmt bar &rest args) (format fmt (bar-struct-nm bar) (bar-struct-val bar)))
-   (foo-symbolify (bar) (sym (bar-struct-nm bar))))
 
  (mu-implements (make-foo-struct :name 'my-foo) 'foo-protocol)
  (mu-implements (make-foo-struct :name 'my-foo))
 
 
- (foo-stringify "string of %s value %s" (make-foo-struct :name 'my-foo))
+ (foo-stringify (make-foo-struct :name 'my-foo) "string of %s value %s")
  (foo-symbolify (make-foo-struct :name 'my-foo))
 
- (foo-stringify "string of %s value %s" (make-bar-struct :nm 'my-bar))
+ (foo-stringify (make-bar-struct :nm 'my-bar) "string of %s value %s")
  (foo-symbolify (make-bar-struct :nm 'my-bar))
 
  ;; example
  )
 
 
-(comment
- ;; NOTE sadly this is not allowed since cl-defmethod expects every method foo to
- ;; be of the same arrity - basically we're limited by cl-generics here
- (mu-defprotocol foo-protocol
-   ;; e.g. (foo-stringify "format string %S %s %s" foo a b)
-   (foo-stringify (_ self &rest args))
-   ;; e.g. (foo-stringify foo)
-   (foo-stringify (self)))
- ;; comment
- )
+;;* todo --------------------------------------------------------- *;;
 
+
+;; TODO each protocol should either be a `mu-protocol' struct or maybe a function
+;; that returns relevant entries from `mu-protocols'. Idea is to have meaningful
+;; documentation for each protocol
+
+;; TODO protocol methods should mention their protocol in docs. See how
+;; `cl--generic-describe' does it.
+
+;; TODO steal debug declaration from `cl-defmethod'
 
 ;; TODO Possible protocols:
 ;;
