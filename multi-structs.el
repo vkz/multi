@@ -169,6 +169,67 @@
        )))
 
 
+;;* mu-getters --------------------------------------------------- *;;
+
+
+;; generic table lookup
+(cl-defgeneric mu--get (table key))
+
+
+;; method when nil
+(cl-defmethod mu--get ((obj (eql nil)) key)
+  nil)
+
+
+;; method for hash-table
+(cl-defmethod mu--get ((obj hash-table) key)
+  (ht-get obj key))
+
+
+;; default method
+(cl-defmethod mu--get ((obj t) key)
+  (condition-case err
+      (cl-struct-slot-value (type-of obj) (sym key) obj)
+    ;; lookup in --missing-slots if mu-struct instance
+    (cl-struct-unknown-slot (if (mu-struct? obj)
+                                (ht-get (mu-struct--missing-slots obj) key)
+                              (mu-error "not a mu-struct %S has no slot %S" obj key)))))
+
+
+(defun mu. (table key &rest keys)
+  "Look up KEY in TABLE. Return nil if no such KEY. Works for any
+TABLE that implements generic `mu--get'."
+  (when-let ((table (mu--get table key)))
+    (if keys
+        (apply #'mu. table keys)
+      table)))
+
+
+(example
+ ;; getters
+ (mu-defstruct foo-struct props)
+
+ (mu. (ht (:a 1)) :a)
+ (mu. (ht (:a (ht (:b 1)))) :a :b)
+ (mu. (make-foo-struct :props (ht (:a (ht (:b 1))))) :props :a :b)
+
+ ;; default mu--get should work
+ (cl-defstruct bar-struct props)
+ (mu. (make-bar-struct :props (ht (:a (ht (:b 1))))) :props :a :b)
+
+ ;; nested structs should work
+ (mu. (make-bar-struct :props (make-foo-struct :props 1)) :props :props)
+
+ ;; mix of nested ht and structs should work
+ (let* ((foo (make-foo-struct :props (ht (:b 1))))
+        (bar (make-bar-struct :props (ht (:a foo)))))
+   (list
+    (mu. bar :props :a :props :b)
+    (mu. bar :props :a :props :c)))
+ ;; example
+ )
+
+
 ;;* todo --------------------------------------------------------- *;;
 
 
