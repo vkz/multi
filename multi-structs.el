@@ -21,6 +21,21 @@
  )
 
 
+;; TODO nothing stopping protocols from sharing methods IMO. With defprotocol
+;; dumbly generating defgenerics they might step on each-other. Wonder how to
+;; handle it properly. One idea is to check against existing protocols and methods
+;; to raise unless introduced arities match that for already existing method and
+;; bypass defgeneric if they match. Another idea is to always raise when method is
+;; redefined and instead assume that protocols are defined in small enough units
+;; and then groups of them extended to types as needed. That is no two protocols
+;; intersect. Instead types have to implement multiple protocols as needed.
+;; Partitioning protocols well may end up just as hard as building a class
+;; hierarchy in OOP, or is it?
+
+
+;; TODO how about extending protocol to another protocol?
+
+
 (defmacro mu-defprotocol (name &rest methods)
   (declare (indent 1))
   (let ((by-length (lambda (a b) (> (length a) (length b)))))
@@ -61,7 +76,8 @@
 
 (defmacro mu-extend (protocol &rest body)
   (declare (indent 1))
-  ;; TODO check for malformed body and that protocol/methods match existing
+  ;; TODO check for malformed body and that protocol/methods match existing.
+  ;; There's a ton of error checking that should happen here tbh
   (let* ((decl? (lambda (item) (eq :to item)))
          (decls (seq-remove #'null (mu--split-when decl? body))))
     `(progn
