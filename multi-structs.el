@@ -4,7 +4,7 @@
 (require 'multi-prelude)
 
 
-;;* protocols ---------------------------------------------------- *;;
+;;* mu-protocols ------------------------------------------------- *;;
 
 
 ;; NOTE every METHOD declared in protocol NAME must be unique just like a function
@@ -128,6 +128,45 @@
 
  ;; example
  )
+
+
+;;* mu-structs --------------------------------------------------- *;;
+
+
+(cl-defstruct mu-struct (-missing-slots (ht)))
+(defalias 'mu-struct? 'mu-struct-p)
+
+
+(defmacro mu-defstruct (name-props &rest slots)
+  (declare (indent defun))
+  (let (struct-name
+        struct-props)
+
+    (pcase name-props
+      (`(,name . ,props) (setf struct-name name
+                               struct-props props))
+      (name              (setf struct-name name
+                               struct-popns nil)))
+
+    (setf struct-props `((:include mu-struct) ,@struct-props (:copier nil)))
+
+    `(progn
+       (cl-defstruct (,struct-name ,@struct-props) ,@slots)
+
+       ;; TODO Do I want this for every new mu-struct, or should I defer to the
+       ;; default `mu--get' above?
+       ;; (cl-defmethod mu--get ((obj ,struct-name) key)
+       ;;   (condition-case err
+       ;;       (cl-struct-slot-value ',struct-name (sym key) obj)
+       ;;     (cl-struct-unknown-slot
+       ;;      (if (mu-struct? obj)
+       ;;          (ht-get (mu-struct--missing-slots obj) key)
+       ;;        (mu-error "not a mu-struct %S has no slot %S" obj key)))))
+
+       ;; TODO implement mu-struct patterns
+       ;; (mu-defpattern ,struct-name (&rest patterns)
+       ;;   (mu-error "implement mu-struct patterns"))
+       )))
 
 
 ;;* todo --------------------------------------------------------- *;;
