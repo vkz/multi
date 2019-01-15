@@ -230,6 +230,141 @@ TABLE that implements generic `mu--get'."
  )
 
 
+;;* mu-setters --------------------------------------------------- *;;
+
+
+(cl-defgeneric mu--set (obj key val))
+
+
+;; hash-table setter
+(cl-defmethod mu--set ((obj hash-table) key val)
+  (setf (ht-get obj key) val))
+
+
+;; TODO nil setter. Do we assume its an empty list?
+;;
+;; (cl-defmethod mu--set ((obj (eql nil)) key val)
+;;   (mu-error "unimplemented"))
+
+
+;; default setter
+(cl-defmethod mu--set ((obj t) key val)
+  (if (recordp obj)
+      (condition-case err
+          (setf (cl-struct-slot-value (type-of obj) (sym key) obj) val)
+        (cl-struct-unknown-slot (if (mu-struct? obj)
+                                    (setf (ht-get (mu-struct--missing-slots obj) key) val)
+                                  (mu-error "not a mu-struct %S has no slot %S" obj key))))
+    (mu-error "no mu-setter defined for object %S of type %s" obj (type-of obj))))
+
+
+(defun mu--set* (val obj key keys)
+   (if keys
+       (let ((table (or (mu--get obj key) (mu--set obj key (ht)))))
+         (mu--set* val table (car keys) (cdr keys)))
+     (mu--set obj key val)))
+
+
+;; NOTE this one is exactly like my `ht-get*' setter, except that `mu--set*'
+;; dispatches to generic `mu--set' to do correct `setf'
+(gv-define-setter mu. (val table key &rest keys)
+  `(mu--set* ,val ,table ,key (list ,@keys)))
+
+
+(example
+
+ (mu-defstruct bazzer props)
+
+ (mu. (make-bazzer :props '(a b)) :props)
+ ;; =>
+ '(a b)
+
+ (mu. (make-bazzer :props '(a b)) :missing)
+ ;; =>
+ nil
+
+ (let ((baz (make-bazzer :props (ht (:a (ht (:b 1)))))))
+   (setf (mu. baz :props :a :b) 2)
+   (mu. baz :props :a :b))
+ ;; =>
+ 2
+
+ (let ((baz (make-bazzer :props (ht))))
+   (setf (mu. baz :props :a) 2)
+   (mu. baz :props :a))
+ ;; =>
+ 2
+
+ (let ((baz (make-bazzer)))
+   (setf (mu. baz :props) 2)
+   (mu. baz :props))
+ ;; =>
+ 2
+
+ (let ((baz (make-bazzer)))
+   (setf (mu. baz :missing :a :b) 2)
+   (mu. baz :missing :a :b))
+ ;; =>
+ 2
+
+ (let ((baz (make-bazzer :props (ht))))
+   (setf (mu. baz :props :a :b) 2)
+   (mu. baz :props :a :b))
+ ;; =>
+ 2
+
+ (let ((baz (make-bazzer)))
+   (setf (mu. baz :props :a) 2)
+   (mu. baz :props :a))
+ ;; =>
+ 2
+
+ ;; example
+ )
+
+
+(comment
+
+ ;; TODO non-generic setters - remove this once I test generic `mu--set'
+
+ (defun mu--setter (val obj key)
+   `(cond
+     ;; hash-table
+     ((ht-p ,obj)
+      (setf (ht-get ,obj ,key) ,val))
+     ;; struct
+     ((recordp ,obj)
+      (condition-case err
+          (setf (cl-struct-slot-value (type-of ,obj) (sym ,key) ,obj) ,val)
+        (cl-struct-unknown-slot
+         (if (mu-struct? ,obj)
+             (setf (ht-get (mu-struct--missing-slots ,obj) ,key) ,val)
+           (mu-error "not a mu-struct %S has no slot %S" ,obj ,key)))))
+     ;; TODO vectors and lists?
+     (:else
+      (mu-error "no mu. setter defined for object %S of type %s" ,obj ,(type-of ,obj)))))
+
+
+ (gv-define-setter mu--get (val obj key)
+   (mu--setter val obj key))
+
+
+ (defun mu--set* (val obj key keys)
+   (if keys
+       (let ((table (or (mu--get obj key) (setf (mu--get obj key) (ht)))))
+         (mu--set* val table (car keys) (cdr keys)))
+     (setf (mu--get obj key) val)))
+
+ ;; comment
+ )
+
+
+;;* provide ------------------------------------------------------ *;;
+
+
+(provide 'multi-structs)
+
+
 ;;* todo --------------------------------------------------------- *;;
 
 
