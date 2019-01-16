@@ -133,7 +133,10 @@
 ;;* mu-structs --------------------------------------------------- *;;
 
 
-(cl-defstruct mu-struct (-missing-slots (ht)))
+(cl-defstruct mu-struct
+  (-keys  (ht)))
+
+
 (defalias 'mu-struct? 'mu-struct-p)
 
 
@@ -151,21 +154,31 @@
     (setf struct-props `((:include mu-struct) ,@struct-props (:copier nil)))
 
     `(progn
+
        (cl-defstruct (,struct-name ,@struct-props) ,@slots)
 
-       ;; TODO Do I want this for every new mu-struct, or should I defer to the
-       ;; default `mu--get' above?
-       ;; (cl-defmethod mu--get ((obj ,struct-name) key)
-       ;;   (condition-case err
-       ;;       (cl-struct-slot-value ',struct-name (sym key) obj)
-       ;;     (cl-struct-unknown-slot
-       ;;      (if (mu-struct? obj)
-       ;;          (ht-get (mu-struct--missing-slots obj) key)
-       ;;        (mu-error "not a mu-struct %S has no slot %S" obj key)))))
+       ;; store a set of all slots on the struct type symbol. IMO this is
+       ;; justified. While missing keys are per instance it makes sense for each
+       ;; instance to carry its own, but slots are defined for the entire type.
+       ;; Should facilitate checks and help avoid triggering unknown-slot error.
+       (cl-loop for (slot . _) in (cl-struct-slot-info ',struct-name)
+                with slot-set = (ht)
+                do (ht-set slot-set slot t)
+                finally do (put ',struct-name :mu-slots slot-set))
 
-       ;; TODO implement mu-struct patterns
-       ;; (mu-defpattern ,struct-name (&rest patterns)
-       ;;   (mu-error "implement mu-struct patterns"))
+       ;; TODO Use :mu-slots on STUCT type to avoid dispatch for KEY and
+       ;; triggering of unkwnown-slot error when KEY isn't a slot
+       (defun ,struct-name (struct key &rest keys)
+         (apply #'mu. struct key keys))
+
+       ;; TODO like above avoid delegating to mu.
+       (gv-define-setter ,struct-name (val struct key &rest keys)
+         `(setf (mu. ,struct ,key ,@keys) ,val))
+
+       ;; TODO do I extend `mu--get' generic to every mu-defstruct or delegating
+       ;; to the default `mu--get' is fine?
+
+       ;; TODO generate `mu-defpattern'
        )))
 
 
@@ -190,9 +203,9 @@
 (cl-defmethod mu--get ((obj t) key)
   (condition-case err
       (cl-struct-slot-value (type-of obj) (sym key) obj)
-    ;; lookup in --missing-slots if mu-struct instance
+    ;; lookup in -keys if mu-struct instance
     (cl-struct-unknown-slot (if (mu-struct? obj)
-                                (ht-get (mu-struct--missing-slots obj) key)
+                                (ht-get (mu-struct--keys obj) key)
                               (mu-error "not a mu-struct %S has no slot %S" obj key)))))
 
 
@@ -209,9 +222,13 @@ TABLE that implements generic `mu--get'."
  ;; getters
  (mu-defstruct foo-struct props)
 
+ (get 'foo-struct :mu-slots)
+
  (mu. (ht (:a 1)) :a)
  (mu. (ht (:a (ht (:b 1)))) :a :b)
  (mu. (make-foo-struct :props (ht (:a (ht (:b 1))))) :props :a :b)
+
+ (foo-struct (make-foo-struct :props (ht (:a (ht (:b 1))))) :props :a :b)
 
  ;; default mu--get should work
  (cl-defstruct bar-struct props)
@@ -224,6 +241,7 @@ TABLE that implements generic `mu--get'."
  (let* ((foo (make-foo-struct :props (ht (:b 1))))
         (bar (make-bar-struct :props (ht (:a foo)))))
    (list
+    (foo-struct foo 'props :b)
     (mu. bar :props :a :props :b)
     (mu. bar :props :a :props :c)))
  ;; example
@@ -253,7 +271,7 @@ TABLE that implements generic `mu--get'."
       (condition-case err
           (setf (cl-struct-slot-value (type-of obj) (sym key) obj) val)
         (cl-struct-unknown-slot (if (mu-struct? obj)
-                                    (setf (ht-get (mu-struct--missing-slots obj) key) val)
+                                    (setf (ht-get (mu-struct--keys obj) key) val)
                                   (mu-error "not a mu-struct %S has no slot %S" obj key))))
     (mu-error "no mu-setter defined for object %S of type %s" obj (type-of obj))))
 
@@ -286,6 +304,13 @@ TABLE that implements generic `mu--get'."
  (let ((baz (make-bazzer :props (ht (:a (ht (:b 1)))))))
    (setf (mu. baz :props :a :b) 2)
    (mu. baz :props :a :b))
+ ;; =>
+ 2
+
+ ;; struct-type setter should work
+ (let ((baz (make-bazzer :props (ht (:a (ht (:b 1)))))))
+   (setf (bazzer baz :props :a :b) 2)
+   (bazzer baz :props :a :b))
  ;; =>
  2
 
@@ -338,7 +363,7 @@ TABLE that implements generic `mu--get'."
           (setf (cl-struct-slot-value (type-of ,obj) (sym ,key) ,obj) ,val)
         (cl-struct-unknown-slot
          (if (mu-struct? ,obj)
-             (setf (ht-get (mu-struct--missing-slots ,obj) ,key) ,val)
+             (setf (ht-get (mu-struct--keys ,obj) ,key) ,val)
            (mu-error "not a mu-struct %S has no slot %S" ,obj ,key)))))
      ;; TODO vectors and lists?
      (:else
@@ -357,6 +382,10 @@ TABLE that implements generic `mu--get'."
 
  ;; comment
  )
+
+
+;; TODO with `mu--get' and `mu--set' symmetry I can try making them protocol
+;; methods
 
 
 ;;* provide ------------------------------------------------------ *;;
@@ -460,18 +489,6 @@ TABLE that implements generic `mu--get'."
      ;; Actually this may as well be a hash-table of 'type => code, where we simply
      ;; lookup 'type and return code, no need for case dispatch
      ))
-
-
- ;; TODO `mu-defstruct' should generate a getter named `struct-name' which works
- ;; for slots and keys that aren't slots:
- (foo-struct foo 'methods :a :b)
- (foo-struct foo 'sub 'table :a :b)
-
-
- ;; TODO `mu-defstruct' should generate defsetter for `struct-name' which works for
- ;; slots and keys that aren't slots:
- (setf (foo-struct foo methods :a :b) 'val)
- (setf (foo-struct foo sub table :a :b) 'val)
 
 
  ;; TODO register a mu-pattern for `struct-name' that works just like ht-pattern
