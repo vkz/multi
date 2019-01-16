@@ -74,6 +74,11 @@
                finally return (apply #'append defmethods)))))
 
 
+;; TODO this only tests if the struct itself implements a protocol, but its parent
+;; type (i.e. mu-struct) might. Is there a way to track that especially if I am to
+;; test for implements? before doing stuff. One way of doing it is to analyse
+;; :include in defstruct and propagate parent's protocols to the child. Would only
+;; work for structs obviously.
 (defun mu-implements (obj &optional protocol)
   (when-let ((protocols (ht-get* mu-protocols :types (type-of obj))))
     (if protocol
@@ -156,6 +161,8 @@
     `(progn
 
        (cl-defstruct (,struct-name ,@struct-props) ,@slots)
+       ;; alias struct-pred? with struct-pred-p
+       (defalias ',(sym struct-name "?") ',(sym struct-name "-p"))
 
        ;; store a set of all slots on the struct type symbol. IMO this is
        ;; justified. While missing keys are per instance it makes sense for each
@@ -180,6 +187,52 @@
 
        ;; TODO generate `mu-defpattern'
        )))
+
+
+;; TODO Making these generic for now, but really they should be protocol methods
+;; for mu-associative or smth
+(cl-defgeneric mu--slots (obj))
+(cl-defgeneric mu--keys (obj))
+
+
+;; mu.slots
+(cl-defmethod mu--slots ((obj hash-table))
+  (ht-keys obj))
+
+(cl-defmethod mu--slots ((obj mu-struct))
+  (ht-keys (get (type-of obj) :mu-slots)))
+
+(cl-defmethod mu--slots ((obj t))
+  (cond
+   ;; cl-struct that's not mu-struct
+   ((recordp obj) (mapcar #'car (cl-struct-slot-info (type-of obj))))
+   ;; unknown types
+   (:else
+    (mu-error "in mu.slots/keys object %S of type %s does not extend protocol"
+              obj (type-of obj)))))
+
+(defun mu.slots (obj)
+  ;; TODO test (mu-implements obj mu-associative-protocol) but only after I manage
+  ;; to propagate implemented protocols through inheritance chain
+  (mu--slots obj))
+
+
+;; mu.keys
+(cl-defmethod mu--keys ((obj hash-table))
+  (ht-keys obj))
+
+(cl-defmethod mu--keys ((obj mu-struct))
+  (append (ht-keys (get (type-of obj) :mu-slots))
+          (ht-keys (mu-struct--keys obj))))
+
+(cl-defmethod mu--keys ((obj t))
+  ;; delegate to mu.slots
+  (mu--slots obj))
+
+(defun mu.keys (obj)
+  ;; TODO test (mu-implements obj mu-associative-protocol) but only after I manage
+  ;; to propagate implemented protocols through inheritance chain
+  (mu--keys obj))
 
 
 ;;* mu-getters --------------------------------------------------- *;;
