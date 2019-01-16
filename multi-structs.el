@@ -271,36 +271,6 @@ TABLE that implements generic `mu--get'."
       table)))
 
 
-(example
- ;; getters
- (mu-defstruct foo-struct props)
-
- (get 'foo-struct :mu-slots)
-
- (mu. (ht (:a 1)) :a)
- (mu. (ht (:a (ht (:b 1)))) :a :b)
- (mu. (make-foo-struct :props (ht (:a (ht (:b 1))))) :props :a :b)
-
- (foo-struct (make-foo-struct :props (ht (:a (ht (:b 1))))) :props :a :b)
-
- ;; default mu--get should work
- (cl-defstruct bar-struct props)
- (mu. (make-bar-struct :props (ht (:a (ht (:b 1))))) :props :a :b)
-
- ;; nested structs should work
- (mu. (make-bar-struct :props (make-foo-struct :props 1)) :props :props)
-
- ;; mix of nested ht and structs should work
- (let* ((foo (make-foo-struct :props (ht (:b 1))))
-        (bar (make-bar-struct :props (ht (:a foo)))))
-   (list
-    (foo-struct foo 'props :b)
-    (mu. bar :props :a :props :b)
-    (mu. bar :props :a :props :c)))
- ;; example
- )
-
-
 ;;* mu-setters --------------------------------------------------- *;;
 
 
@@ -340,65 +310,6 @@ TABLE that implements generic `mu--get'."
 ;; dispatches to generic `mu--set' to do correct `setf'
 (gv-define-setter mu. (val table key &rest keys)
   `(mu--set* ,val ,table ,key (list ,@keys)))
-
-
-(example
-
- (mu-defstruct bazzer props)
-
- (mu. (make-bazzer :props '(a b)) :props)
- ;; =>
- '(a b)
-
- (mu. (make-bazzer :props '(a b)) :missing)
- ;; =>
- nil
-
- (let ((baz (make-bazzer :props (ht (:a (ht (:b 1)))))))
-   (setf (mu. baz :props :a :b) 2)
-   (mu. baz :props :a :b))
- ;; =>
- 2
-
- ;; struct-type setter should work
- (let ((baz (make-bazzer :props (ht (:a (ht (:b 1)))))))
-   (setf (bazzer baz :props :a :b) 2)
-   (bazzer baz :props :a :b))
- ;; =>
- 2
-
- (let ((baz (make-bazzer :props (ht))))
-   (setf (mu. baz :props :a) 2)
-   (mu. baz :props :a))
- ;; =>
- 2
-
- (let ((baz (make-bazzer)))
-   (setf (mu. baz :props) 2)
-   (mu. baz :props))
- ;; =>
- 2
-
- (let ((baz (make-bazzer)))
-   (setf (mu. baz :missing :a :b) 2)
-   (mu. baz :missing :a :b))
- ;; =>
- 2
-
- (let ((baz (make-bazzer :props (ht))))
-   (setf (mu. baz :props :a :b) 2)
-   (mu. baz :props :a :b))
- ;; =>
- 2
-
- (let ((baz (make-bazzer)))
-   (setf (mu. baz :props :a) 2)
-   (mu. baz :props :a))
- ;; =>
- 2
-
- ;; example
- )
 
 
 (comment
