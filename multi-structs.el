@@ -368,271 +368,274 @@ TABLE that implements generic `mu--get'."
 ;;* todo --------------------------------------------------------- *;;
 
 
-;; TODO arity dispatch in protocol methods doesn't require `pcase'. Suppose we
-;; store method to arity map for every method in `mu-protocols':
-;;
-(ht ('mu--get (ht (2 (lambda (obj key) body))
-                  (3 (lambda (obj k1 k2) body)))))
-;;
-;; then dispatch becomes trivial, also simplifies arity checks etc
-(cl-defmethod mu--get ((obj type) &rest args)
-  (let ((args (cons obj args )))
-    ;; apply stored relevant method implementation explicitly
-    (apply (ht-get mu-protocols 'mu--get (length args)) args)))
+(comment
+
+ ;; TODO arity dispatch in protocol methods doesn't require `pcase'. Suppose we
+ ;; store method to arity map for every method in `mu-protocols':
+ ;;
+ (ht ('mu--get (ht (2 (lambda (obj key) body))
+                   (3 (lambda (obj k1 k2) body)))))
+ ;;
+ ;; then dispatch becomes trivial, also simplifies arity checks etc
+ (cl-defmethod mu--get ((obj type) &rest args)
+   (let ((args (cons obj args)))
+     ;; apply stored relevant method implementation explicitly
+     (apply (ht-get mu-protocols 'mu--get (length args)) args)))
 
 
-;; TODO each protocol should either be a `mu-protocol' struct or maybe a function
-;; that returns relevant entries from `mu-protocols'. Idea is to have meaningful
-;; documentation for each protocol
+ ;; TODO each protocol should either be a `mu-protocol' struct or maybe a function
+ ;; that returns relevant entries from `mu-protocols'. Idea is to have meaningful
+ ;; documentation for each protocol
 
 
-;; TODO protocol methods should mention their protocol in docs. See how
-;; `cl--generic-describe' does it.
+ ;; TODO protocol methods should mention their protocol in docs. See how
+ ;; `cl--generic-describe' does it.
 
 
-;; TODO steal debug declaration from `cl-defmethod'
+ ;; TODO steal debug declaration from `cl-defmethod'
 
 
-;; TODO should `mu--get' be an protocol method?
-(mu-defprotocol mu-associative-protocol
-  (defmethod mu--get (obj keys)))
-(mu-extend mu-get-protocol
-  :to hash-table
-  (defmethod mu--get (obj keys) (apply #'ht-get* obj keys)))
+ ;; TODO should `mu--get' be an protocol method?
+ (mu-defprotocol mu-associative-protocol
+   (defmethod mu--get (obj keys)))
+ (mu-extend mu-get-protocol
+   :to hash-table
+   (defmethod mu--get (obj keys) (apply #'ht-get* obj keys)))
 
 
-;; TODO allow to define and store setters alongside each method, where setter is
-;; just a function of val and getter-args that must generate a working `setf' code
-(mu-extend foo-proto
-  :to foo-struct
+ ;; TODO allow to define and store setters alongside each method, where setter is
+ ;; just a function of val and getter-args that must generate a working `setf' code
+ (mu-extend foo-proto
+   :to foo-struct
 
-  ;; note how setters have access to the getter's arg-ids
+   ;; note how setters have access to the getter's arg-ids
 
-  (defmethod foo-stringify (obj key)
-    ;; arity = 2 (mu--get obj key)
-    :setter (lambda (val) `(setf (ht-get ,obj ,key) ,val))
-    ;; => extend arglist with (obj key) and store:
-    ;;
-    ;; (lambda (val obj key) `(setf (ht-get ,obj ,key) ,val))
-    body)
+   (defmethod foo-stringify (obj key)
+     ;; arity = 2 (mu--get obj key)
+     :setter (lambda (val) `(setf (ht-get ,obj ,key) ,val))
+     ;; => extend arglist with (obj key) and store:
+     ;;
+     ;; (lambda (val obj key) `(setf (ht-get ,obj ,key) ,val))
+     body)
 
-  (defmethod foo-stringify (obj key1 key2)
-    ;; arity = 3 (mu--get obj key1 key2)
-    :setter (lambda (val) `(setf (ht-get ,obj ,key1 ,key2) ,val))
-    ;; => extend arglist with (obj key1 key2) and store:
-    ;;
-    ;; (lambda (val obj key1 key2) `(setf (ht-get ,obj ,key1 ,key2) ,val))
-    body))
-;;
-;; every time the protocol gets extended to a type we re-generate:
-;;
-(gv-define-setter mu--get (val obj &rest args)
-  (mu--dispatch-to-setters 'mu--get val obj args))
-;;
-;;
-;; Where `mu--dispatch-to-setters' generates case-code dispatching on type of obj.
-;; This assumes we keep a mapping from type to arity to method somewhere - so,
-;; `mu-protocols' would need to be richer:
-;;
-(defun mu--dispatch-to-setters (method-name val obj rest)
-  ;; note that we know arity at compile time!
-  (let* ((args (cons obj rest))
-         (setters (loop for type in (keys (ht-get mu-protocols :types))
-                        ;; get setter for current arity
-                        when (ht-get mu-protocols :types type method-name (length args))
-                        collect
-                        ;; collect (type setter)
-                        (list type
-                              (ht-get mu-protocols :types type method-name (length args))))))
-    ;; for every registered `mu--get' setter of arity (length args) insert:
-    `(case (type-of ,obj)
-       ,(loop for (type setter) in setters
-              collect `(,type ,(apply setter val args))))
+   (defmethod foo-stringify (obj key1 key2)
+     ;; arity = 3 (mu--get obj key1 key2)
+     :setter (lambda (val) `(setf (ht-get ,obj ,key1 ,key2) ,val))
+     ;; => extend arglist with (obj key1 key2) and store:
+     ;;
+     ;; (lambda (val obj key1 key2) `(setf (ht-get ,obj ,key1 ,key2) ,val))
+     body))
+ ;;
+ ;; every time the protocol gets extended to a type we re-generate:
+ ;;
+ (gv-define-setter mu--get (val obj &rest args)
+   (mu--dispatch-to-setters 'mu--get val obj args))
+ ;;
+ ;;
+ ;; Where `mu--dispatch-to-setters' generates case-code dispatching on type of obj.
+ ;; This assumes we keep a mapping from type to arity to method somewhere - so,
+ ;; `mu-protocols' would need to be richer:
+ ;;
+ (defun mu--dispatch-to-setters (method-name val obj rest)
+   ;; note that we know arity at compile time!
+   (let* ((args (cons obj rest))
+          (setters (loop for type in (keys (ht-get mu-protocols :types))
+                         ;; get setter for current arity
+                         when (ht-get mu-protocols :types type method-name (length args))
+                         collect
+                         ;; collect (type setter)
+                         (list type
+                               (ht-get mu-protocols :types type method-name (length args))))))
+     ;; for every registered `mu--get' setter of arity (length args) insert:
+     `(case (type-of ,obj)
+        ,(loop for (type setter) in setters
+               collect `(,type ,(apply setter val args))))
 
-    ;; => runtime dispatch for every type
+     ;; => runtime dispatch for every type
 
-    ;; (case (type-of obj)
-    ;;   ('foo-struct (setf (pre-existing setter) val))
-    ;;   ('bar-struct (setf (pre-existing setter) val)))
+     ;; (case (type-of obj)
+     ;;   ('foo-struct (setf (pre-existing setter) val))
+     ;;   ('bar-struct (setf (pre-existing setter) val)))
 
-    ;; Actually this may as well be a hash-table of 'type => code, where we simply
-    ;; lookup 'type and return code, no need for case dispatch
-    ))
-
-
-;; TODO `mu-defstruct' should generate a getter named `struct-name' which works
-;; for slots and keys that aren't slots:
-(foo-struct foo 'methods :a :b)
-(foo-struct foo 'sub 'table :a :b)
+     ;; Actually this may as well be a hash-table of 'type => code, where we simply
+     ;; lookup 'type and return code, no need for case dispatch
+     ))
 
 
-;; TODO `mu-defstruct' should generate defsetter for `struct-name' which works for
-;; slots and keys that aren't slots:
-(setf (foo-struct foo methods :a :b) 'val)
-(setf (foo-struct foo sub table :a :b) 'val)
+ ;; TODO `mu-defstruct' should generate a getter named `struct-name' which works
+ ;; for slots and keys that aren't slots:
+ (foo-struct foo 'methods :a :b)
+ (foo-struct foo 'sub 'table :a :b)
 
 
-;; TODO register a mu-pattern for `struct-name' that works just like ht-pattern
-;; but also tests with `struct-name-p'
-(mu-defstruct multi name)
-(setq m (make-multi :name 'foo))
-;;
-(mu-case m
-  ((multi name) name))
-;; => 'foo
+ ;; TODO `mu-defstruct' should generate defsetter for `struct-name' which works for
+ ;; slots and keys that aren't slots:
+ (setf (foo-struct foo methods :a :b) 'val)
+ (setf (foo-struct foo sub table :a :b) 'val)
 
 
-;; TODO corollary to that extend ht-pattern so that it works on any associative
-;; e.g. should work for any mu-struct?
+ ;; TODO register a mu-pattern for `struct-name' that works just like ht-pattern
+ ;; but also tests with `struct-name-p'
+ (mu-defstruct multi name)
+ (setq m (make-multi :name 'foo))
+ ;;
+ (mu-case m
+          ((multi name) name))
+ ;; => 'foo
 
 
-;; TODO mu-callable protocol that effectively makes structs callable
-(mu-defprotocol mu-callable-protocol
-  (mu-call (f &rest args))
-  (mu-apply (f &rest args)))
-;; where
-(cl-defgeneric mu-call (obj &rest args))
-(cl-defgeneric mu-apply (obj &rest args))
-;; lets make struct callable (assume it defines some lambda in :call slot)
-(mu-extend mu-callable-protocol
-  :to foo-struct
-  (mu-call  (foo &rest args) (apply (mu. foo :mu-call) args))
-  (mu-apply (foo &rest args) (apply #'apply (mu. obj :call) args)))
-;;
-;; IMO `mu-apply' is redundant and can be derived from `m-call':
-(mu-apply foo arg (list a b))
-;; =>
-(apply #'apply #'mu-call foo args)
-;; ==
-(apply #'apply #'mu-call foo (list arg (list a b)))
-;; =>
-(apply #'mu-call foo arg (list a b))
-;; =>
-(mu-call foo arg a b)
-;;
-;; In fact I can extend mu-callable-protocol to every mu-struct simply by adding a
-;; :mu-call slot to `mu--proto-struct', so that every mu-struct inherits it, then
-;; unless user overrides the default `mu-call' should work:
-(cl-defmethod mu-call ((obj t) &rest args)
-  (if (mu-struct? obj)
-      (apply (mu. obj :mu-call) args)
-    (apply obj args)))
-;;
-(cl-defmethod mu-apply ((obj t) &rest args)
-  (if (mu-struct? obj)
-      (apply #'apply (mu. obj :mu-call) args)
-    (apply #'apply obj args)))
+ ;; TODO corollary to that extend ht-pattern so that it works on any associative
+ ;; e.g. should work for any mu-struct?
 
 
-;; TODO nothing stopping protocols from sharing methods IMO. With defprotocol
-;; dumbly generating defgenerics they might step on each-other. Wonder how to
-;; handle it properly. One idea is to check against existing protocols and methods
-;; to raise unless introduced arities match that for already existing method and
-;; bypass defgeneric if they match. Another idea is to always raise when method is
-;; redefined and instead assume that protocols are defined in small enough units
-;; and then groups of them extended to types as needed. That is no two protocols
-;; intersect. Instead types have to implement multiple protocols as needed.
-;; Partitioning protocols well may end up just as hard as building a class
-;; hierarchy in OOP, or is it?
+ ;; TODO mu-callable protocol that effectively makes structs callable
+ (mu-defprotocol mu-callable-protocol
+   (mu-call (f &rest args))
+   (mu-apply (f &rest args)))
+ ;; where
+ (cl-defgeneric mu-call (obj &rest args))
+ (cl-defgeneric mu-apply (obj &rest args))
+ ;; lets make struct callable (assume it defines some lambda in :call slot)
+ (mu-extend mu-callable-protocol
+   :to foo-struct
+   (mu-call (foo &rest args) (apply (mu. foo :mu-call) args))
+   (mu-apply (foo &rest args) (apply #'apply (mu. obj :call) args)))
+ ;;
+ ;; IMO `mu-apply' is redundant and can be derived from `m-call':
+ (mu-apply foo arg (list a b))
+ ;; =>
+ (apply #'apply #'mu-call foo args)
+ ;; ==
+ (apply #'apply #'mu-call foo (list arg (list a b)))
+ ;; =>
+ (apply #'mu-call foo arg (list a b))
+ ;; =>
+ (mu-call foo arg a b)
+ ;;
+ ;; In fact I can extend mu-callable-protocol to every mu-struct simply by adding a
+ ;; :mu-call slot to `mu--proto-struct', so that every mu-struct inherits it, then
+ ;; unless user overrides the default `mu-call' should work:
+ (cl-defmethod mu-call ((obj t) &rest args)
+   (if (mu-struct? obj)
+       (apply (mu. obj :mu-call) args)
+     (apply obj args)))
+ ;;
+ (cl-defmethod mu-apply ((obj t) &rest args)
+   (if (mu-struct? obj)
+       (apply #'apply (mu. obj :mu-call) args)
+     (apply #'apply obj args)))
 
 
-;; TODO how about extending protocol to another protocol?
+ ;; TODO nothing stopping protocols from sharing methods IMO. With defprotocol
+ ;; dumbly generating defgenerics they might step on each-other. Wonder how to
+ ;; handle it properly. One idea is to check against existing protocols and methods
+ ;; to raise unless introduced arities match that for already existing method and
+ ;; bypass defgeneric if they match. Another idea is to always raise when method is
+ ;; redefined and instead assume that protocols are defined in small enough units
+ ;; and then groups of them extended to types as needed. That is no two protocols
+ ;; intersect. Instead types have to implement multiple protocols as needed.
+ ;; Partitioning protocols well may end up just as hard as building a class
+ ;; hierarchy in OOP, or is it?
 
 
-;; NOTE interesting pattern is dispatching to a multi-method inside a generic
-;; method when dispatching on type is too coarse:
-(cl-defmethod some-method ((obj t) arg)
-  (cond
-   ;; ... earlier branches ...
-   ((pred? obj) (mu--multi-get obj arg))
-   ;; ... later   branches ...
-   (:else       (some default action))))
+ ;; TODO how about extending protocol to another protocol?
 
 
-;; TODO If we go the generic route with mu-struct and mu-protocols, then it is
-;; worth thinking about visually telling generic functions from all others. Maybe
-;; a `mu.' prefix or more generally `namespace.generic-function':
-(mu. a b)
-(mu.get a b c)
-(mu.keys a)
-;; private
-(mu.-val-at)
-;; or
-(mu..val-at)
+ ;; NOTE interesting pattern is dispatching to a multi-method inside a generic
+ ;; method when dispatching on type is too coarse:
+ (cl-defmethod some-method ((obj t) arg)
+   (cond
+    ;; ... earlier branches ...
+    ((pred? obj) (mu--multi-get obj arg))
+    ;; ... later   branches ...
+    (:else (some default action))))
 
 
-;; TODO Equivalent of ISeqable but for objects that can be queried like
-;; associative structures, so like (mu.seq obj) but for maps (mu.ht obj). Above
-;; mentioned `mu--slots' being the first meaningful slot marks the beginning of
-;; slots, so we could implement the equivalent of `destruct' without macros:
-;;
-;;   (seq-drop (cl-struct-slot-info 'baz-struct)
-;;             (1+ (cl-struct-slot-offset 'baz-struct 'mu--slots)))
-;;
-;; Of course pre-generating `destruct' function at mu-defstruct expansion time may
-;; have some perf benefit at the cost of heavier macro-code.
+ ;; TODO If we go the generic route with mu-struct and mu-protocols, then it is
+ ;; worth thinking about visually telling generic functions from all others. Maybe
+ ;; a `mu.' prefix or more generally `namespace.generic-function':
+ (mu. a b)
+ (mu.get a b c)
+ (mu.keys a)
+ ;; private
+ (mu.-val-at)
+ ;; or
+ (mu..val-at)
 
 
-;; TODO I could simplify some setters and getters if I were to implement a
-;; threading macro `as->' so that it doesn't compute intermediate steps but simply
-;; rewrites into nested calls. Then we could thread `setf' and friends
-;;
-;; macro getter
-`(mu-> ,struct it
-       (cl-struct-slot-value 'foo-struct ',slot it)
-       (bar-struct it ,@keys))
-;; ==
-`(bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys)
-;;
-;; macro setter
-`(mu-> ,struct it
-       (cl-struct-slot-value 'foo-struct ',slot it)
-       (bar-struct it ,@keys)
-       (setf it 'val))
-;; ==
-`(setf (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val)
+ ;; TODO Equivalent of ISeqable but for objects that can be queried like
+ ;; associative structures, so like (mu.seq obj) but for maps (mu.ht obj). Above
+ ;; mentioned `mu--slots' being the first meaningful slot marks the beginning of
+ ;; slots, so we could implement the equivalent of `destruct' without macros:
+ ;;
+ ;;   (seq-drop (cl-struct-slot-info 'baz-struct)
+ ;;             (1+ (cl-struct-slot-offset 'baz-struct 'mu--slots)))
+ ;;
+ ;; Of course pre-generating `destruct' function at mu-defstruct expansion time may
+ ;; have some perf benefit at the cost of heavier macro-code.
 
 
-;; TODO annotate slots with possible getters. NOTE this is subsumed by generic
-;; `mu--get' or `mu--val-at' alike, no immediate need for annotations. At least
-;; not as long as we can dispatch on the type of slot value.
-(mu-defstruct foo-struct
-              (methods (ht) :type 'ht)
-              (prefers (ht) :type 'ht)
-              (hierarchy    :type 'ht)
-              (sub          :type 'bar-struct))
-;;
-(mu-defstruct bar-struct
-              name
-              (table (ht) :type 'ht))
-;;
-(defmacro foo-struct (struct slot &rest keys)
-  (declare
-   (gv-setter
-    (lambda (val)
-      (if keys
-          ;; setf nested value
-          `(case ',slot
-             ((mul)
-              ;; 'bar-struct sub-struct
-              (setf (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val))
-
-             ((methods prefers hierarchy static-hierarchy)
-              ;; hash-table
-              (setf (ht-get* (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val)))
-        ;; set the slot
-        (setf (cl-struct-slot-value 'foo-struct ',slot ,struct) ,val)))))
-  (if keys
-      ;; nested lookup
-      `(case ',slot
-         ((sub)
-          ;; 'bar-struct sub-struct
-          (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys))
-
-         ((methods prefers hierarchy)
-          ;; hash-table
-          (ht-get* (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys)))
-    ;; slot only lookup
-    `(cl-struct-slot-value 'foo-struct ',slot ,struct)))
+ ;; TODO I could simplify some setters and getters if I were to implement a
+ ;; threading macro `as->' so that it doesn't compute intermediate steps but simply
+ ;; rewrites into nested calls. Then we could thread `setf' and friends
+ ;;
+ ;; macro getter
+ `(mu-> ,struct it
+        (cl-struct-slot-value 'foo-struct ',slot it)
+        (bar-struct it ,@keys))
+ ;; ==
+ `(bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys)
+ ;;
+ ;; macro setter
+ `(mu-> ,struct it
+        (cl-struct-slot-value 'foo-struct ',slot it)
+        (bar-struct it ,@keys)
+        (setf it 'val))
+ ;; ==
+ `(setf (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val)
 
 
+ ;; TODO annotate slots with possible getters. NOTE this is subsumed by generic
+ ;; `mu--get' or `mu--val-at' alike, no immediate need for annotations. At least
+ ;; not as long as we can dispatch on the type of slot value.
+ (mu-defstruct foo-struct
+   (methods (ht) :type 'ht)
+   (prefers (ht) :type 'ht)
+   (hierarchy :type 'ht)
+   (sub :type 'bar-struct))
+ ;;
+ (mu-defstruct bar-struct
+   name
+   (table (ht) :type 'ht))
+ ;;
+ (defmacro foo-struct (struct slot &rest keys)
+   (declare
+    (gv-setter
+     (lambda (val)
+       (if keys
+           ;; setf nested value
+           `(case ',slot
+              ((mul)
+               ;; 'bar-struct sub-struct
+               (setf (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val))
+
+              ((methods prefers hierarchy static-hierarchy)
+               ;; hash-table
+               (setf (ht-get* (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val)))
+         ;; set the slot
+         (setf (cl-struct-slot-value 'foo-struct ',slot ,struct) ,val)))))
+   (if keys
+       ;; nested lookup
+       `(case ',slot
+          ((sub)
+           ;; 'bar-struct sub-struct
+           (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys))
+
+          ((methods prefers hierarchy)
+           ;; hash-table
+           (ht-get* (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys)))
+     ;; slot only lookup
+     `(cl-struct-slot-value 'foo-struct ',slot ,struct)))
+
+ ;; comment
+ )
