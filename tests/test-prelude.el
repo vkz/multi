@@ -20,6 +20,7 @@
 (multi--load-el-if-newer "../multi-prelude.el")
 (multi--load-el-if-newer "../multi-patterns.el")
 (multi--load-el-if-newer "../multi-methods.el")
+(multi--load-el-if-newer "../multi-structs.el")
 
 ;; TODO Would implementing expect macro as per examples below be worth it?
 

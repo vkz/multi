@@ -209,6 +209,9 @@ partitions."
 (defconst mu--errors
   (ht
 
+   ;; multi-structs
+   (:no-protocol             '("protocol %s does not extend to object %S of type %s %s"))
+
    ;; multi-patterns
    (:lst-pattern             '("in mu-case lst-pattern doesn't support &rest,"
                                " use l-pattern instead in: %S"))

@@ -48,26 +48,18 @@
     (cl-defstruct bar-struct props)
 
     ;; mu-struct getter should work
-    (foo-struct (make-bar-struct :props 1) :props)
-    ;; cl-struct getter should work by dispatching to default `mu--get'
-    (bar-struct (make-bar-struct :props 1) :props)
+    (should (eq 1 (foo-struct (make-bar-struct :props 1) :props)))
 
     ;; mu-struct getter should work for nested structures
-    (foo-struct (make-foo-struct :props (ht (:a (ht (:b 1))))) :props :a :b)
-    ;; cl-struct getter should work for nested structures
-    (bar-struct (make-bar-struct :props (ht (:a (ht (:b 1))))) :props :a :b)
+    (should (eq 1 (foo-struct (make-foo-struct :props (ht (:a (ht (:b 1))))) :props :a :b)))
 
     ;; looking up missing keys should work, not throw
     (should-not (foo-struct (make-foo-struct) :props :a :b))
-    (should-not (bar-struct (make-bar-struct) :props :a :b))
 
     ;; getters should work for a mix of nested hash-tables and structs
-    (should (equal '(1 1)
-                   (let* ((foo (make-foo-struct :props (ht (:b 1))))
-                          (bar (make-bar-struct :props (ht (:a foo)))))
-                     (list
-                      (foo-struct foo 'props :b)
-                      (bar-struct bar :props :a :props :b)))))))
+    (should (eq 1 (let* ((foo (make-foo-struct :props (ht (:b 1))))
+                         (bar (make-bar-struct :props (ht (:a foo)))))
+                    (foo-struct foo 'props :b))))))
 
 
 (ert-deftest mu-test-struct-setters ()
@@ -103,7 +95,7 @@
                     (bazzer baz :missing :a :b))))
 
     ;; attempting to set keys in non-associative should throw
-    (should (mu--error-match "no mu-setter defined"
+    (should (mu--error-match "protocol mu-table-protocol does not extend"
                              (let ((baz (make-bazzer :props 2)))
                                (setf (bazzer baz :props :a) 2)
                                (bazzer baz :props))))))
@@ -112,6 +104,8 @@
 (ert-deftest mu-test-mu. ()
   ""
   (mu-test ()
+    ;; mu-struct
+    (mu-defstruct bazzer props)
     ;; mu-struct
     (mu-defstruct foo-struct props)
     ;; cl-struct
@@ -157,7 +151,7 @@
 
 
     ;; attempting to set keys in non-associative should throw
-    (should (mu--error-match "no mu-setter defined"
+    (should (mu--error-match "protocol mu-table-protocol does not extend"
                              (let ((baz (make-bazzer :props 2)))
-                               (setf (mu. baz :props :a) 2)
+                               (setf (bazzer baz :props :a) 2)
                                (bazzer baz :props))))))
