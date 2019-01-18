@@ -26,6 +26,61 @@
     ;; any cl-defstruct inherits table protocol from cl-structure-object
     (should (mu-implements? (make-bar-struct) mu-table-protocol))))
 
+
+(ert-deftest mu-test-callable-protocol ()
+  (mu-test ()
+    (mu-defstruct foo-struct props)
+    (cl-defstruct bar-struct props)
+
+    (setq foo (make-foo-struct :props (ht (:a (ht (:b 1))))))
+    (setq bar (make-bar-struct :props (ht (:a (ht (:b 1))))))
+
+    ;; struct as function with default :call
+
+    ;; mu-struct
+    (should (eq 1 (mu.call foo :props :a :b)))
+    (should (eq 1 (mu.apply foo :props '(:a :b))))
+    ;; cl-struct
+    (should (eq 1 (mu.call bar :props :a :b)))
+    (should (eq 1 (mu.apply bar :props '(:a :b))))
+
+    ;; mu-struct: set call
+    (setf (mu. foo :call) (lambda (struct &rest args) 42))
+    (should (eq 42 (mu.call foo :bar)))
+
+    ;; cl-struct with no call slot: set call
+    (should (mu--error-match
+             "cl-struct of type bar-struct has no slot "
+             (setf (mu. bar :call) (lambda (struct &rest args) 42))))
+    (should-not (mu.call bar :foo))
+    (should (mu.call bar :props :a :b))
+
+    ;; cl-struct with call slot: set call
+    (cl-defstruct bar-call-struct
+      (call (lambda (self &rest args) 42))
+      props)
+    (should (eq 42 (mu.call (make-bar-call-struct :props :bar) :props)))
+
+    ;; cl-struct with no call slot: set call
+    (cl-defstruct bar-nocall-struct props)
+    (mu-defcallable bar-nocall-struct (lambda (self &rest args) 42))
+    (should (eq 42 (mu.call (make-bar-nocall-struct :props :bar) :props)))
+
+    ;; hash-table as function
+    (setq foo (ht (:a (ht (:b 1)))))
+    (setq bar (ht (:call #'mu.)
+                  (:a (ht (:b 1)))
+                  (:foo foo)))
+    (should (eq 1 (mu.call foo :a :b)))
+    (should (eq 1 (mu.apply foo '(:a :b))))
+    (should (eq 1 (mu.call bar :a :b)))
+    (should (eq 1 (mu.apply bar :foo '(:a :b))))
+
+    ;; normal function
+    (should (equal '(:a :b) (mu.call #'list :a :b)))
+    (should (equal '(:a :b) (mu.apply #'list :a '(:b))))))
+
+
 (ert-deftest mu-test-defstruct ()
   ""
   (mu-test ()

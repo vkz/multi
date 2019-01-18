@@ -326,9 +326,6 @@
     (setf (aref obj key) val)))
 
 
-;;* mu. ---------------------------------------------------------- *;;
-
-
 ;; TODO Do we even want to check `mu-extends?' in mu. and friends below. Their
 ;; only PRO is they report errors in terms of protocol. But I wonder if an error
 ;; thrown by generic method would be just fine? Their biggest CON is that now
@@ -382,6 +379,63 @@ TABLE that implements generic `mu--get'."
 (defalias 'mu:slots 'mu.slots)
 (defalias 'mu:keys 'mu.keys)
 (defalias 'mu: 'mu.)
+
+
+;;* mu-callable-protocol ----------------------------------------- *;;
+
+
+(mu-defprotocol mu-callable-protocol
+  (defmethod mu--call (f args)))
+
+
+(mu-extend mu-callable-protocol
+
+  ;; NOTE both structs and hash-tables pass self as the first argument to their
+  ;; function be it :call member or the default lookup with mu. IMO it makes
+  ;; perfect sense and offers great power.
+
+  ;; TODO mention self as first arg in docstring and documentation
+
+  ;; should cover any struct including `mu-struct'
+  :to cl-structure-object
+  (defmethod mu--call (obj args)
+    (if-let ((f (or (get (type-of obj) :call) (mu. obj :call))))
+        (apply f obj args)
+      (apply #'mu. obj args)))
+
+  :to hash-table
+  (defmethod mu--call (obj args)
+    (if-let ((f (ht-get obj :call)))
+        (apply f obj args)
+      (apply #'mu. obj args))))
+
+
+;; default method delegates to `funcall' to cover normal functions
+(cl-defmethod mu--call ((obj t) args) (apply obj args))
+
+
+(defun mu.call (f &rest args) (mu--call f args))
+(defun mu.apply (f &rest args) (apply #'apply #'mu.call f args))
+
+
+(defmacro mu-defcallable (struct function)
+  `(put ',struct :call ,function))
+
+
+;; NOTE making any instance of a struct callable is as trivial as
+;;
+;;   (mu-defstruct foo-struct
+;;     (call (lambda (self &rest args) 42))
+;;     props)
+;;
+;; which happily works for any cl-struct under your control. One downside is that
+;; that lambda and extra slot will be carried by every instance. Alternatively:
+;;
+;;   (mu-defcallable foo-struct (lambda (self &rest args) 42))
+;;
+;; Will put call on the symbol. No extra slot and you can make callable any struct
+;; even ones u don't control. This last bit is actually terrifying, so I wonder if
+;; this is a good idea, but hey this is Emacs Lisp.
 
 
 ;;* provide ------------------------------------------------------ *;;
@@ -482,42 +536,6 @@ TABLE that implements generic `mu--get'."
 
  ;; TODO corollary to that is to limit ht-pattern to just hash-tables and have a
  ;; separate (: key...) or (mu. key...) or (mu: key...) pattern for general match
-
-
- ;; TODO mu-callable protocol that effectively makes structs callable
- (mu-defprotocol mu-callable-protocol
-   (defmethod mu--call (f &rest args))
-   (defmethod mu--apply (f &rest args)))
- ;;
- ;; lets make struct callable (assume it defines some lambda in :call slot)
- (mu-extend mu-callable-protocol
-   :to foo-struct
-   (defmethod mu--call (foo &rest args) (apply (foo-struct foo :mu-call) args))
-   (defmethod mu--apply (foo &rest args) (apply #'apply (foo-struct foo :call) args)))
- ;;
- ;; Actually we could just extend it to `mu-struct' or even any `cl-struct'. As
- ;; long as instance has function in its :call slot, any mu-defstruct would work
- (mu-extend mu-callable-protocol
-   :to mu-struct
-   (defmethod mu--call (obj &rest args) (apply (mu. obj :call) args))
-   (defmethod mu--apply (obj &rest args) (apply #'apply (mu. obj :call) args)))
- ;;
- ;; Even better I can also have default cover any function, so that mu--call
- ;; effectively becomes a replacement for `funcall' and `apply'
- ;;
- (cl-defmethod mu--call ((obj t) &rest args) (apply obj args))
- (cl-defmethod mu--apply ((obj t) &rest args) (apply #'apply obj args))
- ;;
- ;; IMO `mu--apply' is redundant and can be derived from `m-call':
- (mu--apply foo arg (list a b))
- ;; =>
- (apply #'apply #'mu--call foo args)
- ;; ==
- (apply #'apply #'mu--call foo (list arg (list a b)))
- ;; =>
- (apply #'mu--call foo arg (list a b))
- ;; =>
- (mu--call foo arg a b)
 
 
  ;; TODO nothing stopping protocols from sharing methods IMO. With defprotocol
