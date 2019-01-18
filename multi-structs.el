@@ -13,16 +13,33 @@
 
 (cl-defstruct mu-protocol name (methods (ht)) (types (ht)))
 
+(example
+ (make-mu-protocol
+  :name    'my-silly-protocol
+  :methods (ht (method-symbol list-of-arglists)
+               ('method '((a) (a b) (a b c))))
+  :types   (ht (type-symbol t)
+               ('foo-struct t)))
+ ;; example
+ )
+
+
+;; NOTE Protocols as structs stored in a defvar may have a downside. If someone
+;; re-evals protocol creation site it'll be the same protocol conceptually, but
+;; any types the original protocol extend will've been lost, so `mu-extends?' will
+;; start failing for this new protocol value. Example: package defines a protocol
+;; that types in other packages implement. If user ever evals the protocol
+;; package, its dependants would have to be reloaded, too. Is this eventuality
+;; something to be concerned about? TBH protocol is nothing but metadata - a tag
+;; with a bunch of other tags (methods) attached. Making it a struct - an actual
+;; compound value stored on a var is a matter of convenience, not required
+;; complexity. Revisit if becomes a problem. Either go back to just symbolic tags
+;; and keeping stuff in global tables, or cache everything in an external table
+;; and have it sync with known protocols on request.
+
 
 (defun mu-protocol-error (protocol obj &optional prefix)
   (mu-error :no-protocol (mu-protocol-name protocol) obj (type-of obj) (or prefix "")))
-
-
-(example
- (make-mu-protocol :name 'table-protocol
-                   :types (ht ('mu-struct t)))
- ;; example
- )
 
 
 (defmacro mu-defprotocol (name &rest methods)
@@ -74,28 +91,37 @@
        ,@(loop for (type . methods) in decls
                collect
                `(progn
+                  ;; cache type
                   (setf (ht-get (mu-protocol-types ,protocol) ',type) t)
+                  ;; generate cl-defmethods
                   ,@(mu--cl-defmethods type methods))))))
 
 
-(cl-defun mu-extends? (&key instance type protocol)
-  (or (ht-get (mu-protocol-types protocol) (or type (type-of instance)))
-      (when-let ((struct-class (cl-find-class (or type (type-of instance)))))
-        (cl-some
-         (lambda (parent-type) (mu-extends? :type parent-type :protocol protocol))
-         ;; TODO at-least for mu-structs we could always pre-compute parents and
-         ;; store them say on mu-struct prototype?
-         (mapcar (lambda (parent)
-                   (cl-struct-slot-value 'cl-structure-class 'name parent))
-                 (cl--struct-class-parents struct-class))))))
+(defun mu-implements? (object protocol)
+  (mu-extends? :type (type-of object) :protocol protocol))
+
+
+(cl-defun mu-extends? (&key type protocol)
+  (or
+   ;; try cache
+   (ht-get (mu-protocol-types protocol) type)
+   ;; cache miss, check ancestors
+   (when-let ((struct-class (cl-find-class type)))
+     (and (cl-some
+           (lambda (parent-type) (mu-extends? :type parent-type :protocol protocol))
+           (mapcar (lambda (parent)
+                     (cl-struct-slot-value 'cl-structure-class 'name parent))
+                   (cl--struct-class-parents struct-class)))
+          ;; cache type if some ancestor implements protocol
+          (setf (ht-get (mu-protocol-types protocol) type) t)))))
 
 
 (comment
- (mu-extends? :instance nil :protocol mu-table-protocol)
- (mu-extends? :instance t :protocol mu-table-protocol)
- (mu-extends? :instance '(foo) :protocol mu-table-protocol)
- (mu-extends? :instance [1] :protocol mu-table-protocol)
- (mu-extends? :instance (make-foo-struct) :protocol mu-table-protocol)
+ (mu-implements? nil    mu-table-protocol)
+ (mu-implements? t      mu-table-protocol)
+ (mu-implements? '(foo) mu-table-protocol)
+ (mu-implements? [1]    mu-table-protocol)
+ (mu-implements? (make-foo-struct) mu-table-protocol)
  ;; comment
  )
 
@@ -185,8 +211,8 @@
      (sym (bar-struct-nm bar))))
 
 
- (mu-extends? :instance (make-foo-struct :name 'my-foo) :protocol foo-protocol)
- (mu-extends? :instance (make-bar-struct :nm 'my-bar) :protocol foo-protocol)
+ (mu-implements? (make-foo-struct :name 'my-foo) foo-protocol)
+ (mu-implements? (make-bar-struct :nm 'my-bar) foo-protocol)
 
 
  (foo-stringify (make-foo-struct :name 'my-foo) "string of %s value %s")
@@ -401,13 +427,13 @@
 
 
 (defun mu.slots (obj)
-  (unless (mu-extends? :instance obj :protocol mu-table-protocol)
+  (unless (mu-implements? obj mu-table-protocol)
     (mu-protocol-error mu-table-protocol obj "in `mu.slots'"))
   (mu--slots obj))
 
 
 (defun mu.keys (obj)
-  (unless (mu-extends? :instance obj :protocol mu-table-protocol)
+  (unless (mu-implements? obj mu-table-protocol)
     (mu-protocol-error mu-table-protocol obj "in `mu.keys'"))
   (mu--keys obj))
 
@@ -415,7 +441,7 @@
 (defun mu. (table key &rest keys)
   "Look up KEY in TABLE. Return nil if no such KEY. Works for any
 TABLE that implements generic `mu--get'."
-  (unless (mu-extends? :instance table :protocol mu-table-protocol)
+  (unless (mu-implements? table mu-table-protocol)
     (mu-protocol-error mu-table-protocol table "in mu."))
   (when-let ((table (mu--get table key)))
     (if keys
@@ -424,7 +450,7 @@ TABLE that implements generic `mu--get'."
 
 
 (defun mu--set* (val obj key keys)
-  (unless (mu-extends? :instance obj :protocol mu-table-protocol)
+  (unless (mu-implements? obj mu-table-protocol)
     (mu-protocol-error mu-table-protocol obj "in mu."))
   (if keys
       (let ((table (or (mu--get obj key) (mu--set obj key (ht)))))
@@ -433,7 +459,7 @@ TABLE that implements generic `mu--get'."
 
 
 (gv-define-setter mu. (val table key &rest keys)
-  `(if (mu-extends? :instance ,table :protocol mu-table-protocol)
+  `(if (mu-implements? ,table mu-table-protocol)
        (mu--set* ,val ,table ,key (list ,@keys))
      (mu-protocol-error mu-table-protocol table "in mu.")))
 

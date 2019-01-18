@@ -11,18 +11,27 @@
 
 (require 'ert)
 (require 'cl-lib)
+(require 'cl)
+(require 'gv)
 
-(defun multi--load-el-if-newer (file)
-  (let ((el file)
-        (elc (concat (file-name-sans-extension file) ".elc")))
-    (load-file (if (file-newer-than-file-p el elc) el elc))))
+(require 'multi-prelude)
+(require 'multi-patterns)
+(require 'multi-methods)
+(require 'multi-structs)
 
-(multi--load-el-if-newer "../multi-prelude.el")
-(multi--load-el-if-newer "../multi-patterns.el")
-(multi--load-el-if-newer "../multi-methods.el")
-(multi--load-el-if-newer "../multi-structs.el")
+
+;; (defun multi--load-el-if-newer (file)
+;;   (let ((el file)
+;;         (elc (concat (file-name-sans-extension file) ".elc")))
+;;     (load-file (if (file-newer-than-file-p el elc) el elc))))
+;; (multi--load-el-if-newer "../multi-prelude.el")
+;; (multi--load-el-if-newer "../multi-patterns.el")
+;; (multi--load-el-if-newer "../multi-methods.el")
+;; (multi--load-el-if-newer "../multi-structs.el")
+
 
 ;; TODO Would implementing expect macro as per examples below be worth it?
+
 
 (defun mu--symbol-function (s)
   "Like `symbol-function' but returns :unbound when S is
