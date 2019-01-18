@@ -4,6 +4,28 @@
 (load-file "test-prelude.el")
 
 
+(ert-deftest mu-test-table-protocol ()
+  (mu-test ()
+    (mu-defstruct foo-struct props)
+    (cl-defstruct bar-struct props)
+
+    ;; methods should appear on protocol struct
+    (should (mu-protocol-methods mu-table-protocol))
+
+    ;; every protocol method is a generic
+    (should (cl-every #'cl-generic-p (ht-keys (mu-protocol-methods mu-table-protocol))))
+
+    (should (mu-implements? nil               mu-table-protocol))
+    (should (mu-implements? t                 mu-table-protocol))
+    (should (mu-implements? '(foo)            mu-table-protocol))
+    (should (mu-implements? [1]               mu-table-protocol))
+    (should (mu-implements? (ht) mu-table-protocol))
+    (should (mu-implements? (make-mu-struct) mu-table-protocol))
+    ;; any mu-defstruct inherits table protocol from mu-struct
+    (should (mu-implements? (make-foo-struct) mu-table-protocol))
+    ;; any cl-defstruct inherits table protocol from cl-structure-object
+    (should (mu-implements? (make-bar-struct) mu-table-protocol))))
+
 (ert-deftest mu-test-defstruct ()
   ""
   (mu-test ()
