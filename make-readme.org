@@ -10,6 +10,56 @@
 #+PROPERTY: header-args:emacs-lisp :tangle ./test-readme.el
 #+PROPERTY: header-args:emacs-lisp+ :noeval
 
+* documentation workflow
+
+Idea with documentation takes shape. Quite simply I write a good entry in a docstring. Code in the following snippet prints it in the RESULTS and those get exported. This lets me keep docs in sync with the code. 
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation #'mu-defun))
+#+end_src
+
+As for the examples IMO the following will work just fine. I'd have to fix my [[*make-readme][make-readme]] code some. It is shaping into a very nice workflow!
+
+#+begin_src emacs-lisp
+  (example
+
+   (mu-defun foo [a [_ c]]
+     "docstring"
+     (list a c))
+
+   (foo 1 '(2 3))
+   :=>
+   '(b c))
+#+end_src
+
+
+#+begin_src emacs-lisp
+  (example
+
+   (mu-defun foo (a b &rest args)
+     "docstring"
+     ([_ [b1 b2]] (list b1 b2))
+     ([_ [b1 b2] | rest] (list* b1 b2 rest)))
+
+   (foo 1 '(2 3))
+   :=>
+   '(2 3)
+
+   (foo 1 '(2 3) 4)
+   :=>
+   '(2 3 4))
+#+end_src
+
+Naturally, I wouldn't want lengthy docstrings interfere with code flow. Easy enough. Start with minimal prefix in the docstring proper, then install the rest of it at the bottom of the source file by setting relevant properties [[info:elisp#Documentation%20Basics][info:elisp#Documentation Basics]] with something like this:
+
+#+begin_src emacs-lisp
+  (put 'mu-defun 'function-documentation
+       (concat
+        (documentation #'mu-defun)
+        "rest of the docstring"))
+#+end_src
+
+
 * multi.el
 
 /multi.el/ brings ad-hoc multiple dispatch to Emacs Lisp.
@@ -65,78 +115,6 @@ Semantics of [] seq-pattern
 mu-let, mu-when-let, mu-if-let
 
 ** mu-defun
-
-#+begin_src emacs-lisp :eval yes :results verbatim raw replace value :wrap begin_quote
-  (documentation #'mu-defun)
-#+end_src
-
-#+RESULTS:
-#+begin_begin_quote
-"Like ‘defun’ but with multiple clauses. Each clause
-specifies a ‘mu-case’ pattern to match against the &rest part of
-the ARGLIST followed by the body to run if the match succeeds.
-Clauses are tried in order as if one had multiple definitions of
-the same function NAME. METADATA can be supplied as :attribute -
-expression pairs before the BODY:
-
-  (mu-defun foo (arg &rest args)
-    \"docstring\"
-    :declare     dspec
-    :interactive ispec
-    ([mu-case-args-pat1] body1)
-    ([mu-case-args-pat2] body2)
-      ... ...)
-
-In addition to any variable bound by the corresponding pattern
-every clause has the entire ARGLIST in scope.
-
-METADATA is optional and may include the following attributes:
-
-  :declare dspec - a list of ‘declare’ SPECS,
-
-  :interactive ispec - t or ‘interactive’ ARG-DESCRIPTOR,
-
-  :before expr - expression to execute before the body,
-
-  :return var - bind VAR to defun’s result in :after code,
-
-  :after expr -  expression to execute after the body.
-
-EXPR in :before and :after have access to ARGLIST. With :return
-declaration :after EXPR also has VAR in scope.
-
-(fn NAME ARGLIST METADATA &rest BODY)"
-#+end_begin_quote
-
-#+begin_src emacs-lisp
-  (example
-
-   (mu-defun foo [a [_ c]]
-     "docstring"
-     (list a c))
-
-   (foo 1 '(2 3))
-   :=>
-   '(b c))
-#+end_src
-
-
-#+begin_src emacs-lisp
-  (example
-
-   (mu-defun foo (a b &rest args)
-     "docstring"
-     ([_ [b1 b2]] (list b1 b2))
-     ([_ [b1 b2] | rest] (list* b1 b2 rest)))
-
-   (foo 1 '(2 3))
-   :=>
-   '(2 3)
-
-   (foo 1 '(2 3) 4)
-   :=>
-   '(2 3 4))
-#+end_src
 
 ** mu-defmacro
 
