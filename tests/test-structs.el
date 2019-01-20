@@ -172,7 +172,7 @@
                     (bazzer baz :missing :a :b))))
 
     ;; attempting to set keys in non-associative should throw
-    (should (mu--error-match "protocol mu-table-protocol does not extend"
+    (should (mu--error-match "protocol mu-table does not extend"
                              (let ((baz (make-bazzer :props 2)))
                                (setf (bazzer baz :props :a) 2)
                                (bazzer baz :props))))))
@@ -228,7 +228,7 @@
 
 
     ;; attempting to set keys in non-associative should throw
-    (should (mu--error-match "protocol mu-table-protocol does not extend"
+    (should (mu--error-match "protocol mu-table does not extend"
                              (let ((baz (make-bazzer :props 2)))
                                (setf (bazzer baz :props :a) 2)
                                (bazzer baz :props))))))

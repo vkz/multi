@@ -850,6 +850,30 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
 ;; :teardown sense. I'm on the fence about the whole thing now.
 
 
+;; TODO possible solution to :before :after and recursive calls: wrap main defun
+;; body in `cl-flet' that rebinds defun to one without :before and :after for the
+;; dynamic extend of the body. This should ensure they are only called once. IMO
+;; this is resoanable semantics and supports the "recursively call yourself"
+;; pattern that works so well in multi-methods and multi-head defuns. I may not
+;; even need to `unwind-protect':
+(comment
+ (defun foo-fun () 0)
+ (foo-fun)
+ ;; => 0
+ (flet ((foo-fun () 42))
+   (foo-fun))
+ ;; => 42
+ (foo-fun)
+ ;; => 0
+ (flet ((foo-fun () 42))
+   (error "oops"))
+ ;; => error
+ (foo-fun)
+ ;; => 0
+ ;; comment
+ )
+
+
 ;; :before expr
 (defun mu--add-before-call (body attrs)
   "If ATTRS has :before code alter BODY to run it first."

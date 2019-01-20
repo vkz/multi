@@ -45,9 +45,10 @@
 
 (defmacro mu-defprotocol (name &rest methods)
   (declare (indent 1))
-  (let ((by-length (lambda (a b) (> (length a) (length b)))))
+  (let ((by-length     (lambda (a b) (> (length a) (length b))))
+        (protocollable (sym (string-remove-suffix "-protocol" (symbol-name name)))))
     `(progn
-       (defconst ,name (make-mu-protocol :name ',name))
+       (defconst ,name (make-mu-protocol :name ',protocollable))
        ,@(loop for (_ sym . rest) in methods
                with arglists
                with docstring
@@ -82,6 +83,25 @@
          sym obj type rest (mapcar #'cddr methods))))
 
 
+;; TODO Nilly-willy extending a protocol to whatever is quite scary especially
+;; when you mess with native types, or types that aren't yours, but I don't
+;; necessarily subscribe to Racket's point of view where it only lets you
+;; implement generic interface as you define a struct, that is you can't mess
+;; somebody else's structs. That said, I wonder if we should allow :implements
+;; attr option in `mu-defstruct' as a convenience rather than the only choice?
+;;
+;; Even better :implements can have struct slots in scope
+;;
+;;   (mu-defstruct foo-struct slot1 slot2
+;;     :implements foolable-protocol
+;;     (defmethod fool (foo &rest args) (has slot1 and slot2 bound)))
+;;   =>
+;;   (cl-defmethod fool (foo &rest args)
+;;     (let ((slot1 (cl-struct-slot-value 'foo-struct 'slot1 foo))
+;;           (slot2 (cl-struct-slot-value 'foo-struct 'slot2 foo)))
+;;       (has slot1 and slot2 bound)))
+
+
 (defmacro mu-extend (protocol &rest body)
   (declare (indent 1))
   ;; TODO check for malformed body and that protocol/methods match existing.
@@ -94,6 +114,8 @@
                `(progn
                   ;; cache type
                   (setf (ht-get (mu-protocol-types ,protocol) ',type) t)
+                  ;; add an `isa?' relation to `mu-global-hierarchy'
+                  (mu-rel ',type :isa (mu-protocol-name ,protocol))
                   ;; generate cl-defmethods
                   ,@(mu--cl-defmethods type methods))))))
 
@@ -445,6 +467,17 @@ TABLE that implements generic `mu--get'."
 
 
 ;;* todo --------------------------------------------------------- *;;
+
+
+;; TODO think carefully about `isa?' relationship between type and protocol we add
+;; to `mu-global-hierarchy' as part of `mu-extend'. Atm it simply relates
+;; 'struct-type-symbol to 'protocol-name-symbol. Seems a bit loose, but then is
+;; their a better choice in Elisp? Also, I think i like the idea of protocol name
+;; having the `-able' suffix and protocol variable adding extra `-protocol' to
+;; that e.g. `mu-callable' and `mu-callable-protocol'. Surprisingly this works
+;; `mu-table' and `mu-table-protocol'. Then `mu-rel' should establish a relation
+;; between type-symbol and protocol name e.g. `mu-table'. Must mention this
+;; convention in docs.
 
 
 (comment
