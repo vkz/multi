@@ -10,7 +10,43 @@
 #+PROPERTY: header-args:emacs-lisp :tangle ./test-readme.el
 #+PROPERTY: header-args:emacs-lisp+ :noeval
 
-* multi-dispatch
+* multi.el
+
+/multi.el/ brings ad-hoc multiple dispatch to Emacs Lisp.
+
+* Introduction
+
+/multi.el/ is a multi-dispatch library for Emacs Lisp. It adds support for
+- type-driven dispatch with /multi-protocols/,
+- ad-hoc polymorphism with /multi-methods/,
+- pattern-matching and dustructuring without noise with /multi-patterns/,
+- case-dispatch with /multi-defuns/,
+- benchmarking all of the above with /multi-benchmarks/.
+
+As many an Elisp library /multi.el/ started as an attempt to scratch my own itch. I wrote a smallish package for my own consumption that had a bit of UI going on. Mostly just a query - response type of interaction, so nothing terribly complex. However basic it still had to react to what user did, update and "render" state, yada yada yada. The initial prototype was also my first time programming Emacs Lisp in earnest. It worked just fine even if the code looked busy. 
+
+You know how you decide to build a thing to pick up a new language? By the time you're done you've leveled up enough to be embarassed by the code you wrote. This time was no exception. Personally, I don't think it gets any better as you grow, you generally just settle on the good enough 2nd or 3rd iteration. So, as this story goes my 2nd iteration worked just as well, looked less busy and was an ok piece of Elisp overall. Why then did it it feel so tangled. I know I went overboard with macros, but I was trying to make code less mired in minutae. 
+
+Narrator: nah, boy just likes to spice things up with unhygienic macros.
+
+Whether you admit to it or not in a typical UI you end up encoding a finite state machine with whatever ad-hoc tooling your language of choice provides. There's a gadzillion ways of doing it in a "Von Turing" universe, but that being lisp I just wrote a bunch of functions that call each other to transition. That worked perfectly fine but even with just a handful of states and inputs I had trouble mapping code paths to transitions. It was already a drag, think how bad I'll have it coming back to this code a month from now. A year? 
+
+I wanted to give my future self enough visual cues, so I switched to an explicit transition function. I wanted my data to carry some load, too, so I chose to dispatch with the venerable if noisy ~pcase~. In my experience it pays to enumerate the states of your machine and not hide the fact that, well, it is one. Could be hella lotta work, if at all feasible, in a big system but mine was small, so the case dispatch took about a screen worth of code. 
+
+=M-x launch-missiles=: it runs, does what's expected, user's happy. Code's ok, no truly icky corners to be embarrassed about. Why is the uneasy feeling at the back of my skull, then? 
+
+Fine, forget its Emacs Lisp. What implementation would feel right? I thought multi-methods if used just to encode the state-machine would stand out and look clean. Elisp offered none. An idle thought - there wasn't any real necessity to actually do it - but it sounded like good time and I thought I could do it in about 300 lines of code. A day at most and I'll learn me enough Emacs Lisp to be dangerous. 
+
+Narrator: he could, he did, and then ...
+
+180 commits later I had multi-methods alright, but I also accidentally more Emacs Lisp: multi-patterns that abstract and declutter ~pcase~; multi-head defuns (think Clojure's defn multi-case dispatch) with proper matching and destructuring of arguments; multi-lambdas that do the same but unonymously; multi-structs and multi-protocols because I wanted a unified interface to associative data and what not; multi-benchmarks cause at some point I'll have to start thinking about performance; and a bunch of tiny things here and there. Looking back I haven't the foggiest how it got out of hand so.
+
+Elisp has pretty decent generic dispatch courtecy of its Common Lisp compat package. IIUC it is strictly more expressive than say Clojure protocols. Now that I type this it occurs to me that cl-generics offering specializers like ~eql~ means I could've generalized it to Clojure style ~isa?~ dispatch and presto - Elisp has multi-methods and generics in one package. Why didn't I think of this at the time? I even had an occasion to use /cl-generics/ elsewhere in the /package that shall not be named/ to great effect. Oh, well. 
+
+cl-generics are quite expressive, dare I even say good for a language with minimal type support. FWIW I'd say they at least hold their own against Clojure protocols. Of course protocols trade off multi-argument dispatch for something else rather valuable and if you throw in multi-methods, well, I think for problems where ad-hoc dispatch fits well Clojure has Elisp beat. One problem. As you jump on the cl-generic bandwagon everything wants to be a struct or a class instance or whatever. 
+
+
+Working with structs is awkward especially when you nest them, mix with other structured data like hash-tables or lists. It doesn't have to be, but it is in my experience with Scheme, Racket and now Elisp. The whole ~foo-struct-slotname~ static getter business is just bonkers. Functions proliferate quickly when you write lisp - its the very first abstraction you reach to and the second, and probably the third. It is bad enough that I have to keep a ton of other functions in my head, but now I need to do mental calisthenics every time I want to lookup a value in a struct - god have mercy if it happens to be another struct and I need to look deeper. Worse - you can't tell at a glance where you call semantically rich funtions and where you merely get and set a bunch of slots. No keys or slots stand out to give you visual cues and take some cognitive load off. Lack of proper namespaces doesn't help any - you quickly find yourself drowning in a see of prefixes. I can't tell you what compelled me to hack multi-methods instead of addressing the struct business and sticking with tried and true cl-generics. I only think that a reasonable justification now that I've solved the "struct problem" with multi-protocols. But this happens some 150 commits later.
 
 * multi-patterns
 
@@ -30,13 +66,77 @@ mu-let, mu-when-let, mu-if-let
 
 ** mu-defun
 
-Simple single-head mu-defun
+#+begin_src emacs-lisp :eval yes :results verbatim raw replace value :wrap begin_quote
+  (documentation #'mu-defun)
+#+end_src
 
-Multi-head mu-defun
+#+RESULTS:
+#+begin_begin_quote
+"Like ‘defun’ but with multiple clauses. Each clause
+specifies a ‘mu-case’ pattern to match against the &rest part of
+the ARGLIST followed by the body to run if the match succeeds.
+Clauses are tried in order as if one had multiple definitions of
+the same function NAME. METADATA can be supplied as :attribute -
+expression pairs before the BODY:
 
-Attributes
+  (mu-defun foo (arg &rest args)
+    \"docstring\"
+    :declare     dspec
+    :interactive ispec
+    ([mu-case-args-pat1] body1)
+    ([mu-case-args-pat2] body2)
+      ... ...)
 
-Defining or adding gv-setter
+In addition to any variable bound by the corresponding pattern
+every clause has the entire ARGLIST in scope.
+
+METADATA is optional and may include the following attributes:
+
+  :declare dspec - a list of ‘declare’ SPECS,
+
+  :interactive ispec - t or ‘interactive’ ARG-DESCRIPTOR,
+
+  :before expr - expression to execute before the body,
+
+  :return var - bind VAR to defun’s result in :after code,
+
+  :after expr -  expression to execute after the body.
+
+EXPR in :before and :after have access to ARGLIST. With :return
+declaration :after EXPR also has VAR in scope.
+
+(fn NAME ARGLIST METADATA &rest BODY)"
+#+end_begin_quote
+
+#+begin_src emacs-lisp
+  (example
+
+   (mu-defun foo [a [_ c]]
+     "docstring"
+     (list a c))
+
+   (foo 1 '(2 3))
+   :=>
+   '(b c))
+#+end_src
+
+
+#+begin_src emacs-lisp
+  (example
+
+   (mu-defun foo (a b &rest args)
+     "docstring"
+     ([_ [b1 b2]] (list b1 b2))
+     ([_ [b1 b2] | rest] (list* b1 b2 rest)))
+
+   (foo 1 '(2 3))
+   :=>
+   '(2 3)
+
+   (foo 1 '(2 3) 4)
+   :=>
+   '(2 3 4))
+#+end_src
 
 ** mu-defmacro
 
@@ -50,6 +150,36 @@ Defining or adding gv-setter
 
 ** mu-defmethod
 
+
+* multi-protocols
+
+Introduction and motivation
+- mu. getter and setter
+
+mu-defprotocol
+mu-extend
+mu-implements?
+mu-extends?
+mu-table-protocol
+mu-callable-protocol
+relationship with cl-generics
+
+* multi-structs
+
+Introduction and motivation
+- keys vs slots
+
+mu-defstruct:
+- :include must inherit from mu-struct
+- predicate alias
+- struct-name defun
+- struct-name gv setter
+
+mu-struct
+mu-struct?
+mu-type?
+
+* multi-benchmarks
 
 * make-readme                                                      :noexport:
 
