@@ -469,15 +469,42 @@ TABLE that implements generic `mu--get'."
 ;;* todo --------------------------------------------------------- *;;
 
 
-;; TODO think carefully about `isa?' relationship between type and protocol we add
-;; to `mu-global-hierarchy' as part of `mu-extend'. Atm it simply relates
-;; 'struct-type-symbol to 'protocol-name-symbol. Seems a bit loose, but then is
-;; their a better choice in Elisp? Also, I think i like the idea of protocol name
-;; having the `-able' suffix and protocol variable adding extra `-protocol' to
-;; that e.g. `mu-callable' and `mu-callable-protocol'. Surprisingly this works
-;; `mu-table' and `mu-table-protocol'. Then `mu-rel' should establish a relation
-;; between type-symbol and protocol name e.g. `mu-table'. Must mention this
-;; convention in docs.
+;; TODO `mu-extend' establishes isa? rel between type and protocol as it should.
+;; Problem is inheritance. Any descendants of the struct inherit the protocols it
+;; implements. But `isa?' check atm can't know that, it only checks for equality
+;; and active hierarchy. For structs defined with `mu-defstruct' we could collect
+;; all protocols in its inheritance chain and register relations in the hierarchy,
+;; but `cl-structs' aren't under our control. Is there a way to discover all
+;; structs defined in the system? Then we could pre-populate global hierarchy. If
+;; not then we'd have to add potentially expensive check to `isa?' one that given
+;; a symbol (any symbol, cause types are symbols, argh) checks if it has a class,
+;; if so collects all its parents, collects all their protocols, updates
+;; hirerarchy as needed and then answers the `isa?' request. Yes, we can amortize
+;; by caching but man this is unpleasant. It'll a real perf hit especially when
+;; hierarchy is empty and for any symbol no less. Beginning to thin it isn't worth
+;; it. Should it then be on the user to register appropriate relations?
+;;
+;; Turns out I can get children! Yay!
+;;
+(comment
+ (symbol-value (cl--struct-class-children-sym (cl-find-class 'mu-struct)))
+ ;; => all mu-structs
+ (symbol-value (cl--struct-class-children-sym (cl-find-class 'cl-structure-object)))
+ ;; => all cl-structs
+ ;; comment
+ )
+;; This also means that there may be a way to pre-populate global-hierarchy with
+;; type relations i.e. inheritance relations for all structs (beyond protocols).
+;; Not saying its better than dynamic check and caching but there needs to be at
+;; least some form check in `isa?'. Choices, choices. Sigh.
+
+
+;; TODO I think i like the idea of protocol name having the `-able' suffix and
+;; protocol variable adding extra `-protocol' to that e.g. `mu-callable' and
+;; `mu-callable-protocol'. Surprisingly this works `mu-table' and
+;; `mu-table-protocol'. Then `mu-rel' should establish a relation between
+;; type-symbol and protocol name e.g. `mu-table'. Must mention this convention in
+;; docs.
 
 
 (comment
