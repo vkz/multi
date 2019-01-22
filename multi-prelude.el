@@ -298,6 +298,16 @@ attempt is made to use multi-methods in dynamic scope.")
       (mu-error :lexical-binding))))
 
 
+(defmacro mu-docvar (var docstring)
+  (declare (indent 1))
+  `(put ',var 'variable-documentation ,docstring))
+
+
+(defmacro mu-docfun (var docstring)
+  (declare (indent 1))
+  `(put ',var 'function-documentation ,docstring))
+
+
 ;;* Provide ------------------------------------------------------- *;;
 
 

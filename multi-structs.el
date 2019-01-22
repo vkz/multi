@@ -2,7 +2,7 @@
 
 
 (require 'multi-prelude)
-;; we use `mu-rel' to enrich hierarchy with protocols
+;; we use `mu-rel' to enrich multi hierarchy with protocols
 (require 'multi-methods)
 
 
@@ -45,12 +45,18 @@
   (mu-error :no-protocol (mu-protocol-name protocol) obj (type-of obj) (or prefix "")))
 
 
-(defmacro mu-defprotocol (name &rest methods)
-  (declare (indent 1))
+(defmacro mu-defprotocol (name &optional docstring &rest methods)
+  "Create a new protocol NAME with a set of generic METHODS ..."
+  (declare (indent 1) (debug t))
+
+  (unless (stringp docstring)
+    (push docstring methods)
+    (setq docstring (format "`mu-protocol' instance for `%s'" name)))
+
   (let ((by-length     (lambda (a b) (> (length a) (length b))))
         (protocollable (sym (string-remove-suffix "-protocol" (symbol-name name)))))
     `(progn
-       (defconst ,name (make-mu-protocol :name ',protocollable))
+       (defconst ,name (make-mu-protocol :name ',protocollable) ,docstring)
        ,@(loop for (_ sym . rest) in methods
                with arglists
                with docstring
@@ -60,7 +66,9 @@
                `(progn
                   (setf (ht-get (mu-protocol-methods ,name) ',sym)
                         ',(sort arglists by-length))
-                  (cl-defgeneric ,sym (self &rest args) ,@docstring))))))
+                  (cl-defgeneric ,sym (self &rest args) ,@docstring)
+                  (put ',sym :mu-protocol ',name))))))
+
 
 
 (cl-defun mu--method-to-pcase-clause ((arglist . body))
@@ -90,9 +98,8 @@
 
 
 (defmacro mu-extend (protocol &rest body)
-  (declare (indent 1))
-  ;; TODO check for malformed body and that protocol/methods match existing.
-  ;; There's a ton of error checking that should happen here tbh
+  "Extend PROTOCOL to one or more existing types ..."
+  (declare (indent 1) (debug t))
   (let* ((decl? (lambda (item) (eq :to item)))
          (decls (seq-remove #'null (mu--split-when decl? body))))
     `(progn
@@ -112,11 +119,8 @@
                   ,@(mu--cl-defmethods type methods))))))
 
 
-(defun mu-implements? (object protocol)
-  (mu-extends? :type (type-of object) :protocol protocol))
-
-
 (cl-defun mu-extends? (&key type protocol)
+  "Check if PROTOCOL has been extended to TYPE"
   (or
    ;; try cache
    (ht-get (mu-protocol-types protocol) type)
@@ -131,7 +135,16 @@
           (setf (ht-get (mu-protocol-types protocol) type) t)))))
 
 
+(defun mu-implements? (object protocol)
+  "Check if OBJECT implements PROTOCOL"
+  (mu-extends? :type (type-of object) :protocol protocol))
+
+
 ;;* mu-structs --------------------------------------------------- *;;
+
+
+(defconst mu--struct-children nil
+  "List of all struct types that inherit from `mu-struct'")
 
 
 (cl-defstruct mu-struct
@@ -139,6 +152,8 @@
 
 
 (defun mu-type? (type)
+  "Check if symbol TYPE is tagged as a mu-type (inherits from
+`mu-struct')"
   (and type
        (symbolp type)
        (get type :mu-type?)))
@@ -148,7 +163,8 @@
 
 
 (defmacro mu-defstruct (name-props &rest slots)
-  (declare (indent defun))
+  "Like `cl-defstruct' but with mu-struct extensions ..."
+  (declare (indent defun) (debug t))
   (let (struct-name
         struct-props
         include
@@ -171,8 +187,8 @@
                                struct-props nil)))
 
     ;; extract :include prop
-    (setq include (assq :include struct-props))
-    (setq include-type (cadr include))
+    (setq include       (assq :include struct-props))
+    (setq include-type  (cadr include))
     (setf struct-props `((:include ,(or include-type 'mu-struct))
                          ,@(remove include struct-props)))
 
@@ -180,7 +196,7 @@
     (setq implements (seq-drop-while slot? slots)
           implements (mu--split-when implements-decl? implements)
           implements (seq-remove #'null implements))
-    (setq slots (seq-take-while slot? slots))
+    (setq slots      (seq-take-while slot? slots))
     (setq slot-names (mapcar slot-name slots))
 
     `(progn
@@ -192,6 +208,9 @@
        ;; chain must be rooted in `mu-struct'
        (when (and ',include-type (not (mu-type? ',include-type)))
          (mu-error "no mu-struct in inheritance chain of type %s" ',include-type))
+
+       ;; register new `mu-struct' child
+       (pushnew ',struct-name mu--struct-children)
 
        ;; register new mu-type
        (put ',struct-name :mu-type? t)
@@ -241,10 +260,12 @@
 
 
 (mu-defprotocol mu-table-protocol
-  (defmethod mu--slots (table))
-  (defmethod mu--keys  (table))
-  (defmethod mu--get   (table key))
-  (defmethod mu--set   (table key value)))
+  "Protocol for table-like types. Define protocol methods
+`mu--slots', `mu--keys', `mu--get', `mu--set'."
+  (defmethod mu--slots (table)           "Return required TABLE keys")
+  (defmethod mu--keys  (table)           "Return all TABLE keys")
+  (defmethod mu--get   (table key)       "Look up KEY in TABLE, nil if not present")
+  (defmethod mu--set   (table key value) "Set KEY to VALUE in TABLE"))
 
 
 ;; NOTE Curious pattern that maybe be of use is to leverage generics. User may
@@ -371,20 +392,25 @@
 
 
 (defun mu.slots (obj)
+  "Return required keys in OBJ. OBJ must implement
+`mu-table-protocol'."
   (unless (mu-implements? obj mu-table-protocol)
     (mu-protocol-error mu-table-protocol obj "in `mu.slots'"))
   (mu--slots obj))
 
 
 (defun mu.keys (obj)
+  "Return all keys in OBJ. OBJ must implement
+`mu-table-protocol'."
   (unless (mu-implements? obj mu-table-protocol)
     (mu-protocol-error mu-table-protocol obj "in `mu.keys'"))
   (mu--keys obj))
 
 
 (defun mu. (table key &rest keys)
-  "Look up KEY in TABLE. Return nil if no such KEY. Works for any
-TABLE that implements generic `mu--get'."
+  "Look up KEYs in TABLE. Return nil if any KEYs missing. This is
+a generalized variable and therefore `setf'-able. TABLE must
+implement `mu-table-protocol'."
   (unless (mu-implements? table mu-table-protocol)
     (mu-protocol-error mu-table-protocol table "in mu."))
   (when-let ((table (mu--get table key)))
@@ -423,7 +449,9 @@ TABLE that implements generic `mu--get'."
 
 
 (mu-defprotocol mu-callable-protocol
-  (defmethod mu--call (f args)))
+  "Protocol for types that exhibit function-like behaviour.
+Define protocol method `mu--call'."
+  (defmethod mu--call (f args) "Call object F with ARGS"))
 
 
 (mu-extend mu-callable-protocol
@@ -450,11 +478,22 @@ TABLE that implements generic `mu--get'."
 (cl-defmethod mu--call ((obj t) args) (apply obj args))
 
 
-(defun mu.call (f &rest args) (mu--call f args))
-(defun mu.apply (f &rest args) (apply #'apply #'mu.call f args))
+(defun mu.call (f &rest args)
+  "Like `funcall' but invoke object F with ARGS. Unless F
+implements `mu-callable-protocol' it is assumed to be a function
+and `funcall' is used."
+  (mu--call f args))
+
+
+(defun mu.apply (f &rest args)
+  "Like `apply' but apply object F to ARGS. Unless F implements
+`mu-callable-protocol' it is assumed to be a function and `apply'
+is used."
+  (apply #'apply #'mu.call f args))
 
 
 (defmacro mu-defcallable (struct function)
+  "Put FUNCTION into :call property of STRUCT-symbol."
   `(put ',struct :call ,function))
 
 
@@ -472,6 +511,112 @@ TABLE that implements generic `mu--get'."
 ;; Will put call on the symbol. No extra slot and you can make callable any struct
 ;; even ones u don't control. This last bit is actually terrifying, so I wonder if
 ;; this is a good idea, but hey this is Emacs Lisp.
+
+
+;;* docs --------------------------------------------------------- *;;
+
+
+;; TODO Protocol methods must mention and link to their protocol. Also the right
+;; thing to do is what `cl--generic-describe' does. It shows every arglist and
+;; tries to link to every method implementation, but we re-write arglists so they
+;; don't look like something user specified and at best link to `cl-defgeneric'.
+;; Worthy goal but atm isn't the rabbit hole I'm eager to jump into.
+
+
+(mu-docfun mu-defprotocol
+  "Create a new protocol NAME with a set of generic METHODS.
+
+----------------------------------------------------------
+NAME    = protocol-id
+
+METHODS = (method ...)
+
+method  = (defmethod method-id arglist [docstring] . rest)
+
+rest    = see `cl-defgeneric'
+----------------------------------------------------------
+
+Bind protocol to variable NAME. Translate every method to a
+`cl-defgeneric' (which see). Store arglists as metadata and for
+documentation but otherwise ignore.
+
+Tag every method-id symbol with a property :mu-protocol.")
+
+
+(mu-docfun mu-extend
+  "Extend PROTOCOL to one or more existing types.
+
+------------------------------------------------------------------------
+  PROTOCOL = protocol-id
+
+      TYPE = type-id
+
+    method = (defmethod method-id [qualifiers] arglist [docstring] body)
+
+   arglist = ((arg-id type-id) arg ...)
+           | see `cl-defmethod'
+
+qualifiers = see `cl-defmethod'
+------------------------------------------------------------------------
+
+Also register an `isa?' relation between TYPE and protocol name
+as reported by (mu-protocol-name PROTOCOL) in the active
+multi-methods hierarchy. Do the same for each descendant of TYPE.
+
+To extend protocols to structs under your control consider using
+:implements option of `mu-defstruct' instead.
+
+\(fn PROTOCOL [:to TYPE method ...] ...+)")
+
+
+(mu-docfun mu-defstruct
+  "Like `cl-defstruct' but with mu-struct extensions.
+
+------------------------------------------------------------------------
+      NAME = symbolp
+           | see `cl-defstruct'
+
+      SLOT = symbolp
+           | see `cl-defstruct'
+
+  PROTOCOL =  protocol-id
+
+    METHOD = (defmethod method-id [qualifiers] arglist [docstring] body)
+
+   arglist = ((arg-id type-id) arg ...)
+           | see `cl-defmethod'
+
+qualifiers = see `cl-defmethod'
+------------------------------------------------------------------------
+
+Every struct created with `mu-defstruct' implicitly inherits from
+`mu-struct'. If :include struct property is present its value
+must be a type that ultimately inherits from `mu-struct'. Any
+other type will raise an error.
+
+Define extra predicate of the form NAME? as alias for NAME-p.
+
+Define NAME as a getter function for slots and keys of the
+struct. Make NAME a generalized `setf'-able variable (see `mu.').
+
+In general mu-structs are open maps whose keys are not limited to
+slots. Generalized variables `mu.' (or `mu:') and NAME can be
+used to set slots or keys of a struct.
+
+Slots maybe followed by protocol implementations. Every protocol
+implementation starts with a :implements attribute followed by a
+protocol-name, followed by method implementations. Multiple
+methods of the same name METHOD-ID maybe defined for different
+arities.
+
+After dispatch every protocol method will have the structure
+instance bound to its first argument. Each method body implicitly
+binds every SLOT id to its value in the structure instance.
+
+Also tag symbol NAME with :mu-type? property and store all
+slot-symbols as :mu-slots property of symbol NAME.
+
+\(fn NAME SLOT ... [:implements PROTOCOL METHOD ...] ...)")
 
 
 ;;* provide ------------------------------------------------------ *;;
@@ -523,13 +668,6 @@ TABLE that implements generic `mu--get'."
  ;; `mu-table-protocol'. Then `mu-rel' should establish a relation between
  ;; type-symbol and protocol name e.g. `mu-table'. Must mention this convention in
  ;; docs.
-
-
- ;; TODO protocol methods should mention their protocol in docs. See how
- ;; `cl--generic-describe' does it.
-
-
- ;; TODO steal debug declaration from `cl-defmethod'
 
 
  ;; TODO register a mu-pattern for `struct-name' that works just like ht-pattern
