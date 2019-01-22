@@ -106,14 +106,31 @@
 
     ;; mu.slots and mu.keys should work and return the same set
     (should (mu--set-equal? '(props -keys cl-tag-slot) (mu.slots (make-foo-struct))))
-    (should (mu--set-equal? '(props -keys cl-tag-slot) (mu.keys  (make-foo-struct))))
+    (should (mu--set-equal? '(props -keys cl-tag-slot) (mu.keys (make-foo-struct))))
 
     ;; with a missing key mu.keys should return it in addition to slots
     (let ((foo (make-foo-struct)))
       (setf (ht-get (mu-struct--keys foo) :missing) :key)
       (should (equal '(:missing)
                      (cl-set-difference (mu.keys foo)
-                                        (mu.slots foo)))))))
+                                        (mu.slots foo)))))
+
+    ;; implement protocols with :implements option; both `name' and `props' slot
+    ;; ids must be bound to their respective slot values in method bodies
+    (mu-defstruct foobar name props
+
+      :implements mu-table-protocol
+      (defmethod mu--get (foo key) (list name props))
+      (defmethod mu--set (foo key val) (list name props))
+
+      :implements mu-callable-protocol
+      (defmacro mu--call (f args) (list name props)))
+
+    (should (mu-implements? (make-foobar) mu-table-protocol))
+    (should (mu-implements? (make-foobar) mu-callable-protocol))
+    (should (equal '(:foo 42) (mu--get (make-foobar :name :foo :props 42) :key)))
+    (should (equal '(:foo 42) (mu--set (make-foobar :name :foo :props 42) :key :val)))
+    (should (equal '(:foo 42) (mu--call (make-foobar :name :foo :props 42) '(1 2 3))))))
 
 
 (ert-deftest mu-test-struct-getters ()

@@ -2,6 +2,8 @@
 
 
 (require 'multi-prelude)
+;; we use `mu-rel' to enrich hierarchy with protocols
+(require 'multi-methods)
 
 
 ;;* mu-protocols ------------------------------------------------- *;;
@@ -66,40 +68,25 @@
     `(,pattern ,@body)))
 
 
-(defun mu--cl-defmethod (sym obj type rest methods)
+(defun mu--cl-defmethod (sym obj type rest methods &optional slots)
   `(cl-defmethod ,sym ((,obj ,type) &rest ,rest)
-     (pcase (cons ,obj ,rest)
-       ,@(mapcar #'mu--method-to-pcase-clause methods)
-       (otherwise
-        (mu-error "in protocol method %s arity error" ',sym)))))
+     (let (,@slots)
+       (pcase (cons ,obj ,rest)
+         ,@(mapcar #'mu--method-to-pcase-clause methods)
+         (otherwise
+          (mu-error "in protocol method %s arity error" ',sym))))))
 
 
-(defun mu--cl-defmethods (type methods)
+(defun mu--cl-defmethods (type methods &optional slots)
   (loop for (sym . methods) in (seq-group-by #'second methods)
         with obj = (gensym "obj")
         with rest = (gensym "rest")
         collect
         (mu--cl-defmethod
-         sym obj type rest (mapcar #'cddr methods))))
-
-
-;; TODO Nilly-willy extending a protocol to whatever is quite scary especially
-;; when you mess with native types, or types that aren't yours, but I don't
-;; necessarily subscribe to Racket's point of view where it only lets you
-;; implement generic interface as you define a struct, that is you can't mess
-;; somebody else's structs. That said, I wonder if we should allow :implements
-;; attr option in `mu-defstruct' as a convenience rather than the only choice?
-;;
-;; Even better :implements can have struct slots in scope
-;;
-;;   (mu-defstruct foo-struct slot1 slot2
-;;     :implements foolable-protocol
-;;     (defmethod fool (foo &rest args) (has slot1 and slot2 bound)))
-;;   =>
-;;   (cl-defmethod fool (foo &rest args)
-;;     (let ((slot1 (cl-struct-slot-value 'foo-struct 'slot1 foo))
-;;           (slot2 (cl-struct-slot-value 'foo-struct 'slot2 foo)))
-;;       (has slot1 and slot2 bound)))
+         sym obj type rest (mapcar #'cddr methods)
+         ;; bind slot symbols to respective slot values in obj
+         (loop for slot in slots
+               collect `(,slot (cl-struct-slot-value ',type ',slot ,obj))))))
 
 
 (defmacro mu-extend (protocol &rest body)
@@ -112,10 +99,15 @@
        ,@(loop for (type . methods) in decls
                collect
                `(progn
+
                   ;; cache type
                   (setf (ht-get (mu-protocol-types ,protocol) ',type) t)
+
                   ;; add an `isa?' relation to `mu-global-hierarchy'
                   (mu-rel ',type :isa (mu-protocol-name ,protocol))
+
+                  ;; TODO need to `mu-rel' every child of that TYPE to PROTOCOL
+
                   ;; generate cl-defmethods
                   ,@(mu--cl-defmethods type methods))))))
 
@@ -160,7 +152,16 @@
   (let (struct-name
         struct-props
         include
-        include-type)
+        include-type
+        implements
+        slot-names
+        (slot?            (lambda (item) (not (keywordp item))))
+        (implements-decl? (lambda (item) (eq :implements item)))
+        (slot-name        (lambda (slot)
+                            (cond
+                             ((consp slot) (car slot))
+                             ((symbolp slot) slot)
+                             (:else (mu-error "in mu-defstruct malformed slots"))))))
 
     ;; extract props if present
     (pcase name-props
@@ -169,20 +170,23 @@
       (name              (setf struct-name name
                                struct-props nil)))
 
-    ;; extract :include if present
+    ;; extract :include prop
     (setq include (assq :include struct-props))
     (setq include-type (cadr include))
     (setf struct-props `((:include ,(or include-type 'mu-struct))
-                         ,@(remove include struct-props)
-                         (:copier nil)))
+                         ,@(remove include struct-props)))
+
+    ;; extract all :implements attr options after slots
+    (setq implements (seq-drop-while slot? slots)
+          implements (mu--split-when implements-decl? implements)
+          implements (seq-remove #'null implements))
+    (setq slots (seq-take-while slot? slots))
+    (setq slot-names (mapcar slot-name slots))
 
     `(progn
 
-       ;; TODO not a fan of throwing, so when supplied :include isn't a
-       ;; `mu-struct' we could generate a cl-defstruct with no mu-struct traits.
-       ;; Pro: uniform interface. Con: if user intended for it to be a mu-struct
-       ;; they will only discover when some mu-struct specific feature doesn't
-       ;; work. Wonder what's the right choice here:
+       ;; TODO Instead of throwing unless :include is a `mu-struct' shouldn't we
+       ;; subsume `cl-defstruct' by delegating to it without `mu-struct' business
 
        ;; only allowed to inherit from a mu-type that is the type's inheritance
        ;; chain must be rooted in `mu-struct'
@@ -198,6 +202,20 @@
        ;; alias struct-pred? with struct-pred-p
        (defalias ',(sym struct-name "?") ',(sym struct-name "-p"))
 
+       ;; implement protocols
+       ,@(cl-loop for (protocol . methods) in implements
+                  collect
+                  `(progn
+
+                     ;; cache type
+                     (setf (ht-get (mu-protocol-types ,protocol) ',struct-name) t)
+
+                     ;; add an `isa?' relation to `mu-global-hierarchy'
+                     (mu-rel ',struct-name :isa (mu-protocol-name ,protocol))
+
+                     ;; generate cl-defmethods
+                     ,@(mu--cl-defmethods struct-name methods slot-names)))
+
        ;; store slots on the type symbol
        (cl-loop for (slot . _) in (cl-struct-slot-info ',struct-name)
                 with slot-set = (ht)
@@ -205,13 +223,13 @@
                 finally
                 do (put ',struct-name :mu-slots slot-set))
 
+       ;; TODO Unnecessary dispatch with mu. below, use :mu-slots to avoid
 
-       ;; TODO Use :mu-slots on STUCT type to avoid dispatch for KEY and
-       ;; triggering of unkwnown-slot error when KEY isn't a slot
+       ;; define struct-name getter
        (defun ,struct-name (struct key &rest keys)
          (apply #'mu. struct key keys))
 
-       ;; TODO like above avoid delegating to mu.
+       ;; register struct-name setter
        (gv-define-setter ,struct-name (val struct key &rest keys)
          `(setf (mu. ,struct ,key ,@keys) ,val))
 
@@ -285,23 +303,21 @@
       (when (member slot (mu--slots obj))
         (cl-struct-slot-value (type-of obj) slot obj))))
 
+  ;; TODO Is there any reasonabe way to store missing keys on a cl-struct? Also we
+  ;; could just let the cl-struct machinery fail with its own missing slot error.
   (defmethod mu--set (obj key val)
     ;; convert any :key into 'key to setf slot
     (let ((slot (sym key))
           (type (type-of obj)))
-      ;; TODO Is there any reasonabe way to store missing keys on a cl-struct?
-      ;; Also we could just let the cl-struct machinery fail with its own missing
-      ;; slot error and avoid checking here, but whatever.
       (if (member slot (mu--slots obj))
           (setf (cl-struct-slot-value type slot obj) val)
         (mu-error "cl-struct of type %s has no slot %s to set" type slot))))
 
+  ;; Today in WTF ELisp: (type-of nil) => symbol. IMO nil as empty list fits
+  ;; average lisper experience better. Generics define rudimentary type-hierarchy
+  ;; so maybe I should specialize on type `null' whose parent is symbol.
 
-  ;; TODO appears cl-generic defines a type-hierarchy e.g. I can specialize on
-  ;; type `null' whose parent is symbol. That makes more sense.
   :to symbol
-  ;; Today in WTF ELisp: special case to handle (type-of nil) => symbol. IMO
-  ;; treating nil as an empty list fits averages lisper experience better.
   (defmethod mu--slots (obj)
     (when obj (symbol-plist obj)))
 
@@ -348,7 +364,7 @@
     (setf (aref obj key) val)))
 
 
-;; TODO Do we even want to check `mu-extends?' in mu. and friends below. Their
+;; TODO Do we even want to check `mu-implements?' in mu. and friends below. Their
 ;; only PRO is they report errors in terms of protocol. But I wonder if an error
 ;; thrown by generic method would be just fine? Their biggest CON is that now
 ;; neither default (obj t) nor nil (obj (eql nil)) can be riched from mu.
@@ -416,8 +432,6 @@ TABLE that implements generic `mu--get'."
   ;; function be it :call member or the default lookup with mu. IMO it makes
   ;; perfect sense and offers great power.
 
-  ;; TODO mention self as first arg in docstring and documentation
-
   ;; should cover any struct including `mu-struct'
   :to cl-structure-object
   (defmethod mu--call (obj args)
@@ -469,112 +483,46 @@ TABLE that implements generic `mu--get'."
 ;;* todo --------------------------------------------------------- *;;
 
 
-;; TODO `mu-extend' establishes isa? rel between type and protocol as it should.
-;; Problem is inheritance. Any descendants of the struct inherit the protocols it
-;; implements. But `isa?' check atm can't know that, it only checks for equality
-;; and active hierarchy. For structs defined with `mu-defstruct' we could collect
-;; all protocols in its inheritance chain and register relations in the hierarchy,
-;; but `cl-structs' aren't under our control. Is there a way to discover all
-;; structs defined in the system? Then we could pre-populate global hierarchy. If
-;; not then we'd have to add potentially expensive check to `isa?' one that given
-;; a symbol (any symbol, cause types are symbols, argh) checks if it has a class,
-;; if so collects all its parents, collects all their protocols, updates
-;; hirerarchy as needed and then answers the `isa?' request. Yes, we can amortize
-;; by caching but man this is unpleasant. It'll a real perf hit especially when
-;; hierarchy is empty and for any symbol no less. Beginning to thin it isn't worth
-;; it. Should it then be on the user to register appropriate relations?
-;;
-;; Turns out I can get children! Yay!
-;;
 (comment
+
+ ;; TODO `mu-extend' establishes isa? rel between type and protocol as it should.
+ ;; Problem is inheritance. Any descendants of the struct inherit the protocols it
+ ;; implements. But `isa?' check atm can't know that, it only checks for equality
+ ;; and active hierarchy. For structs defined with `mu-defstruct' we could collect
+ ;; all protocols in its inheritance chain and register relations in the hierarchy,
+ ;; but `cl-structs' aren't under our control. Is there a way to discover all
+ ;; structs defined in the system? Then we could pre-populate global hierarchy. If
+ ;; not then we'd have to add potentially expensive check to `isa?' one that given
+ ;; a symbol (any symbol, cause types are symbols, argh) checks if it has a class,
+ ;; if so collects all its parents, collects all their protocols, updates
+ ;; hirerarchy as needed and then answers the `isa?' request. Yes, we can amortize
+ ;; by caching but man this is unpleasant. It'll a real perf hit especially when
+ ;; hierarchy is empty and for any symbol no less. Beginning to thin it isn't worth
+ ;; it. Should it then be on the user to register appropriate relations?
+ ;;
+ ;; Turns out I can get children! Yay!
+ ;;
  (symbol-value (cl--struct-class-children-sym (cl-find-class 'mu-struct)))
  ;; => all mu-structs
  (symbol-value (cl--struct-class-children-sym (cl-find-class 'cl-structure-object)))
  ;; => all cl-structs
- ;; comment
- )
-;; This also means that there may be a way to pre-populate global-hierarchy with
-;; type relations i.e. inheritance relations for all structs (beyond protocols).
-;; Not saying its better than dynamic check and caching but there needs to be at
-;; least some form check in `isa?'. Choices, choices. Sigh.
-
-
-;; TODO I think i like the idea of protocol name having the `-able' suffix and
-;; protocol variable adding extra `-protocol' to that e.g. `mu-callable' and
-;; `mu-callable-protocol'. Surprisingly this works `mu-table' and
-;; `mu-table-protocol'. Then `mu-rel' should establish a relation between
-;; type-symbol and protocol name e.g. `mu-table'. Must mention this convention in
-;; docs.
-
-
-(comment
- ;; TODO Consider alternative implementation of `mu-implements?' that's cute but
- ;; hella scary. Also raises the question of performance. Dunno how good multiple
- ;; dispatch in cl-generic really is.
-
- (cl-defgeneric mu-implements? (obj protocol))
-
- ;; now every time protocol is extended to a type we add a method
- (cl-defmethod mu-implements? ((obj foo-struct) (protocol (eql 'table-protocol)))
-   t)
-
- ;; NOTE that the above method will fire for any descendants of foo-struct that
- ;; don't necessarily extend this protocol explicitly
-
- ;; default
- (cl-defmethod mu-implements? ((obj t) (protocol t))
-   (mu-error "object %S does not extend protocol %s" obj protocol))
-
- ;; now
- (mu-implements? (make-foo-struct) 'mu-table-protocol)
- ;; comment
- )
-
-
-(comment
- ;; TODO symmetric `mu-extend', because mu-extend sounds hella ambiguous at least
- ;; for non-native English ears.
-
- (defmacro mu-extend-protocol (protocol &rest body))
- (defmacro mu-extend-type (type &rest body))
-
- (defmacro mu-extend (what &rest body)
-   `(if (mu-protocol? what)
-        (mu-extend-protocol ,what ,@body)
-      (mu-extend-type ,what ,@body)))
-
- ;; now either should work and there'll no confusion
- (mu-extend protocol
-   type
-   (defmethod mu--get (obj key))
-   (defmethod mu--set (obj key val))
-   type
-   (defmethod mu--get (obj key))
-   (defmethod mu--set (obj key val)))
-
- (mu-extend type
-   table-protocol
-   (defmethod mu--get ())
-   (defmethod mu--set ())
-   seq-protocol)
-
- ;; comment
- )
-
-
-(comment
-
- ;; TODO arity dispatch in protocol methods doesn't require `pcase'. Suppose we
- ;; store method to arity map for every method in `mu-protocols':
  ;;
- (ht ('mu--get (ht (2 (lambda (obj key) body))
-                   (3 (lambda (obj k1 k2) body)))))
+ ;; This also means that there may be a way to pre-populate global-hierarchy with
+ ;; type relations i.e. inheritance relations for all structs (beyond protocols).
+ ;; Not saying its better than dynamic check and caching but there needs to be at
+ ;; least some form check in `isa?'. Choices, choices. Sigh.
  ;;
- ;; then dispatch becomes trivial, also simplifies arity checks etc
- (cl-defmethod mu--get ((obj type) &rest args)
-   (let ((args (cons obj args)))
-     ;; apply stored relevant method implementation explicitly
-     (apply (ht-get mu-protocols 'mu--get (length args)) args)))
+ ;; Compromise solution could be to serialize all parent-child relations for every
+ ;; single struct defined in an "empty" Emacs installation (no packages). Then
+ ;; load those when `multi' is its load time isn't effected by extra computation.
+
+
+ ;; TODO I think i like the idea of protocol name having the `-able' suffix and
+ ;; protocol variable adding extra `-protocol' to that e.g. `mu-callable' and
+ ;; `mu-callable-protocol'. Surprisingly this works `mu-table' and
+ ;; `mu-table-protocol'. Then `mu-rel' should establish a relation between
+ ;; type-symbol and protocol name e.g. `mu-table'. Must mention this convention in
+ ;; docs.
 
 
  ;; TODO protocol methods should mention their protocol in docs. See how
@@ -588,9 +536,7 @@ TABLE that implements generic `mu--get'."
  ;; but also tests with `struct-name-p'
  (mu-defstruct multi name)
  (setq m (make-multi :name 'foo))
- ;;
- (mu-case m
-   ((multi name) name))
+ (mu-case m ((multi name) name))
  ;; => 'foo
 
 
@@ -598,29 +544,17 @@ TABLE that implements generic `mu--get'."
  ;; separate (: key...) or (mu. key...) or (mu: key...) pattern for general match
 
 
- ;; TODO nothing stopping protocols from sharing methods IMO. With defprotocol
- ;; dumbly generating defgenerics they might step on each-other. Wonder how to
- ;; handle it properly. One idea is to check against existing protocols and methods
- ;; to raise unless introduced arities match that for already existing method and
- ;; bypass defgeneric if they match. Another idea is to always raise when method is
- ;; redefined and instead assume that protocols are defined in small enough units
- ;; and then groups of them extended to types as needed. That is no two protocols
- ;; intersect. Instead types have to implement multiple protocols as needed.
- ;; Partitioning protocols well may end up just as hard as building a class
- ;; hierarchy in OOP, or is it?
-
-
- ;; TODO how about extending protocol to another protocol?
-
-
- ;; NOTE interesting pattern is dispatching to a multi-method inside a generic
- ;; method when dispatching on type is too coarse:
- (cl-defmethod some-method ((obj t) arg)
-   (cond
-    ;; ... earlier branches ...
-    ((pred? obj) (mu--multi-get obj arg))
-    ;; ... later   branches ...
-    (:else (some default action))))
+ ;; TODO arity dispatch in protocol methods doesn't require `pcase'. Suppose we
+ ;; store method to arity map for every method in `mu-protocols':
+ ;;
+ (ht ('mu--get (ht (2 (lambda (obj key) body))
+                   (3 (lambda (obj k1 k2) body)))))
+ ;;
+ ;; then dispatch becomes trivial, also simplifies arity checks etc
+ (cl-defmethod mu--get ((obj type) &rest args)
+   (let ((args (cons obj args)))
+     ;; apply stored relevant method implementation explicitly
+     (apply (ht-get mu-protocols 'mu--get (length args)) args)))
 
 
  ;; TODO I could simplify some setters and getters if I were to implement a
@@ -641,6 +575,89 @@ TABLE that implements generic `mu--get'."
         (setf it 'val))
  ;; ==
  `(setf (bar-struct (cl-struct-slot-value 'foo-struct ',slot ,struct) ,@keys) ,val)
+
+
+ ;; TODO what does it mean to extend protocol to another protocol? Semantically
+ ;; IMO it's as simple as treating protocol as a type, so any type that is `isa?'
+ ;; protocol-type should match. With multiple inheritance we could probably solve
+ ;; this with cl-generics alone, maybe. But cl-generics don't perform an `isa?'
+ ;; check, so unless I hack and extend them, I guess we should use multi-methods
+ ;; for this particular case? It should be rare enough, right?
+ (mu-defprotocol foolable-protocol
+   (defmethod fool (obj))
+   (defmethod fooled (obj)))
+ ;; =>
+ ;; register generics
+ (defgeneric fool (obj))
+ (defgeneric fooled (obj))
+ ;; register multi-methods
+ (mu-defmulti multi-fool (obj) (type-of obj))
+ (mu-defmulti multi-fooled (obj) (type-of obj))
+ ;; generate default generic methods that delegate to multi
+ (defmethod fool ((obj t))
+   ;; delegate to multi-method
+   (multi-fool obj))
+ (defmethod fooled ((obj t))
+   ;; delegate to multi-method
+   (multi-fooled obj))
+ ;;
+ (mu-isa-extend foolable-protocol
+                :to bazzable
+                (defmethod fool (obj))
+                (defmethod fooled (obj)))
+ ;; =>
+ (mu-rel 'bazzable :isa 'foolable)
+ (mu-defmethod multi-fool (obj) :when 'bazzable)
+ (mu-defmethod multi-fooled (obj) :when 'bazzable)
+ ;; dispatch will go
+ (isa? (type-of obj) 'bazzable)
+ ;; => t
+ foo-struct implements bazzable-protocol
+ foo-struct implements barrable-protocol
+ ;; then we extend foolable to both protocols
+ (mu-isa-extend foolable-protocol
+                :to bazzable
+                :to barrable)
+ ;; =>
+ (mu-rel 'bazzable :isa 'foolable)
+ (mu-rel 'barrable :isa 'foolable)
+ ;; but this creates hierarchical ambiguity, which in multi-methods only the user
+ ;; can prefer away unlike in generics that order by most precise method
+ (mu-defmethod multi-fool (obj) :when 'bazzable)
+ (mu-defmethod multi-fool (obj) :when 'barrable)
+ ;; Is this contrived or can this actually happen?
+
+
+ ;; TODO or perhaps even have multi-methods based protocols in addition to
+ ;; multi-protocols - mostly like protocols but use `isa?' dispatch on the
+ ;; `type-of' of their first argument to dispatch to multi-methods:
+ (mu-defmulti-protocol multi-foolable-protocol
+                       (defmethod multi-fool (obj))
+                       (defmethod multi-fooled (obj)))
+ ;; =>
+ (defconst multi-foolable )
+ (mu-defmulti multi-fool (obj) (type-of obj))
+ (mu-defmulti multi-fooled (obj) (type-of obj))
+ ;; then
+ (mu-isa-extend multi-foolable-protocol
+                :to bazzer
+                (defmethod fool (obj))
+                (defmethod fooled (obj)))
+ ;; =>
+ ;; update metadata, then
+ (mu-rel 'bazzable :isa 'foolable)
+ (mu-defmethod multi-fool (obj) :when 'bazzer)
+ (mu-defmethod multi-fooled (obj) :when 'bazzer)
+
+
+ ;; NOTE above example suggests interesting pattern - dispatch to a multi-method
+ ;; inside a generic method when dispatching on type is too coarse:
+ (cl-defmethod some-method ((obj t) arg)
+   (cond
+    ;; ... earlier branches ...
+    ((pred? obj) (mu--multi-get obj arg))
+    ;; ... later   branches ...
+    (:else (some default action))))
 
  ;; comment
  )
