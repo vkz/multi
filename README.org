@@ -1,4 +1,4 @@
-# Created 2019-01-23 Wed 20:01
+# Created 2019-01-23 Wed 20:39
 #+OPTIONS: author:nil
 #+OPTIONS: toc:nil
 #+OPTIONS: prop:nil
@@ -62,7 +62,6 @@ Protocol implementations may reify several methods with the same name but differ
 
 ** mu-defprotocol                                                     :macro:
 
-#+results: 
 #+begin_example
   Combine a set of generic METHODS as protocol NAME.
 
@@ -104,7 +103,6 @@ Establishing such relations from protocol implementations creates a bridge from 
 
 ** mu-extend                                                          :macro:
 
-#+results: 
 #+begin_example
   Extend PROTOCOL to one or more existing types.
 
@@ -150,7 +148,6 @@ Establishing such relations from protocol implementations creates a bridge from 
 
 ** mu-extends?                                                    :procedure:
 
-#+results: 
 #+begin_example
   Check if PROTOCOL has been extended to TYPE
 
@@ -159,14 +156,12 @@ Establishing such relations from protocol implementations creates a bridge from 
 
 ** mu-implements?                                                 :procedure:
 
-#+results: 
 #+begin_example
   Check if OBJECT implements PROTOCOL
 #+end_example
 
 ** mu-type?                                                       :procedure:
 
-#+results: 
 #+begin_example
   Check if symbol TYPE is tagged as a mu-type (inherits from
   ‘mu-struct’)
@@ -174,7 +169,6 @@ Establishing such relations from protocol implementations creates a bridge from 
 
 ** mu-defstruct                                                       :macro:
 
-#+results: 
 #+begin_example
   Like ‘cl-defstruct’ but with mu-struct extensions.
 
@@ -276,7 +270,6 @@ Notice that protocol methods implemented inside ~mu-defstruct~ have slots explic
 
 ** mu-table-protocol                                                    :var:
 
-#+results: 
 #+begin_example
   Protocol for table-like types. Define protocol methods
   ‘mu--slots’, ‘mu--keys’, ‘mu--get’, ‘mu--set’.
@@ -290,7 +283,6 @@ Table protocol has been extended to the following types: ~hash-table~, ~mu-struc
 
 ** mu.slots (mu:slots)                                            :procedure:
 
-#+results: 
 #+begin_example
   Return required keys in OBJ. OBJ must implement
   ‘mu-table-protocol’.
@@ -298,7 +290,6 @@ Table protocol has been extended to the following types: ~hash-table~, ~mu-struc
 
 ** mu.keys (mu:keys)                                              :procedure:
 
-#+results: 
 #+begin_example
   Return all keys in OBJ. OBJ must implement
   ‘mu-table-protocol’.
@@ -306,7 +297,6 @@ Table protocol has been extended to the following types: ~hash-table~, ~mu-struc
 
 ** mu. (mu:)                                                      :procedure:
 
-#+results: 
 #+begin_example
   Look up KEYs in TABLE. Return nil if any KEYs missing. This is
   a generalized variable and therefore ‘setf’-able. TABLE must
@@ -346,7 +336,6 @@ To set nested keys ~mu.~ will create intermediate tables for any missing keys as
 
 ** mu-callable-protocol                                                 :var:
 
-#+results: 
 #+begin_example
   Protocol for types that exhibit function-like behaviour.
   Define protocol method ‘mu--call’.
@@ -372,7 +361,6 @@ Or alter the behavior of the entire struct type by providing custom implementati
 
 ** mu.call (mu:call)                                              :procedure:
 
-#+results: 
 #+begin_example
   Like ‘funcall’ but invoke object F with ARGS. Unless F
   implements ‘mu-callable-protocol’ it is assumed to be a function
@@ -381,7 +369,6 @@ Or alter the behavior of the entire struct type by providing custom implementati
 
 ** mu.apply (mu:apply)                                            :procedure:
 
-#+results: 
 #+begin_example
   Like ‘apply’ but apply object F to ARGS. Unless F implements
   ‘mu-callable-protocol’ it is assumed to be a function and ‘apply’

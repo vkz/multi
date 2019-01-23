@@ -81,6 +81,13 @@ Simply run: =M-x org-babel-execute-buffer=
   (require 'ox)
   (org-export-to-file 'org "README.org")
 
+  ;; remove all #+results which mess up github ORG rendering
+  (with-temp-file "README.org"
+    (insert-file-contents "README.org")
+    (goto-char (point-min))
+    (while (search-forward "#+results: \n" nil t)
+      (replace-match "")))
+
   ;; tangle examples into ert-tests
   (org-babel-tangle)
 
