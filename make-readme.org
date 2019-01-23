@@ -4,13 +4,13 @@
 #+OPTIONS: d:nil
 
 #+EXPORT_FILE_NAME: README.org
-#+TITLE: Multi-methods and multi-patterns for Emacs Lisp
+#+TITLE: Multiple dispatch for Emacs Lisp
 
 #+PROPERTY: header-args :exports code :results none :cache no
 #+PROPERTY: header-args:emacs-lisp :tangle ./test-readme.el
 #+PROPERTY: header-args:emacs-lisp+ :noeval
 
-* documentation workflow
+* documentation workflow                                           :noexport:
 
 Idea with documentation takes shape. Quite simply I write a good entry in a docstring. Code in the following snippet prints it in the RESULTS and those get exported. This lets me keep docs in sync with the code. 
 
@@ -69,10 +69,11 @@ Simply run: =M-x org-babel-execute-buffer=
   (defun mu-wrap-tangled-readme-as-test ()
     (goto-char (point-min))
     (insert ";; -*- lexical-binding: t; -*-\n\n")
-    (insert "(ert-deftest mu-test-tangled-readme ()\n\n)")
+    (insert "(ert-deftest mu-test-tangled-readme ()\n\n")
     (goto-char (point-max))
     (insert ")")
-    (indent-region (point-min) (point-max)))
+    (indent-region (point-min) (point-max))
+    (save-buffer))
 
   (add-hook 'org-babel-post-tangle-hook #'mu-wrap-tangled-readme-as-test)
 
@@ -83,19 +84,21 @@ Simply run: =M-x org-babel-execute-buffer=
   ;; tangle examples into ert-tests
   (org-babel-tangle)
 
-  (comment
-   ;; load tests
-   (load-file "test-readme.el")
+  ;; TODO fine for interactive use but for non-interactive I need to require and
+  ;; load a bunch of stuff like 'ert, 'test-prelude, 'mult-*
 
-   ;; run tests
-   (if noninteractive
-       ;; exit emacs with 0 or 1 error-code
-       (ert-run-tests-batch-and-exit nil)
-     ;; test and show summary
-     (ert t)
-     (pop-to-buffer "*ert*"))
-   ;; comment
-   )
+  ;; load tests
+  (load-file "test-readme.el")
+
+  ;; run tests
+  (if noninteractive
+      ;; exit emacs with 0 or 1 error-code
+      (ert-run-tests-batch-and-exit nil)
+    ;; test and show summary
+    (ert t)
+    (pop-to-buffer "*ert*"))
+  ;; comment
+
 #+end_src
 
 * multi.el
@@ -244,8 +247,8 @@ Every mu-struct is a cl-struct, so most cl-struct infrastructure should work as 
     :implements mu-callable-protocol
     (defmacro mu--call (f args) name))
 
-  (defvar bar (make-bar-struct))
-  (defvar foo (make-foo-struct))
+  (setq bar (make-bar-struct))
+  (setq foo (make-foo-struct))
 
   (should (bar-struct? bar))
   (should (foo-struct? bar))
@@ -306,8 +309,8 @@ As previously mentioned one can use generalized variable defined by ~mu-defstruc
 ~mu.~ is also an attempt compress code without loss of information. It is not uncommon to name local variables that hold struct instances so that one can immediately deduce their type e.g. ~foo~ for a ~foo-struct~ instance. Even generalized variables like ~(foo-struct foo :props)~ duplicate information and introduce unnecessary noise in the code. Struct getters like ~foo-struct-props~ do the same and are static. ~mu.~ offers a reasonably short alternative that works for all major associative types.
 
 #+begin_src emacs-lisp
-  (defvar foo (make-foo-struct :props (ht (:b 1))))
-  (defvar baz (make-foo-struct :props (ht (:a foo))))
+  (setq foo (make-foo-struct :props (ht (:b 1))))
+  (setq baz (make-foo-struct :props (ht (:a foo))))
 
   ;; look up a deeply nested key
   (should (eq 1 (mu. baz :props :a :props :b)))
@@ -324,7 +327,7 @@ As previously mentioned one can use generalized variable defined by ~mu-defstruc
 To set nested keys ~mu.~ will create intermediate tables for any missing keys as needed. So, the following example is morally equivalent to the one above:
 
 #+begin_src emacs-lisp
-  (defvar baz (make-foo-struct))
+  (setq baz (make-foo-struct))
 
   (setf (mu. baz :props :a) (make-foo-struct))
   (setf (mu. baz :props :a :props :b) 42)
@@ -343,7 +346,7 @@ mu-callable protocol allows one to /invoke/ instances of any type that implement
 We implement this protocol for all structures (both mu-structs and cl-structs) as well as hash-tables. Default implementation simply delegates to ~mu.~ to perform key lookup:
 
 #+begin_src emacs-lisp
-  (defvar foo (make-foo-struct))
+  (setq foo (make-foo-struct))
   (setf (mu. foo :a :b) 42)
 
   (should (eq 42 (mu.call foo :a :b)))
