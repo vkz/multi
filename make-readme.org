@@ -131,16 +131,235 @@ mu-let, mu-when-let, mu-if-let
 
 * multi-protocols
 
-Introduction and motivation
-- mu. getter and setter
+Multi-protocols (sometimes called /generic interafaces/) allow type specialization of a set of generic methods. Protocols are defined and assigned a set of methods with ~mu-defprotocol~. Structure types can implement protocols by reifying their registered methods in ~mu-defstruct~ when new struct type are being defined. Alternatively a protocol maybe extended to an existing type using ~mu-extend~.
 
-mu-defprotocol
-mu-extend
-mu-implements?
-mu-extends?
-mu-table-protocol
-mu-callable-protocol
-relationship with cl-generics
+Protocol methods are effectively generic methods as implemented by ~cl-defgeneric~
+limited to single dispatch. Generic dispatch is peroformed on the type of the first argument - what ~cl-defmethod~ documentation would call ~(obj TYPE)~ specializer.
+
+Protocol implementations may reify several methods of the same name but with different arities. Actual generic function call will be dispatched to the method with matching arity as needed.
+
+** mu-defprotocol                                                    :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation 'mu-defprotocol))
+#+end_src
+
+By convention protocol names are expected to have suffix ~able~ while protocol variable created and bound by ~mu-defprotocol~ will have a compound suffix ~able-protocol~ as in ~mu-callable~ vs ~mu-callable-protocol~. So the following definition
+
+#+begin_src emacs-lisp
+(mu-defprotocol mu-callable-protocol
+  (defmethod mu--call (f args)))
+#+end_src
+
+will bind variable ~mu-callable-protocol~ to a fresh ~mu-protocol~ struct whose name is ~mu-callable~. It will also register all methods that appear in the body as cl-generic functions and part of the protocol. For the moment method arglists are no more than metadata and won't effect how methods are reified or used.
+
+The calling convention of previous paragraph is not enforced by implementation but would make multi-method style ~isa?~ relations sound and read more natural. That is any time a type implements a protocol a new relation is added to multi-methods hierarchy of the form: TYPE isa PROTOCOLLABLE. For example:
+
+#+begin_src emacs-lisp
+(mu-rel 'hash-table :isa 'mu-callable)
+#+end_src
+
+Establishing such relations from protocol implementations creates a bridge from a more rigid style of dispatch sanctioned by protocols to a more ad-hoc style offered by multi-methods. I.e. it should be possible to perform a multi-method ~type-of~ dispatch on a protocol that would be satisfied by any type that implements said protocol.
+
+** mu-extend                                                         :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation 'mu-extend))
+#+end_src
+
+
+#+begin_src emacs-lisp
+  (example
+
+   (mu-extend mu-callable-protocol
+
+     :to cl-structure-object
+     (defmethod mu--call (obj args)
+       (if-let ((f (or (get (type-of obj) :call) (mu. obj :call))))
+           (apply f obj args)
+         (apply #'mu. obj args)))
+
+     :to hash-table
+     (defmethod mu--call (obj args)
+       (if-let ((f (ht-get obj :call)))
+           (apply f obj args)
+         (apply #'mu. obj args)))))
+#+end_src
+
+** mu-extends?                                                   :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation 'mu-extends?))
+#+end_src
+
+** mu-implements?                                                :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation 'mu-implements?))
+#+end_src
+
+** mu-type?                                                      :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation 'mu-type?))
+#+end_src
+
+** mu-defstruct                                                      :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation 'mu-defstruct))
+#+end_src
+
+Every mu-struct is a cl-struct, so most cl-struct infrastructure should work as expected. That includes constructing, getting and setting slots, etc.
+
+#+begin_src emacs-lisp
+  (example
+
+   ;; define a new mu-struct
+   (mu-defstruct foo-struct props)
+
+   ;; define a new mu-struct that inherits from `foo-struct' and provides its own
+   ;; (partial) implementation of two protocols
+   (mu-defstruct (bar-struct (:include foo-struct))
+     (name :bar)
+
+     :implements mu-table-protocol
+     (defmethod mu--get (obj key)
+       (case key
+         ('name name)
+         ('props (bar-struct-props obj))))
+
+     (defmethod mu--set (obj key val)
+       (case key
+         ('name (setf (bar-struct-name obj) val))
+         ('props (setf (bar-struct-props obj) val))))
+
+     :implements mu-callable-protocol
+     (defmacro mu--call (f args) name))
+
+   (defvar bar (make-bar-struct))
+   (defvar foo (make-foo-struct))
+
+   (should (bar-struct? bar))
+   (should (foo-struct? bar))
+   (should (mu-struct? bar)))
+
+#+end_src
+
+~mu-defstruct~ also defines a generalized-variable of the same name as struct (~foo-struct~ and ~bar-struct~ in our example) that can be used to get and set struct slots and potentially deeply nested keys assuming the default implementation of ~mu-table-protocol~ (see ~mu.~ function). 
+
+With a crude implementation of the protocol above we can set and get slots of a bar-struct instance but not much more. Default implementation affords more power. One can set values deep in the structure starting with its slots, or even set keys that aren't slot. That is structs are treated as open maps.
+
+#+begin_src emacs-lisp
+  (setf (bar-struct bar 'name) :baz)
+  (should (eq :baz (bar-struct bar 'name)))
+
+  (setf (foo-struct foo :props :a 'b :c) 42)
+  (should (eq 42 (foo-struct foo :props :a 'b :c)))
+
+  (setf (foo-struct foo :not-a-slot) '())
+  (push 42 (foo-struct foo :not-a-slot))
+  (should (equal '(42) (foo-struct foo :not-a-slot)))
+#+end_src
+
+Notice that protocol methods implemented inside ~mu-defstruct~ have slots explicitly defined (not inherited) in the struct definition in their lexical scope. So, for instance, ~mu--call~ method above can refer to the current slot value ~name~.
+
+** mu-table-protocol                                                   :var:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation-property 'mu-table-protocol 'variable-documentation))
+#+end_src
+
+Table protocol makes working with map-like data easy. It provides unified key-value interface, so when implemented for a custom type, keys can be looked up and set in its instances with ~mu.~ (or ~mu:~) function.
+
+Table protocol has been extended to the following types: ~hash-table~, ~mu-struct~ and therefore to all structures created with ~mu-defstruct~, ~cl-structure-object~ and therefore to all structures created with ~cl-defstruct~, ~symbol~, ~cons~, ~vector~.
+
+/Last 3 of the listed types are experimental with access semantics not quite worked out, but they should work for typical cases./
+
+** mu.slots (mu:slots)                                           :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation 'mu.slots))
+#+end_src
+
+** mu.keys (mu:keys)                                             :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation 'mu.keys))
+#+end_src
+
+** mu. (mu:)                                                     :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation 'mu.))
+#+end_src
+
+As previously mentioned one can use generalized variable defined by ~mu-defstruct~ to lookup and set (potentially nested or missing) keys in a struct. ~mu.~ function is a generalization of this idea that should work for any type that implements ~mu-table-protocol~, so that there's no need for type-specific functions that are morally equivalent. This should aleviate the pain of having to use statically defined struct slot accessors e.g. ~foo-struct-name~ or hash-table specific ~ht-get~ for a single key look up, or ~ht-get*~ for multiple keys, etc.
+
+~mu.~ is also an attempt compress code without loss of information. It is not uncommon to name local variables that hold struct instances so that one can immediately deduce their type e.g. ~foo~ for a ~foo-struct~ instance. Even generalized variables like ~(foo-struct foo :props)~ duplicate information and introduce unnecessary noise in the code. Struct getters like ~foo-struct-props~ do the same and are static. ~mu.~ offers a reasonably short alternative that works for all major associative types.
+
+#+begin_src emacs-lisp
+  (defvar foo (make-foo-struct :props (ht (:b 1))))
+  (defvar baz (make-foo-struct :props (ht (:a foo))))
+
+  ;; look up a deeply nested key
+  (should (eq 1 (mu. baz :props :a :props :b)))
+
+  ;; mutate stored value
+  (setf (mu. baz :props :a :props :b) 42)
+  (should (eq 42 (mu. baz :props :a :props :b)))
+
+  ;; create a new nested key
+  (setf (mu. baz :props :a :props :new-key) 0)
+  (should (zerop (mu. baz :props :a :props :new-key)))
+#+end_src
+
+To set nested keys ~mu.~ will create intermediate tables for any missing keys as needed. So, the following example is morally equivalent to the one above:
+
+#+begin_src emacs-lisp
+  (defvar baz (make-foo-struct))
+
+  (setf (mu. baz :props :a) (make-foo-struct))
+  (setf (mu. baz :props :a :props :b) 42)
+
+  (should (eq 42 (mu. baz :props :a :props :b)))
+#+end_src
+
+** mu-callable-protocol                                                :var:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation-property 'mu-callable-protocol 'variable-documentation))
+#+end_src
+
+mu-callable protocol allows one to /invoke/ instances of any type that implements it as if they were procedures. Although this requires the use of API functions ~mu.call~ and ~mu.apply~ in place of the native ~funcall~ and ~apply~, the former two effectively subsume the latter by delegating to them in the default case when instance is already a function.
+
+We implement this protocol for all structures (both mu-structs and cl-structs) as well as hash-tables. Default implementation simply delegates to ~mu.~ to perform key lookup:
+
+#+begin_src emacs-lisp
+  (defvar foo (make-foo-struct))
+  (setf (mu. foo :a :b) 42)
+
+  (should (eq 42 (mu.call foo :a :b)))
+  (should (eq 42 (mu.apply foo :a '(:b))))
+#+end_src
+
+One can override the default instance behaviour by setting a ~'call~ slot of a struct (when available), a ~:call~ key of a hash-table or a mu-struct to a function. This function will be applied instead of the default with the instance passed as the first argument. 
+
+Or alter the behavior of the entire struct type by providing custom implementation of the ~mu-callable-protocol~.
+
+/Inspired by Racket structs that can be made into procedures./
+
+** mu.call (mu:call)                                             :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation 'mu.call))
+#+end_src
+
+** mu.apply (mu:apply)                                           :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+  (princ (documentation 'mu.apply))
+#+end_src
 
 * multi-structs
 

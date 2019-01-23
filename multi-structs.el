@@ -524,7 +524,7 @@ is used."
 
 
 (mu-docfun mu-defprotocol
-  "Create a new protocol NAME with a set of generic METHODS.
+  "Combine a set of generic METHODS as protocol NAME.
 
 ----------------------------------------------------------
 NAME    = protocol-id
@@ -536,11 +536,13 @@ method  = (defmethod method-id arglist [docstring] . rest)
 rest    = see `cl-defgeneric'
 ----------------------------------------------------------
 
-Bind protocol to variable NAME. Translate every method to a
-`cl-defgeneric' (which see). Store arglists as metadata and for
-documentation but otherwise ignore.
+Bind variable NAME to the newly created `mu-protocol' struct.
+Translate every method to a `cl-defgeneric' (which see). Store
+arglists as metadata and for documentation but otherwise ignore.
+Tag every method-id symbol with a property :mu-protocol.
 
-Tag every method-id symbol with a property :mu-protocol.")
+Protocol METHODS are cl-generic functions that dispatch on the
+type of their first argument.")
 
 
 (mu-docfun mu-extend
@@ -573,10 +575,10 @@ To extend protocols to structs under your control consider using
   "Like `cl-defstruct' but with mu-struct extensions.
 
 ------------------------------------------------------------------------
-      NAME = symbolp
+      NAME = struct-id
            | see `cl-defstruct'
 
-      SLOT = symbolp
+      SLOT = slot-id
            | see `cl-defstruct'
 
   PROTOCOL =  protocol-id
@@ -589,32 +591,30 @@ To extend protocols to structs under your control consider using
 qualifiers = see `cl-defmethod'
 ------------------------------------------------------------------------
 
-Every struct created with `mu-defstruct' implicitly inherits from
-`mu-struct'. If :include struct property is present its value
-must be a type that ultimately inherits from `mu-struct'. Any
-other type will raise an error.
+Every mu-struct implicitly inherits from `mu-struct' type. If
+:include struct property is present its value must be a type that
+ultimately inherits from `mu-struct'. Any other type will raise
+an error.
 
 Define extra predicate of the form NAME? as alias for NAME-p.
 
 Define NAME as a getter function for slots and keys of the
 struct. Make NAME a generalized `setf'-able variable (see `mu.').
-
 In general mu-structs are open maps whose keys are not limited to
 slots. Generalized variables `mu.' (or `mu:') and NAME can be
 used to set slots or keys of a struct.
 
 Slots maybe followed by protocol implementations. Every protocol
-implementation starts with a :implements attribute followed by a
+implementation starts with :implements attribute followed by
 protocol-name, followed by method implementations. Multiple
-methods of the same name METHOD-ID maybe defined for different
-arities.
+methods maybe implemented for the same method-id but different
+arities. Since protocol methods dispatch on the type of their
+first argument every method will have the structure instance
+bound to it. Each method body implicitly binds every slot-id to
+its respective value in the structure instance.
 
-After dispatch every protocol method will have the structure
-instance bound to its first argument. Each method body implicitly
-binds every SLOT id to its value in the structure instance.
-
-Also tag symbol NAME with :mu-type? property and store all
-slot-symbols as :mu-slots property of symbol NAME.
+Set two properties on struct-id symbol :mu-type? tagging it as a
+`mu-struct' and :mu-slots that keeps a list of all slot-ids.
 
 \(fn NAME SLOT ... [:implements PROTOCOL METHOD ...] ...)")
 
