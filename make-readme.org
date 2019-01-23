@@ -60,6 +60,49 @@ Naturally, I wouldn't want lengthy docstrings interfere with code flow. Easy eno
 #+end_src
 
 
+* make-readme                                                      :noexport:
+
+Simply run: =M-x org-babel-execute-buffer=
+
+#+begin_src emacs-lisp :exports none :results output silent :eval yes :tangle no
+  (defun mu-tangle-example ()
+    (goto-char (point-min))
+    (when (search-forward "=>" nil t)
+      (goto-char (point-min))
+      (let ((code nil))
+        (condition-case eof
+            (while t (push (read (current-buffer)) code))
+          (end-of-file nil))
+        (setq code (nreverse code))
+        (erase-buffer)
+        (dolist (ex (mapcar (lambda (e) (cons 'example e)) (seq-partition code 3)))
+          (insert (pp-to-string ex))
+          (newline)
+          (newline)))))
+
+  ;; hook that tangles an example into ert-tests
+  (add-hook 'org-babel-tangle-body-hook #'mu-tangle-example)
+  (message "README: `org-babel-tangle-body-hook' has been updated with `mu-tangle-example'")
+
+  ;; export to README.org
+  (require 'ox)
+  (org-export-to-file 'org "README.org")
+
+  ;; tangle examples into ert-tests
+  (org-babel-tangle)
+
+  ;; load tests
+  (load-file "test-readme.el")
+
+  ;; run tests
+  (if noninteractive
+      ;; exit emacs with 0 or 1 error-code
+      (ert-run-tests-batch-and-exit nil)
+    ;; test and show summary
+    (ert t)
+    (pop-to-buffer "*ert*"))
+#+end_src
+
 * multi.el
 
 /multi.el/ brings ad-hoc multiple dispatch to Emacs Lisp.
@@ -98,45 +141,18 @@ cl-generics are quite expressive, dare I even say good for a language with minim
 
 Working with structs is awkward especially when you nest them, mix with other structured data like hash-tables or lists. It doesn't have to be, but it is in my experience with Scheme, Racket and now Elisp. The whole ~foo-struct-slotname~ static getter business is just bonkers. Functions proliferate quickly when you write lisp - its the very first abstraction you reach to and the second, and probably the third. It is bad enough that I have to keep a ton of other functions in my head, but now I need to do mental calisthenics every time I want to lookup a value in a struct - god have mercy if it happens to be another struct and I need to look deeper. Worse - you can't tell at a glance where you call semantically rich funtions and where you merely get and set a bunch of slots. No keys or slots stand out to give you visual cues and take some cognitive load off. Lack of proper namespaces doesn't help any - you quickly find yourself drowning in a see of prefixes. I can't tell you what compelled me to hack multi-methods instead of addressing the struct business and sticking with tried and true cl-generics. I only think that a reasonable justification now that I've solved the "struct problem" with multi-protocols. But this happens some 150 commits later.
 
-* multi-patterns
+* multi-structs
 
-Choice vs destructuring.
+_multi-structs.el_ implement /mu-structs/ and /mu-protocols/ that were loosely inspired by /Clojure/ records and [[https://clojure.org/reference/protocols][protocols]] and /Racket/'s structs and [[http://docs.racket-lang.org/reference/struct-generics.html][generic interfaces]].
 
-Language of patterns: atom, list, standard pcase patterns, l-pattern, v-pattern, seq-patterns, overloading [], &rest pattern, ht-pattern.
+/mu-structs/ are built on top of Emacs Lisp records. Expect all of cl-struct machinery to work. Mu-structs are defined with ~mu-defstruct~ and must inherit either from the base type ~mu-struct~ (default) or one of its descendants. Unlike cl-structs mu-structs are open maps that allow non-slot keys to be looked up and set.
 
-** mu-case
-
-examples
-
-** mu-let
-
-Semantics of [] seq-pattern
-
-mu-let, mu-when-let, mu-if-let
-
-** mu-defun
-
-** mu-defmacro
-
-** mu-defpattern
-
-* multi-methods
-
-** multi-hierarchies
-
-** mu-defmulti
-
-** mu-defmethod
-
-
-* multi-protocols
-
-Multi-protocols (sometimes called /generic interafaces/) allow type specialization of a set of generic methods. Protocols are defined and assigned a set of methods with ~mu-defprotocol~. Structure types can implement protocols by reifying their registered methods in ~mu-defstruct~ when new struct type are being defined. Alternatively a protocol maybe extended to an existing type using ~mu-extend~.
+Protocols (sometimes called /generic interafaces/) allow type specialization of a set of generic methods. Protocols are defined and assigned a set of methods with ~mu-defprotocol~. Structure types can implement protocols by reifying their registered methods in ~mu-defstruct~ when a new struct type is being defined. Alternatively protocol maybe extended to an existing type with ~mu-extend~.
 
 Protocol methods are effectively generic methods as implemented by ~cl-defgeneric~
-limited to single dispatch. Generic dispatch is peroformed on the type of the first argument - what ~cl-defmethod~ documentation would call ~(obj TYPE)~ specializer.
+limited to single dispatch. Generic dispatch is performed on the type of the first argument - what ~cl-defmethod~ documentation would call ~(obj TYPE)~ specializer.
 
-Protocol implementations may reify several methods of the same name but with different arities. Actual generic function call will be dispatched to the method with matching arity as needed.
+Protocol implementations may reify several methods with the same name but different arities. Apropriate method will matched and invoked at dispatch.
 
 ** mu-defprotocol                                                    :macro:
 
@@ -361,66 +377,6 @@ Or alter the behavior of the entire struct type by providing custom implementati
   (princ (documentation 'mu.apply))
 #+end_src
 
-* multi-structs
-
-Introduction and motivation
-- keys vs slots
-
-mu-defstruct:
-- :include must inherit from mu-struct
-- predicate alias
-- struct-name defun
-- struct-name gv setter
-
-mu-struct
-mu-struct?
-mu-type?
-
-* multi-benchmarks
-
-* make-readme                                                      :noexport:
-
-Simply run: =M-x org-babel-execute-buffer=
-
-#+begin_src emacs-lisp :exports none :results output silent :eval yes :tangle no
-  (defun mu-tangle-example ()
-    (goto-char (point-min))
-    (when (search-forward "=>" nil t)
-      (goto-char (point-min))
-      (let ((code nil))
-        (condition-case eof
-            (while t (push (read (current-buffer)) code))
-          (end-of-file nil))
-        (setq code (nreverse code))
-        (erase-buffer)
-        (dolist (ex (mapcar (lambda (e) (cons 'example e)) (seq-partition code 3)))
-          (insert (pp-to-string ex))
-          (newline)
-          (newline)))))
-
-  ;; hook that tangles an example into ert-tests
-  (add-hook 'org-babel-tangle-body-hook #'mu-tangle-example)
-  (message "README: `org-babel-tangle-body-hook' has been updated with `mu-tangle-example'")
-
-  ;; export to README.org
-  (require 'ox)
-  (org-export-to-file 'org "README.org")
-
-  ;; tangle examples into ert-tests
-  (org-babel-tangle)
-
-  ;; load tests
-  (load-file "test-readme.el")
-
-  ;; run tests
-  (if noninteractive
-      ;; exit emacs with 0 or 1 error-code
-      (ert-run-tests-batch-and-exit nil)
-    ;; test and show summary
-    (ert t)
-    (pop-to-buffer "*ert*"))
-#+end_src
-
 * test-readme                                                      :noexport:
 
 #+begin_src emacs-lisp :exports none
@@ -435,56 +391,5 @@ Simply run: =M-x org-babel-execute-buffer=
     `(ert-deftest ,(intern (symbol-name (gensym "example"))) ()
        "test"
        (should (equal ,expected ,test))))
-
-#+end_src
-
-* Example
-
-#+begin_src emacs-lisp
-
-  (mu-case '(a b c)
-    ((l 'a &rest tail) tail))
-  =>
-  '(b c)
-
-#+end_src
-
-* pcase
-
-TIL that trying to compile anything with `pcase` matching in it may lead to an explosion of code generated during expansion. Even the most innocent looking patterns may generate hundreds of branches and thousands of lines of code. TBH I would never have noticed had it not been for a small macro I wrote yesterday. The exact code is unimportant but the gist of it is that it had a `pcase` with 4 clauses doing some matching on lists and what not. That macro was the last in the project I've been working on, so naturally I attempted to `byte-compile`. Upon reaching the macro the compiler would just sit there. Out of curiosity I let it - only to be disappointed with **Error: Bytecode overflow** some 10min later. O..K..
-
-`M-x pp-macroexpand-all-last-sexp` ... 160K lines of expanded code later I was enlightened. If you ever looked at what `pcase` list pattern expands into, you wouldn't be surprised. There isn't any magic there, the rewriting rule is straightforward. Problem is it doesn't scale if you perform full macro-expansion, and IIUC that is what `byte-compile` does. Let's use a tiny contrived example just to get the feel for "scale":
-
-    (pcase e
-      (`(,a ,(or (or `(0) `[0]) 42)) a))
-
-Full expansion of this is 70 lines of pretty-printed code but you can imagine how a bunch of nested patterns and several clauses create all possible permutations and baloon into thousands. My first thought was that it's the `(or .. ..)` pattern that's not cleverly handled and replacing it with explicit clauses may help fight branching:
-
-(pcase e
-  (`(,a (0)) a)
-  (`(,a [0]) a)
-  (`(,a 42) a))
-
-Well, macroexpand-all and you get the exact same 70 loc, so, yeah, they're precisely equivalent. I bet `pcase` actually re-writse one into the other.
-
-It isn't a problem at runtime i.e. if you just eval and run the interpreter, because in 99.9% of cases the match fails at the head, so all those branches never get generated by the expander when you just interpret and match. That's why I never noticed any issues say with performance.
-
-I guess I have several questions after this long-winded diatribe:
-
-1. How do you `byte-compile` code that uses `pcase`?
-2. Maybe you don't compile, but then how do you get reasonable performance?
-3. Maybe you just don't use `pcase` ever? Is this why so much Elisp is poisoned with `caddaar` and friends? I really want my pattern matching.
-4. Is there anything obvious I've overlooked?
-
-Didn't get any relevant hits searching emacs-devel archives.
-
-* Another example
-
-#+begin_src emacs-lisp
-
-  (mu-case '(a b c)
-    ((l 'a &rest tail) tail))
-  =>
-  '(b c)
 
 #+end_src
