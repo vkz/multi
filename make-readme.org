@@ -14,13 +14,13 @@
 
 Idea with documentation takes shape. Quite simply I write a good entry in a docstring. Code in the following snippet prints it in the RESULTS and those get exported. This lets me keep docs in sync with the code. 
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval no :wrap example :exports results :results replace output  :tangle no
   (princ (documentation #'mu-defun))
 #+end_src
 
 As for the examples IMO the following will work just fine. I'd have to fix my [[*make-readme][make-readme]] code some. It is shaping into a very nice workflow!
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :eval no :tangle no
   (example
 
    (mu-defun foo [a [_ c]]
@@ -33,7 +33,7 @@ As for the examples IMO the following will work just fine. I'd have to fix my [[
 #+end_src
 
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :eval no :tangle no
   (example
 
    (mu-defun foo (a b &rest args)
@@ -52,7 +52,7 @@ As for the examples IMO the following will work just fine. I'd have to fix my [[
 
 Naturally, I wouldn't want lengthy docstrings interfere with code flow. Easy enough. Start with minimal prefix in the docstring proper, then install the rest of it at the bottom of the source file by setting relevant properties [[info:elisp#Documentation%20Basics][info:elisp#Documentation Basics]] with something like this:
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :eval no :tangle no
   (put 'mu-defun 'function-documentation
        (concat
         (documentation #'mu-defun)
@@ -65,24 +65,16 @@ Naturally, I wouldn't want lengthy docstrings interfere with code flow. Easy eno
 Simply run: =M-x org-babel-execute-buffer=
 
 #+begin_src emacs-lisp :exports none :results output silent :eval yes :tangle no
-  (defun mu-tangle-example ()
+  ;; wrap tangled source blocks in `ert-deftest'
+  (defun mu-wrap-tangled-readme-as-test ()
     (goto-char (point-min))
-    (when (search-forward "=>" nil t)
-      (goto-char (point-min))
-      (let ((code nil))
-        (condition-case eof
-            (while t (push (read (current-buffer)) code))
-          (end-of-file nil))
-        (setq code (nreverse code))
-        (erase-buffer)
-        (dolist (ex (mapcar (lambda (e) (cons 'example e)) (seq-partition code 3)))
-          (insert (pp-to-string ex))
-          (newline)
-          (newline)))))
+    (insert ";; -*- lexical-binding: t; -*-\n\n")
+    (insert "(ert-deftest mu-test-tangled-readme ()\n\n)")
+    (goto-char (point-max))
+    (insert ")")
+    (indent-region (point-min) (point-max)))
 
-  ;; hook that tangles an example into ert-tests
-  (add-hook 'org-babel-tangle-body-hook #'mu-tangle-example)
-  (message "README: `org-babel-tangle-body-hook' has been updated with `mu-tangle-example'")
+  (add-hook 'org-babel-post-tangle-hook #'mu-wrap-tangled-readme-as-test)
 
   ;; export to README.org
   (require 'ox)
@@ -91,16 +83,19 @@ Simply run: =M-x org-babel-execute-buffer=
   ;; tangle examples into ert-tests
   (org-babel-tangle)
 
-  ;; load tests
-  (load-file "test-readme.el")
+  (comment
+   ;; load tests
+   (load-file "test-readme.el")
 
-  ;; run tests
-  (if noninteractive
-      ;; exit emacs with 0 or 1 error-code
-      (ert-run-tests-batch-and-exit nil)
-    ;; test and show summary
-    (ert t)
-    (pop-to-buffer "*ert*"))
+   ;; run tests
+   (if noninteractive
+       ;; exit emacs with 0 or 1 error-code
+       (ert-run-tests-batch-and-exit nil)
+     ;; test and show summary
+     (ert t)
+     (pop-to-buffer "*ert*"))
+   ;; comment
+   )
 #+end_src
 
 * multi.el
@@ -156,13 +151,13 @@ Protocol implementations may reify several methods with the same name but differ
 
 ** mu-defprotocol                                                    :macro:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-defprotocol))
 #+end_src
 
 By convention protocol names are expected to have suffix ~able~ while protocol variable created and bound by ~mu-defprotocol~ will have a compound suffix ~able-protocol~ as in ~mu-callable~ vs ~mu-callable-protocol~. So the following definition
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :tangle no
 (mu-defprotocol mu-callable-protocol
   (defmethod mu--call (f args)))
 #+end_src
@@ -171,7 +166,7 @@ will bind variable ~mu-callable-protocol~ to a fresh ~mu-protocol~ struct whose 
 
 The calling convention of previous paragraph is not enforced by implementation but would make multi-method style ~isa?~ relations sound and read more natural. That is any time a type implements a protocol a new relation is added to multi-methods hierarchy of the form: TYPE isa PROTOCOLLABLE. For example:
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :tangle no
 (mu-rel 'hash-table :isa 'mu-callable)
 #+end_src
 
@@ -179,86 +174,82 @@ Establishing such relations from protocol implementations creates a bridge from 
 
 ** mu-extend                                                         :macro:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-extend))
 #+end_src
 
 
-#+begin_src emacs-lisp
-  (example
+#+begin_src emacs-lisp :tangle no
+  (mu-extend mu-callable-protocol
 
-   (mu-extend mu-callable-protocol
+    :to cl-structure-object
+    (defmethod mu--call (obj args)
+      (if-let ((f (or (get (type-of obj) :call) (mu. obj :call))))
+          (apply f obj args)
+        (apply #'mu. obj args)))
 
-     :to cl-structure-object
-     (defmethod mu--call (obj args)
-       (if-let ((f (or (get (type-of obj) :call) (mu. obj :call))))
-           (apply f obj args)
-         (apply #'mu. obj args)))
-
-     :to hash-table
-     (defmethod mu--call (obj args)
-       (if-let ((f (ht-get obj :call)))
-           (apply f obj args)
-         (apply #'mu. obj args)))))
+    :to hash-table
+    (defmethod mu--call (obj args)
+      (if-let ((f (ht-get obj :call)))
+          (apply f obj args)
+        (apply #'mu. obj args))))
 #+end_src
 
 ** mu-extends?                                                   :procedure:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-extends?))
 #+end_src
 
 ** mu-implements?                                                :procedure:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-implements?))
 #+end_src
 
 ** mu-type?                                                      :procedure:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-type?))
 #+end_src
 
 ** mu-defstruct                                                      :macro:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-defstruct))
 #+end_src
 
 Every mu-struct is a cl-struct, so most cl-struct infrastructure should work as expected. That includes constructing, getting and setting slots, etc.
 
 #+begin_src emacs-lisp
-  (example
+  ;; define a new mu-struct
+  (mu-defstruct foo-struct props)
 
-   ;; define a new mu-struct
-   (mu-defstruct foo-struct props)
+  ;; define a new mu-struct that inherits from `foo-struct' and provides its own
+  ;; (partial) implementation of two protocols
+  (mu-defstruct (bar-struct (:include foo-struct))
+    (name :bar)
 
-   ;; define a new mu-struct that inherits from `foo-struct' and provides its own
-   ;; (partial) implementation of two protocols
-   (mu-defstruct (bar-struct (:include foo-struct))
-     (name :bar)
+    :implements mu-table-protocol
+    (defmethod mu--get (obj key)
+      (case key
+        ('name name)
+        ('props (bar-struct-props obj))))
 
-     :implements mu-table-protocol
-     (defmethod mu--get (obj key)
-       (case key
-         ('name name)
-         ('props (bar-struct-props obj))))
+    (defmethod mu--set (obj key val)
+      (case key
+        ('name (setf (bar-struct-name obj) val))
+        ('props (setf (bar-struct-props obj) val))))
 
-     (defmethod mu--set (obj key val)
-       (case key
-         ('name (setf (bar-struct-name obj) val))
-         ('props (setf (bar-struct-props obj) val))))
+    :implements mu-callable-protocol
+    (defmacro mu--call (f args) name))
 
-     :implements mu-callable-protocol
-     (defmacro mu--call (f args) name))
+  (defvar bar (make-bar-struct))
+  (defvar foo (make-foo-struct))
 
-   (defvar bar (make-bar-struct))
-   (defvar foo (make-foo-struct))
-
-   (should (bar-struct? bar))
-   (should (foo-struct? bar))
-   (should (mu-struct? bar)))
+  (should (bar-struct? bar))
+  (should (foo-struct? bar))
+  (should (mu-struct? bar))
 
 #+end_src
 
@@ -282,7 +273,7 @@ Notice that protocol methods implemented inside ~mu-defstruct~ have slots explic
 
 ** mu-table-protocol                                                   :var:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation-property 'mu-table-protocol 'variable-documentation))
 #+end_src
 
@@ -294,19 +285,19 @@ Table protocol has been extended to the following types: ~hash-table~, ~mu-struc
 
 ** mu.slots (mu:slots)                                           :procedure:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu.slots))
 #+end_src
 
 ** mu.keys (mu:keys)                                             :procedure:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu.keys))
 #+end_src
 
 ** mu. (mu:)                                                     :procedure:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu.))
 #+end_src
 
@@ -343,7 +334,7 @@ To set nested keys ~mu.~ will create intermediate tables for any missing keys as
 
 ** mu-callable-protocol                                                :var:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation-property 'mu-callable-protocol 'variable-documentation))
 #+end_src
 
@@ -367,19 +358,19 @@ Or alter the behavior of the entire struct type by providing custom implementati
 
 ** mu.call (mu:call)                                             :procedure:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu.call))
 #+end_src
 
 ** mu.apply (mu:apply)                                           :procedure:
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu.apply))
 #+end_src
 
 * test-readme                                                      :noexport:
 
-#+begin_src emacs-lisp :exports none
+#+begin_src emacs-lisp :exports none :eval no :tangle no
   ;; -*- lexical-binding: t; -*-
 
   (require 'ert)
