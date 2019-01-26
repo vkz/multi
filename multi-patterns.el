@@ -494,25 +494,29 @@ match any excessive patterns against that many nils. Supports
     ;; (ht :a :b)
     ((l (and kw (pred keywordp) (app sym id)) &rest pats)
      `(((app (lambda (ht) (or (ht-get ht ,kw) (ht-get ht ',id))) ,id)
-        (app (lambda (ht) (or (alist-get ,kw ht) (alist-get ',id ht))) ,id))
+        (app (lambda (ht) (or (alist-get ,kw ht) (alist-get ',id ht))) ,id)
+        (app (lambda (ht) (mu. ht ,kw)) ,id))
        ,@(mu--ht-pattern pats)))
 
     ;; (ht 'a 'b)
     ((l (l 'quote (and id (pred symbolp) (app (lambda (id) (sym ":" id)) kw))) &rest pats)
      `(((app (lambda (ht) (or (ht-get ht ',id) (ht-get ht ,kw))) ,id)
-        (app (lambda (ht) (or (alist-get ',id ht) (alist-get ,kw ht))) ,id))
+        (app (lambda (ht) (or (alist-get ',id ht) (alist-get ,kw ht))) ,id)
+        (app (lambda (ht) (mu. ht ,kw)) ,id))
        ,@(mu--ht-pattern pats)))
 
     ;; (ht a b)
     ((l (and id (pred symbolp) (app (lambda (id) (sym ":" id)) kw)) &rest pats)
      `(((app (lambda (ht) (or (ht-get ht ,kw) (ht-get ht ',id))) ,id)
-        (app (lambda (ht) (or (alist-get ,kw ht) (alist-get ',id ht))) ,id))
+        (app (lambda (ht) (or (alist-get ,kw ht) (alist-get ',id ht))) ,id)
+        (app (lambda (ht) (mu. ht ,kw)) ,id))
        ,@(mu--ht-pattern pats)))
 
     ;; (ht (:a A) (:b B))
     ((l (l key id) &rest pats)
      `(((app (lambda (ht) (ht-get ht ,key)) ,id)
-        (app (lambda (ht) (alist-get ,key ht)) ,id))
+        (app (lambda (ht) (alist-get ,key ht)) ,id)
+        (app (lambda (ht) (mu. ht ,key)) ,id))
        ,@(mu--ht-pattern pats)))
 
     (otherwise
@@ -534,8 +538,10 @@ Example:
 
   (let* ((patterns (mu--ht-pattern patterns))
          (ht-pats (mapcar #'car patterns))
-         (alist-pats (mapcar #'cadr patterns)))
+         (alist-pats (mapcar #'cadr patterns))
+         (struct-pats (mapcar #'caddr patterns)))
     `(or (and (pred ht-p) ,@ht-pats)
+         (and (pred recordp) ,@struct-pats)
          (and (pred listp) ,@alist-pats))))
 
 
