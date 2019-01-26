@@ -146,6 +146,148 @@ cl-generics are quite expressive, dare I even say good for a language with minim
 
 Working with structs is awkward especially when you nest them, mix with other structured data like hash-tables or lists. It doesn't have to be, but it is in my experience with Scheme, Racket and now Elisp. The whole ~foo-struct-slotname~ static getter business is just bonkers. Functions proliferate quickly when you write lisp - its the very first abstraction you reach to and the second, and probably the third. It is bad enough that I have to keep a ton of other functions in my head, but now I need to do mental calisthenics every time I want to lookup a value in a struct - god have mercy if it happens to be another struct and I need to look deeper. Worse - you can't tell at a glance where you call semantically rich funtions and where you merely get and set a bunch of slots. No keys or slots stand out to give you visual cues and take some cognitive load off. Lack of proper namespaces doesn't help any - you quickly find yourself drowning in a see of prefixes. I can't tell you what compelled me to hack multi-methods instead of addressing the struct business and sticking with tried and true cl-generics. I only think that a reasonable justification now that I've solved the "struct problem" with multi-protocols. But this happens some 150 commits later.
 
+* multi-patterns
+
+intro
+
+** mu-prefer-nested-pcase                                              :var:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation-property 'mu-prefer-nested-pcase 'variable-documentation))
+#+end_src
+
+** mu-case                                                           :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-case))
+#+end_src
+
+
+** mu-defpattern                                                     :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-defpattern))
+#+end_src
+
+** mu-pattern-documentation                                      :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-pattern-documentation))
+#+end_src
+
+** built-in mu-patterns
+
+*** ?-pattern                                                     :pattern:
+
+*** lst-pattern                                                   :pattern:
+
+*** vec-pattern                                                   :pattern:
+
+** predefined mu-patterns
+
+*** l-pattern                                                     :pattern:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (mu-pattern-documentation 'l))
+#+end_src
+
+*** v-pattern                                                     :pattern:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (mu-pattern-documentation 'v))
+#+end_src
+
+*** lv-pattern                                                    :pattern:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (mu-pattern-documentation 'lv))
+#+end_src
+
+*** seq-pattern                                                   :pattern:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (mu-pattern-documentation 'seq))
+#+end_src
+
+**** mu-seq-pattern-force-list                                    :custom:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation-property 'mu-seq-pattern-force-list 'variable-documentation))
+#+end_src
+
+*** ht-pattern                                                    :pattern:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (mu-pattern-documentation 'ht))
+#+end_src
+
+*** ht|-pattern                                                   :pattern:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (mu-pattern-documentation 'ht|))
+#+end_src
+
+*** id-pattern                                                    :pattern:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (mu-pattern-documentation 'id))
+#+end_src
+
+** mu-let                                                            :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-let))
+#+end_src
+
+** mu-when-let                                                       :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-when-let))
+#+end_src
+
+** mu-if-let                                                         :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-if-let))
+#+end_src
+
+** mu-let-parens                                                    :custom:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation-property 'mu-let-parens 'variable-documentation))
+#+end_src
+
+** mu-defun                                                          :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-defun))
+#+end_src
+
+** mu-defmacro                                                       :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-defun))
+#+end_src
+
+** mu (μ)                                                            :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu)
+#+end_src
+
+** mu-function?                                                  :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-function?))
+#+end_src
+
+** mu-defsetter                                                      :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-defsetter))
+#+end_src
+
+
 * multi-structs
 
 _multi-structs.el_ implement /mu-structs/ and /mu-protocols/ that were loosely inspired by /Clojure/ records and [[https://clojure.org/reference/protocols][protocols]] and /Racket/'s structs and [[http://docs.racket-lang.org/reference/struct-generics.html][generic interfaces]].
@@ -158,6 +300,14 @@ Protocol methods are effectively generic methods as implemented by ~cl-defgeneri
 limited to single dispatch. Generic dispatch is performed on the type of the first argument - what ~cl-defmethod~ documentation would call ~(obj TYPE)~ specializer.
 
 Protocol implementations may reify several methods with the same name but different arities. Apropriate method will matched and invoked at dispatch.
+
+** motivation
+
+Why structs? When? They let you bundle stuff and pass it around, but why choose them over something else that's also associative and better still - open? Why choose them over, say, hash-tables? My answer is the identity part. Structs or records are about identity for and foremost. Whenever there's a chance you may want to ask "well, what are you?", records help. Entire /dispatch/ business is about asking that very question. Somewhat hidden behind the facade of ~cl-defstruct~ is a simple fact that structs are no more than glorified maps with a :tag field (or a few required fields). That one field, however, makes certain tasks easier and cleaner to solve. The "closed" bit of structs, IMO, is a mistake. There's really no pretending that Emacs Lisp is a richly typed language with type-system guaranties. Why limit structs to pre-defined slots, then? And if structs are nothing but maps with identity, why demand separate and *static!* interface to work with them? These are the questions /multi-structs/ attempt to answer differently by tweaking cl-structs a bit.
+
+Protocols. Why? When? Superficially, protocols are about grouping functions together. They certainly do that but its almost incidental and hardly the defining feature. You could do no worse bagging a bunch of functions in a map: you can store it, you can pass it around, call them anywhere the map turns up. See, no protocols necessary. Protocols are almost cheating - not much more than a bunch of metadata sticking around. Its especially true for /multi-protocols/ that build on cl-generics, so they don't even "bag" those functions. Why have protocols, then? Why give it a name? If I had to put my finger on it, I'd say its about indirection. You give me a couple of low-level functions - I enrich your type with powerful API often shared by other data-types (reusing familiar interfaces is good unless forced). I think /low-level/ here is quite important: a tiny bit of low-level code to implement a handful of protocol methods (hopefully, with well-defined semantics), and presto your data get a new vantage point. This change in perspective can sometimes illuminate elegant designs. Again, think low-level - the essentials that your high-level API can't do without condenced to a stratum of methods with clear, concise, well-documented semantics.
+
+multi-structs is the recognition of the views outlined above: map identity can sometimes be valuable but its still a map; unified API for key-value data-types is almost always the right default; one way to reach it (not universally good) is indirection - enter protocols; finally, point of view and rich vocabulary bring vitality to your designs. Ad-hoc abstractions may elevate the discourse enough so as to let you paint that model in your head in code. This in turn will inform your model. It is this back and forth that's to be fluid and not mired in unnecessary detail. It is how you learn the domain, the problem at hand and grow your model. Not software! Software comes later. First you explore and learn, then you take it all down and build that cathedral. Right? Right?!
 
 ** mu-defprotocol                                                    :macro:
 
@@ -252,7 +402,7 @@ Every mu-struct is a cl-struct, so most cl-struct infrastructure should work as 
         ('props (setf (bar-struct-props obj) val))))
 
     :implements mu-callable-protocol
-    (defmacro mu--call (f args) name))
+    (defmethod mu--call (f args) name))
 
   (setq bar (make-bar-struct))
   (setq foo (make-foo-struct))
