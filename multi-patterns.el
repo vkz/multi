@@ -301,6 +301,10 @@ EDEBUG-SPEC attribute pair.
 
   (let (install-debug-spec)
 
+    (unless (stringp docstring)
+      (push docstring body)
+      (setq docstring "mu-pattern"))
+
     ;; extract edebug-spec if present
     (when (eq :debug (car body))
       ;; TODO this pollutes pattern symbol with edebug prop, I should store the
@@ -309,18 +313,18 @@ EDEBUG-SPEC attribute pair.
       (setq install-debug-spec `((def-edebug-spec ,name ,(cadr body)))
             body (cddr body)))
 
-    ;; just for consistency, when present, cons the docstring onto the body
-    (when docstring
-      (unless (stringp docstring)
-        (setq body (cons docstring body))))
-
     (let ((mu-patterns `(or (get 'mu--case :mu-patterns)
                             (put 'mu--case :mu-patterns (ht))))
-          (pattern-macro `(lambda ,arglist ,@body)))
+          (pattern-macro `(lambda ,arglist ,docstring ,@body)))
       ;; add pattern to the mu-patterns table
       `(progn
          ,@install-debug-spec
          (setf (ht-get ,mu-patterns ',name) ,pattern-macro)))))
+
+
+(defun mu-pattern-documentation (name)
+  "Extract docstring from custom mu-pattern NAME"
+  (documentation (ht-get (get 'mu--case :mu-patterns) name)))
 
 
 (defun mu--seq-split (seq pat-len)
