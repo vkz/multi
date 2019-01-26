@@ -162,6 +162,22 @@
 (defalias 'mu-struct? 'mu-struct-p)
 
 
+;; TODO unless user overrides generate a uniform :constructor struct-create
+
+;; TODO generate dynamic multi-constructor one that can create a struct
+;; dynamically off of a type: (mu.create foo-type [slot value] ...). Could be a
+;; multi-method. Else just store constructor on the type?
+;;
+;;   (mu-defmethod mu.new (type &rest args) :when 'foo-struct
+;;     (apply #'foo-struct args))
+;; or
+;;   (defmacro mu.new (type &rest args)
+;;     `(apply (get ',type :mu-constructor) (list ,@args)))
+;;
+;; Whenever there's a :constructor demand that a :new #'foo-create be specified,
+;; so we know which constructor to use with mu.new
+
+
 (defmacro mu-defstruct (name-props &rest slots)
   "Like `cl-defstruct' but with mu-struct extensions ..."
   (declare (indent defun) (debug t))
@@ -185,6 +201,9 @@
                                struct-props props))
       (name              (setf struct-name name
                                struct-props nil)))
+
+    ;; TODO :include lets one set defaults that differ from parent's, atm I ignore
+    ;; them, oops
 
     ;; extract :include prop
     (setq include       (assq :include struct-props))
@@ -353,6 +372,10 @@
      (obj           (put obj key val))
      ((numberp key) (mu-error "in mu--set index out of bounds"))
      (:else         (mu-error "in mu--set expected a numeric key got %s" key))))
+
+  ;; TODO Is there anything clever I can do about (setf (mu. var 0) val) where
+  ;; var is either '() or []? Elisp fails to setf either. Prob because `() = nil
+  ;; and isn't a place, and [] is out of bounds for index 0, so I don't much hope.
 
   :to cons
   (defmethod mu--slots (obj)
@@ -660,14 +683,6 @@ Set two properties on struct-id symbol :mu-type? tagging it as a
  ;; Compromise solution could be to serialize all parent-child relations for every
  ;; single struct defined in an "empty" Emacs installation (no packages). Then
  ;; load those when `multi' is its load time isn't effected by extra computation.
-
-
- ;; TODO I think i like the idea of protocol name having the `-able' suffix and
- ;; protocol variable adding extra `-protocol' to that e.g. `mu-callable' and
- ;; `mu-callable-protocol'. Surprisingly this works `mu-table' and
- ;; `mu-table-protocol'. Then `mu-rel' should establish a relation between
- ;; type-symbol and protocol name e.g. `mu-table'. Must mention this convention in
- ;; docs.
 
 
  ;; TODO register a mu-pattern for `struct-name' that works just like ht-pattern
