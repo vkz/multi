@@ -168,11 +168,10 @@
   `(funcall (get ',type :mu-constructor) ,@args))
 
 
-(defmacro mu-defstruct (name-props &rest slots)
+(defmacro mu-defstruct (struct-name &rest slots)
   "Like `cl-defstruct' but with mu-struct extensions ..."
   (declare (indent defun) (debug t))
-  (let (struct-name
-        struct-props
+  (let (struct-props
         constructors
         new
         include
@@ -188,19 +187,20 @@
                              ((symbolp slot) slot)
                              (:else (mu-error "in mu-defstruct malformed slots"))))))
 
-    ;; extract props if present
-    (pcase name-props
-      (`(,name . ,props) (setf struct-name name
-                               struct-props props))
-      (name              (setf struct-name name
-                               struct-props nil)))
+    ;; split into name and properties
+    (when (listp struct-name)
+      (setq struct-props (cdr struct-name))
+      (setq struct-name (car struct-name)))
 
-    ;; extract all :constructor props and a :new prop
+    ;; extract all :constructors, :include and :new props
     (setq struct-props (cl-loop for prop in struct-props
                                 if (eq :constructor (car prop))
                                 do (pushnew prop constructors)
                                 else if (eq :new (car prop))
                                 do (setq new (cadr prop))
+                                else if (eq :include (car prop))
+                                do (setq include-type (cadr prop)
+                                         include-rest (cddr prop))
                                 else collect prop))
 
     ;; ensure that :new is present whenever custom :constructor
@@ -216,15 +216,11 @@
     ;; never create default constructor
     (pushnew '(:constructor nil) constructors)
 
-    ;; put constructors back
+    ;; put constructors
     (setf struct-props (append constructors struct-props))
 
-    ;; extract :include prop
-    (setq include       (assq :include struct-props))
-    (setq include-type  (cadr include))
-    (setq include-rest  (cddr include))
-    (setf struct-props `((:include ,(or include-type 'mu-struct) ,@include-rest)
-                         ,@(remove include struct-props)))
+    ;; put include back
+    (push `(:include ,(or include-type 'mu-struct) ,@include-rest) struct-props)
 
     ;; extract all :implements attr options after slots
     (setq implements (seq-drop-while slot? slots)
