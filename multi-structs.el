@@ -147,8 +147,9 @@
   "List of all struct types that inherit from `mu-struct'")
 
 
-(cl-defstruct mu-struct
+(cl-defstruct (mu-struct (:constructor mu-struct-create))
   (-keys (ht)))
+(put 'mu-struct :mu-constructor #'mu-struct-create)
 
 
 (defun mu-type? (type)
@@ -162,20 +163,9 @@
 (defalias 'mu-struct? 'mu-struct-p)
 
 
-;; TODO unless user overrides generate a uniform :constructor struct-create
-
-;; TODO generate dynamic multi-constructor one that can create a struct
-;; dynamically off of a type: (mu.create foo-type [slot value] ...). Could be a
-;; multi-method. Else just store constructor on the type?
-;;
-;;   (mu-defmethod mu.new (type &rest args) :when 'foo-struct
-;;     (apply #'foo-struct args))
-;; or
-;;   (defmacro mu.new (type &rest args)
-;;     `(apply (get ',type :mu-constructor) (list ,@args)))
-;;
-;; Whenever there's a :constructor demand that a :new #'foo-create be specified,
-;; so we know which constructor to use with mu.new
+(defmacro mu.new (type &rest args)
+  "Uniform constructor that works for every mu-struct"
+  `(funcall (get ',type :mu-constructor) ,@args))
 
 
 (defmacro mu-defstruct (name-props &rest slots)
@@ -183,8 +173,11 @@
   (declare (indent defun) (debug t))
   (let (struct-name
         struct-props
+        constructors
+        new
         include
         include-type
+        include-rest
         implements
         slot-names
         (slot?            (lambda (item) (not (keywordp item))))
@@ -202,13 +195,35 @@
       (name              (setf struct-name name
                                struct-props nil)))
 
-    ;; TODO :include lets one set defaults that differ from parent's, atm I ignore
-    ;; them, oops
+    ;; extract all :constructor props and a :new prop
+    (setq struct-props (cl-loop for prop in struct-props
+                                if (eq :constructor (car prop))
+                                do (pushnew prop constructors)
+                                else if (eq :new (car prop))
+                                do (setq new (cadr prop))
+                                else collect prop))
+
+    ;; ensure that :new is present whenever custom :constructor
+    (when constructors
+      (unless new
+        (mu-error
+         "in mu-defstruct requires a :new struct prop whenever custom :constructors are defined")))
+
+    ;; define "-create" suffixed constructor unless supplied
+    (unless (some (fn ((_ name . rest)) (eq (sym struct-name "-create") name)) constructors)
+      (pushnew `(:constructor ,(sym struct-name "-create")) constructors))
+
+    ;; never create default constructor
+    (pushnew '(:constructor nil) constructors)
+
+    ;; put constructors back
+    (setf struct-props (append constructors struct-props))
 
     ;; extract :include prop
     (setq include       (assq :include struct-props))
     (setq include-type  (cadr include))
-    (setf struct-props `((:include ,(or include-type 'mu-struct))
+    (setq include-rest  (cddr include))
+    (setf struct-props `((:include ,(or include-type 'mu-struct) ,@include-rest)
                          ,@(remove include struct-props)))
 
     ;; extract all :implements attr options after slots
@@ -239,6 +254,9 @@
 
        ;; alias struct-pred? with struct-pred-p
        (defalias ',(sym struct-name "?") ',(sym struct-name "-p"))
+
+       ;; store the :new constructor on the type symbol
+       (put ',struct-name :mu-constructor #',(or new (sym struct-name "-create")))
 
        ;; implement protocols
        ,@(cl-loop for (protocol . methods) in implements
