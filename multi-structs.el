@@ -271,6 +271,8 @@
        ;; store slots on the type symbol
        (cl-loop for (slot . _) in (cl-struct-slot-info ',struct-name)
                 with slot-set = (ht)
+                ;; exclude special slots
+                unless (or (memq slot '(cl-tag-slot -keys)))
                 do (ht-set slot-set slot t)
                 finally
                 do (put ',struct-name :mu-slots slot-set))
@@ -346,7 +348,9 @@
   ;; root cl-struct
   :to cl-structure-object
   (defmethod mu--slots (obj)
-    (mapcar #'car (cl-struct-slot-info (type-of obj))))
+    ;; 'cl-tag-slot is special e.g. u get a missing slot error if u try to get its
+    ;; value even though techically its there, so we remove it.
+    (remove 'cl-tag-slot (mapcar #'car (cl-struct-slot-info (type-of obj)))))
 
   (defmethod mu--keys (obj)
     (mu--slots obj))
@@ -401,7 +405,7 @@
     (mu--slots obj))
 
   (defmethod mu--get (obj key)
-    (nth obj key))
+    (nth key obj))
 
   (cl-defmethod mu--set (obj key val)
     (setf (nth key obj) val))
@@ -442,6 +446,14 @@
   (unless (mu-implements? obj mu-table-protocol)
     (mu-protocol-error mu-table-protocol obj "in `mu.keys'"))
   (mu--keys obj))
+
+
+;; TODO that's bound to be slot because of mu. in the loop. Since OBJ type won't
+;; change could we somehow use its getter and avoid dispatch?
+(defun mu.vals (obj)
+  "Return a list of all values stored in table OBJ"
+  (cl-loop for key in (mu.keys obj)
+           collect (mu. obj key)))
 
 
 (defun mu. (table key &rest keys)
