@@ -81,6 +81,29 @@
     (should (equal '(:a :b) (mu.apply #'list :a '(:b))))))
 
 
+(ert-deftest mu-test-equatable-protocol ()
+  ""
+  (mu-test ()
+    (mu-defstruct foo-struct (name :foo) props)
+    (cl-defstruct (bar-struct (:constructor bar-struct-create)) props)
+
+    (should (mu.equal '() '()))
+    (should (mu.equal '(1) '(1)))
+    (should (mu.equal (ht) (ht)))
+    (should (mu.equal (ht (0 1)) (ht (0 1))))
+
+    ;; mu-structs
+    (should (mu.equal (foo-struct-create) (foo-struct-create)))
+    ;; cl-structs
+    (should (mu.equal (bar-struct-create) (bar-struct-create)))
+
+    (should-not (mu.equal '(1) '()))
+    (should-not (mu.equal '(1) (ht (0 1))))
+    (should-not (mu.equal (ht) (ht (0 1))))
+    (should-not (mu.equal (foo-struct-create :name :not-foo) (foo-struct-create)))
+    (should-not (mu.equal (bar-struct-create) (foo-struct-create)))))
+
+
 (ert-deftest mu-test-defstruct ()
   ""
   (mu-test ()
@@ -105,8 +128,8 @@
     (should (functionp (function-get 'foo-struct 'gv-expander)))
 
     ;; mu.slots and mu.keys should work and return the same set
-    (should (mu--set-equal? '(name props -keys cl-tag-slot) (mu.slots (foo-struct-create))))
-    (should (mu--set-equal? '(name props -keys cl-tag-slot) (mu.keys (foo-struct-create))))
+    (should (mu--set-equal? '(name props) (mu.slots (foo-struct-create))))
+    (should (mu--set-equal? '(name props) (mu.keys (foo-struct-create))))
 
     ;; with a missing key mu.keys should return it in addition to slots
     (let ((foo (foo-struct-create)))

@@ -497,22 +497,40 @@ implement `mu-table-protocol'."
 ;;* mu-equatable-protocol ----------------------------------------- *;;
 
 
-(mu-defprotocol mu-equatable-protocol
-  (defmethod mu--equal (l r)))
+;; TODO note that for objects to be equal we demand that they have the same type.
+;; This is reasonable and imo what u want most of the time. But I wonder if its
+;; worth having a relaxed version that only performs structural equality check,
+;; then e.g. '(1) and (ht (0 1)) would be equal. Is it valuable?
 
 
-;; TODO This should work for atomic and some compound hash-table keys but sadly
-;; not others. IIUC keys are compared with `equal', so we're in a chicken and egg
-;; problem since internally hash-table doesn't use our mu--equal:
+;; TODO Hash-table equality as (ht) defines it compares keys with `equal'. Looking
+;; up and therefore comparing keys will work for most compound values but somehow
+;; not for hash-tables:
 ;;
 ;; (ht-get (ht ('(1) 1)) '(1)) => 1
+;; (ht-get (ht ((bar-struct-create) 42)) (bar-struct-create)) => 42
 ;;
 ;;   but since (not (equal (ht) (ht)))
 ;;
 ;; (ht-get (ht ((ht) 1)) (ht)) => nil
 ;;
-;; I'd have to roll out my own hash-table implementation to fix. It'd need to be
-;; some tricky hash function that respects mu--qual.
+;; This has far-reaching and unfortunate consequences:
+
+;; cl-struct
+;;   (equal (bar-struct-create) (bar-struct-create)) => t
+;;
+;; mu-struct because it alraedy installs hash-table as default in a slot
+;;   (equal (foo-struct-create) (foo-struct-create)) => nil
+;;
+;; The only reasonable way to allow comparing tables with keys that are themselves
+;; hash-tables IMO is to implement your own hash-table supplying your own equality
+;; test and hash function to `make-hash-table', see `define-hash-table-test'
+
+
+(mu-defprotocol mu-equatable-protocol
+  "Protocol for deep equality. Define protocol methods
+`mu--equal'."
+  (defmethod mu--equal (l r)))
 
 
 (defun mu--equal-associative (l r)
@@ -532,7 +550,10 @@ implement `mu-table-protocol'."
 
   :to cl-structure-object
   (defmethod mu--equal (l r)
-    (mu--equal-associative l r)))
+    ;; try simple equality that works for simple structs
+    (or (equal l r)
+        ;; but if structs have hash-tables as values `equal' isn't enough
+        (mu--equal-associative l r))))
 
 
 (cl-defmethod mu--equal ((l t) r)
@@ -540,24 +561,13 @@ implement `mu-table-protocol'."
 
 
 (defalias 'mu.equal 'mu--equal)
+(mu-docfun mu.equal
+  "Test if OBJ1 and OBJ2 are of the same type and structurally equal.
+Unlike `equal' perform deep equality comparison of hash-tables as
+values. Like `equal' report nil when comparing hash-tables that
+have hash-tables as keys.
 
-
-(comment
- (mu.equal '() '())
- (mu.equal '(1) '(1))
- (mu.equal '(1) '())
- (mu.equal (ht) (ht))
- (mu.equal (ht (0 1)) (ht (0 1)))
- (mu.equal (foo-struct-create)
-           (foo-struct-create))
-
- (mu.equal '(1) '())
- (mu.equal '(1) (ht (0 1)))
- (mu.equal (ht) (ht (0 1)))
- (mu.equal (foo-struct-create :name :not-foo)
-           (foo-struct-create))
- ;; comment
- )
+\(fn obj1 obj2)")
 
 
 ;;* mu-callable-protocol ----------------------------------------- *;;

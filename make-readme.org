@@ -12,6 +12,12 @@
 
 * documentation workflow                                           :noexport:
 
+** TODO consider workflow
+
+Just like current but instead of ~(documentation 'symbol)~ consider using ~(describe-symbol 'symbol)~ which shows enriched documentation for both functions and variables in a *Help* buffer, which I could totally read into a string and print.
+
+** current workflow
+
 Idea with documentation takes shape. Quite simply I write a good entry in a docstring. Code in the following snippet prints it in the RESULTS and those get exported. This lets me keep docs in sync with the code. 
 
 #+begin_src emacs-lisp :eval no :wrap example :exports results :results replace output  :tangle no
@@ -303,11 +309,11 @@ Protocol implementations may reify several methods with the same name but differ
 
 ** motivation
 
-Why structs? When? They let you bundle stuff and pass it around, but why choose them over something else that's also associative and better still - open? Why choose them over, say, hash-tables? My answer is the identity part. Structs or records are about identity for and foremost. Whenever there's a chance you may want to ask "well, what are you?", records help. Entire /dispatch/ business is about asking that very question. Somewhat hidden behind the facade of ~cl-defstruct~ is a simple fact that structs are no more than glorified maps with a :tag field (or a few required fields). That one field, however, makes certain tasks easier and cleaner to solve. The "closed" bit of structs, IMO, is a mistake. There's really no pretending that Emacs Lisp is a richly typed language with type-system guaranties. Why limit structs to pre-defined slots, then? And if structs are nothing but maps with identity, why demand separate and *static!* interface to work with them? These are the questions /multi-structs/ attempt to answer differently by tweaking cl-structs a bit.
+Why structs? When? They let you bundle stuff and pass it around, but why choose them over something else that's also associative and better still - open? Why choose them over, say, hash-tables? Could it be that they have /identity/. Structs or records are about identity for and foremost. Whenever there's a chance you may want to ask "well, what are you?", records help. Entire /dispatch/ business is about asking that very question. Somewhat hidden behind the facade of ~cl-defstruct~ is a simple fact that structs are no more than glorified maps with a :tag field (or a few required fields). That one field, however, makes certain tasks easier and cleaner to solve. The "closed" bit of structs, IMO, is a mistake. There's really no pretending that Emacs Lisp is a richly typed language with type-system guaranties. Why limit structs to pre-defined slots, then? And if structs are nothing but maps with identity, why demand separate and *static!* interface to work with them? These are the questions /multi-structs/ attempt to answer differently by tweaking cl-structs a bit.
 
 Protocols. Why? When? Superficially, protocols are about grouping functions together. They certainly do that but its almost incidental and hardly the defining feature. You could do no worse bagging a bunch of functions in a map: you can store it, you can pass it around, call them anywhere the map turns up. See, no protocols necessary. Protocols are almost cheating - not much more than a bunch of metadata sticking around. Its especially true for /multi-protocols/ that build on cl-generics, so they don't even "bag" those functions. Why have protocols, then? Why give it a name? If I had to put my finger on it, I'd say its about indirection. You give me a couple of low-level functions - I enrich your type with powerful API often shared by other data-types (reusing familiar interfaces is good unless forced). I think /low-level/ here is quite important: a tiny bit of low-level code to implement a handful of protocol methods (hopefully, with well-defined semantics), and presto your data get a new vantage point. This change in perspective can sometimes illuminate elegant designs. Again, think low-level - the essentials that your high-level API can't do without condenced to a stratum of methods with clear, concise, well-documented semantics.
 
-multi-structs is the recognition of the views outlined above: map identity can sometimes be valuable but its still a map; unified API for key-value data-types is almost always the right default; one way to reach it (not universally good) is indirection - enter protocols; finally, point of view and rich vocabulary bring vitality to your designs. Ad-hoc abstractions may elevate the discourse enough so as to let you paint that model in your head in code. This in turn will inform your model. It is this back and forth that's to be fluid and not mired in unnecessary detail. It is how you learn the domain, the problem at hand and grow your model. Not software! Software comes later. First you explore and learn, then you take it all down and build that cathedral. Right? Right?!
+multi-structs is the recognition of the views outlined above: map identity can sometimes be valuable but its still a map; unified API for key-value data-types is almost always the right default; one way to reach it (not universally good) is indirection - enter protocols; finally, point of view and rich vocabulary bring vitality to your designs. Ad-hoc abstractions may elevate the discourse enough so as to let you paint that vague model in your head with code, reify it, make it concrete, make it a toy - something you can try, break and learn from. The experience of playing with it, breaking and patching, seeing it leak at the seems will inevitably inform your model. It is this back and forth that's to be fluid and not mired in unnecessary detail. It is how you learn the domain, the problem at hand and grow your model. Not software! Software comes later. First you explore and learn, then you take it all down and build that cathedral. Right? Right?!
 
 ** mu-defprotocol                                                    :macro:
 
@@ -490,6 +496,18 @@ To set nested keys ~mu.~ will create intermediate tables for any missing keys as
   (setf (mu. baz :props :a :props :b) 42)
 
   (should (eq 42 (mu. baz :props :a :props :b)))
+#+end_src
+
+** mu-equatable-protocol                                               :var:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation-property 'mu-equatable-protocol 'variable-documentation))
+#+end_src
+
+** mu.equal                                                      :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu.equal))
 #+end_src
 
 ** mu-callable-protocol                                                :var:
