@@ -494,6 +494,72 @@ implement `mu-table-protocol'."
 (defalias 'mu: 'mu.)
 
 
+;;* mu-equatable-protocol ----------------------------------------- *;;
+
+
+(mu-defprotocol mu-equatable-protocol
+  (defmethod mu--equal (l r)))
+
+
+;; TODO This should work for atomic and some compound hash-table keys but sadly
+;; not others. IIUC keys are compared with `equal', so we're in a chicken and egg
+;; problem since internally hash-table doesn't use our mu--equal:
+;;
+;; (ht-get (ht ('(1) 1)) '(1)) => 1
+;;
+;;   but since (not (equal (ht) (ht)))
+;;
+;; (ht-get (ht ((ht) 1)) (ht)) => nil
+;;
+;; I'd have to roll out my own hash-table implementation to fix. It'd need to be
+;; some tricky hash function that respects mu--qual.
+
+
+(defun mu--equal-associative (l r)
+  (and (eq (type-of l) (type-of r))
+       (= (length (mu.keys l))
+          (length (mu.keys r)))
+       (every
+        (lambda (key) (mu--equal (mu. l key) (mu. r key)))
+        (mu.keys l))))
+
+
+(mu-extend mu-equatable-protocol
+
+  :to hash-table
+  (defmethod mu--equal (l r)
+    (mu--equal-associative l r))
+
+  :to cl-structure-object
+  (defmethod mu--equal (l r)
+    (mu--equal-associative l r)))
+
+
+(cl-defmethod mu--equal ((l t) r)
+  (equal l r))
+
+
+(defalias 'mu.equal 'mu--equal)
+
+
+(comment
+ (mu.equal '() '())
+ (mu.equal '(1) '(1))
+ (mu.equal '(1) '())
+ (mu.equal (ht) (ht))
+ (mu.equal (ht (0 1)) (ht (0 1)))
+ (mu.equal (foo-struct-create)
+           (foo-struct-create))
+
+ (mu.equal '(1) '())
+ (mu.equal '(1) (ht (0 1)))
+ (mu.equal (ht) (ht (0 1)))
+ (mu.equal (foo-struct-create :name :not-foo)
+           (foo-struct-create))
+ ;; comment
+ )
+
+
 ;;* mu-callable-protocol ----------------------------------------- *;;
 
 
