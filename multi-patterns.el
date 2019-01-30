@@ -1141,6 +1141,10 @@ destructuring:
 ;;* todo --------------------------------------------------------- *;;
 
 
+;; TODO Add support for `find-func'. I think its used internally to generate links
+;; in Help buffers. I'd need to confirm this is something usefull. See
+;; `find-function-regexp-alist' and see how `cl-generic.el' did it.
+
 ;; TODO allow to maintain state between recursive mu-defun calls:
 ;;
 ;;   (mu-defun foo (arglist)

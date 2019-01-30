@@ -308,7 +308,85 @@ attempt is made to use multi-methods in dynamic scope.")
   `(put ',var 'function-documentation ,docstring))
 
 
-;;* Provide ------------------------------------------------------- *;;
+;;* Imenu  ------------------------------------------------------- *;;
+
+
+(defvar mu-imenu-expressions
+  (list
+   (list nil
+         (purecopy (concat "^\\s-*("
+                           (eval-when-compile
+                             (regexp-opt
+                              '("mu-defun" "mu-defmacro" "mu-defmulti"
+                                "mu-defmethod" "mu-defsetter")
+                              t))
+                           "\\s-+\\(" lisp-mode-symbol-regexp "\\)"))
+         2)
+
+   (list (purecopy "Patterns")
+         (purecopy (concat "^\\s-*("
+                           (eval-when-compile
+                             (regexp-opt
+                              '("mu-defpattern")
+                              t))
+                           "\\s-+'?\\(" lisp-mode-symbol-regexp "\\)"))
+         2)
+
+   (list (purecopy "Protocols")
+         (purecopy (concat "^\\s-*("
+                           (eval-when-compile
+                             (regexp-opt
+                              '("mu-defprotocol")
+                              t))
+                           "\\s-+'?\\(" lisp-mode-symbol-regexp "\\)"))
+         2)
+   (list (purecopy "Variables")
+         (purecopy (concat "^\\s-*("
+                           (eval-when-compile
+                             (regexp-opt
+                              '("mu-defprotocol")
+                              t))
+                           "\\s-+'?\\(" lisp-mode-symbol-regexp "\\)"))
+         2)
+
+   ;; also fix `cl-defstruct' regex while we at it. Note that both allow
+   ;; parenthesized struct name that the orgiginal regex forgot to handle
+   (list (purecopy "Types")
+         (purecopy (concat "^\\s-*("
+                           (eval-when-compile
+                             (regexp-opt
+                              '("mu-defstruct" "cl-defstruct")
+                              t))
+                           "\\s-+'?(?\\(" lisp-mode-symbol-regexp "\\)"))
+         2))
+  "Imenu generic expressions for mu-def* forms.")
+
+
+(defun mu-enable-imenu-support ()
+  "Add mu-def* expressions to `imenu' by extending
+`lisp-imenu-generic-expression'."
+  (eval-after-load 'lisp-mode
+    (dolist (expr mu-imenu-expressions)
+      (add-to-list 'lisp-imenu-generic-expression expr))))
+
+
+(defun mu-disable-imenu-support ()
+  "Remove mu-def* expressions from `imenu'."
+  (eval-after-load 'lisp-mode
+    (dolist (expr mu-imenu-expressions)
+      (setq lisp-imenu-generic-expression
+            (remove expr lisp-imenu-generic-expression)))))
+
+
+;; temp hack so I can have imenu in multi repo
+(defun mu-enable-imenu-support-refind-file ()
+  (interactive)
+  (mu-enable-imenu-support)
+  (when-let ((file (buffer-file-name (current-buffer))))
+    (kill-buffer-if-not-modified (current-buffer))
+    (find-file file)))
+
+
 
 
 (provide 'multi-prelude)

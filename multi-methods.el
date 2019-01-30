@@ -662,6 +662,10 @@ else assume CL-arglist."
  ;; comment
  )
 
+;; TODO maybe nice to have `mu-call-next-method' a-la `cl-call-next-method'.
+;; Typical pattern would be to delegate to :default. This calls for semantics to
+;; order methods by priority and specificity, I guess.
+
 ;; TODO Think about reasonable and practical global-hierarchy, e.g. one that works
 ;; for structs, isa relationship between predicates, maybe even eieio classes
 ;; although I have no experienc with those.
