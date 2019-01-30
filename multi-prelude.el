@@ -387,6 +387,22 @@ attempt is made to use multi-methods in dynamic scope.")
     (find-file file)))
 
 
+;;* Font-lock ---------------------------------------------------- *;;
+
+
+(let ((types  (regexp-opt '("mu-defprotocol" "mu-defstruct" "mu-extend") t))
+      (defuns (regexp-opt '("mu-defmulti" "mu-defmethod" "mu-defun" "mu-defmacro" "mu-defpattern") t)))
+  (font-lock-add-keywords
+   'emacs-lisp-mode
+   `((,(concat "(" defuns "\\_>" "[ \t]*" "\\(\\(?:\\sw\\|_\\|-\\)+\\)?")
+      (1 font-lock-keyword-face)
+      (2 font-lock-function-name-face nil t))
+     (,(concat "(" types "\\_>" "[ \t]*" "(?" "\\(\\(?:\\sw\\|_\\|-\\)+\\)?")
+      (1 font-lock-keyword-face)
+      (2 font-lock-type-face nil t)))))
+
+
+;;* Provide ------------------------------------------------------ *;;
 
 
 (provide 'multi-prelude)
