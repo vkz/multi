@@ -308,58 +308,46 @@ attempt is made to use multi-methods in dynamic scope.")
   `(put ',var 'function-documentation ,docstring))
 
 
-;;* Imenu  ------------------------------------------------------- *;;
+;;* Font-lock & Imenu--------------------------------------------- *;;
 
 
-(defvar mu-imenu-expressions
-  (list
-   (list nil
-         (purecopy (concat "^\\s-*("
-                           (eval-when-compile
-                             (regexp-opt
-                              '("mu-defun" "mu-defmacro" "mu-defmulti"
-                                "mu-defmethod" "mu-defsetter")
-                              t))
-                           "\\s-+\\(" lisp-mode-symbol-regexp "\\)"))
-         2)
+;; NOTE ultimately imenu setup sets `imenu-generic-expression'. Since its
+;; buffer-local you want `lisp-imenu-generic-expression' set before you ever open
+;; any Elisp buffer, so this needs to be called from init.el. Neither imenu nor
+;; font-lock depend on multi. So I think this setup ought to be in a separate
+;; namespace that doesn't load multi features.
 
-   (list (purecopy "Patterns")
-         (purecopy (concat "^\\s-*("
-                           (eval-when-compile
-                             (regexp-opt
-                              '("mu-defpattern")
-                              t))
-                           "\\s-+'?\\(" lisp-mode-symbol-regexp "\\)"))
-         2)
 
-   (list (purecopy "Protocols")
-         (purecopy (concat "^\\s-*("
-                           (eval-when-compile
-                             (regexp-opt
-                              '("mu-defprotocol")
-                              t))
-                           "\\s-+'?\\(" lisp-mode-symbol-regexp "\\)"))
-         2)
-   (list (purecopy "Variables")
-         (purecopy (concat "^\\s-*("
-                           (eval-when-compile
-                             (regexp-opt
-                              '("mu-defprotocol")
-                              t))
-                           "\\s-+'?\\(" lisp-mode-symbol-regexp "\\)"))
-         2)
-
-   ;; also fix `cl-defstruct' regex while we at it. Note that both allow
-   ;; parenthesized struct name that the orgiginal regex forgot to handle
-   (list (purecopy "Types")
-         (purecopy (concat "^\\s-*("
-                           (eval-when-compile
-                             (regexp-opt
-                              '("mu-defstruct" "cl-defstruct")
-                              t))
-                           "\\s-+'?(?\\(" lisp-mode-symbol-regexp "\\)"))
-         2))
+(defvar mu-imenu-expressions nil
   "Imenu generic expressions for mu-def* forms.")
+
+
+(let* ((blanks '(+ (or space "\n")))
+       (symbol '(+ (any "-" "_" word)))
+       (types  '("mu-defstruct"  "mu-defprotocol" "mu-extend" "cl-defstruct"))
+       (funs   '("mu-defmulti"   "mu-defmethod"   "mu-defun"  "mu-defmacro"
+                 "mu-defpattern" "mu-defsetter"))
+       (rx      (lambda (defs) (rx-to-string
+                           `(seq "(" (group (or ,@defs)) symbol-end ,blanks
+                                 (?  "(") (group ,symbol))))))
+
+  ;; font-lock
+  (font-lock-add-keywords
+   'emacs-lisp-mode
+   `((,(funcall rx types)
+      (1 font-lock-keyword-face)
+      (2 font-lock-type-face nil t))
+     (,(funcall rx funs)
+      (1 font-lock-keyword-face)
+      (2 font-lock-function-name-face nil t))))
+
+  ;; imenu
+  (setq mu-imenu-expressions
+        `((nil         ,(funcall rx funs)                            2)
+          ("Types"     ,(funcall rx types)                           2)
+          ("Patterns"  ,(funcall rx '("mu-defpattern"))              2)
+          ("Protocols" ,(funcall rx '("mu-defprotocol" "mu-extend")) 2)
+          ("Variables" ,(funcall rx '("mu-defprotocol"))             2))))
 
 
 (defun mu-enable-imenu-support ()
@@ -385,21 +373,6 @@ attempt is made to use multi-methods in dynamic scope.")
   (when-let ((file (buffer-file-name (current-buffer))))
     (kill-buffer-if-not-modified (current-buffer))
     (find-file file)))
-
-
-;;* Font-lock ---------------------------------------------------- *;;
-
-
-(let ((types  (regexp-opt '("mu-defprotocol" "mu-defstruct" "mu-extend") t))
-      (defuns (regexp-opt '("mu-defmulti" "mu-defmethod" "mu-defun" "mu-defmacro" "mu-defpattern") t)))
-  (font-lock-add-keywords
-   'emacs-lisp-mode
-   `((,(concat "(" defuns "\\_>" "[ \t]*" "\\(\\(?:\\sw\\|_\\|-\\)+\\)?")
-      (1 font-lock-keyword-face)
-      (2 font-lock-function-name-face nil t))
-     (,(concat "(" types "\\_>" "[ \t]*" "(?" "\\(\\(?:\\sw\\|_\\|-\\)+\\)?")
-      (1 font-lock-keyword-face)
-      (2 font-lock-type-face nil t)))))
 
 
 ;;* Provide ------------------------------------------------------ *;;
