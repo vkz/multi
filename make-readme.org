@@ -154,13 +154,36 @@ Working with structs is awkward especially when you nest them, mix with other st
 
 * multi-patterns
 
-intro
+#+CAPTION: Sentiment about `pcase'
+#+NAME:   fig:pcase
+#+attr_org: :width 200px
+[[./resources/byte-compiling_in_presence_of_pcase_patterns_-_Emacs_Stack_Exchange.png]]
 
-** mu-prefer-nested-pcase                                              :var:
+Multi-patterns build on the venerable ~pcase~ macro to give you powerful yet clean pattern-matching. Indeed pcase is known to be quite noisy and is often avoided by devs for that very reason. This leads to a rather sad reality where a fair amount of Emacs Lisp code defaults to low-level Lisp primitives like ~car~, ~cdr~ and friends. What may not be immediately apparent is that this is often trading syntactic noise for semantic one. Its not uncommon to find yourself drowning in a sea of destructuring code that completely obfuscates the real problem being solved. Sometimes waranted by performance considerations, it doesn't need to be the default modus operandi. At least not for your typical Emacs Lisp script.
 
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
-  (princ (documentation-property 'mu-prefer-nested-pcase 'variable-documentation))
+I would like to emphasize that whoever designed ~pcase~ patterns chose some powerful primitives. People redicule it for its noisy syntax and that's fair if you think it a high-level DSL for pattern-matching. But what if you treat as an assembly language: low on abstraction, high on noise and redundancy. We hardly ever choose to write assembly by hand, so don't. This is lisp: pick beautiful syntax and compile it to pcase-patterns. That is exactly what multi-patterns do. That and a bunch of other nice things. Enjoy.
+
+We also provide ~mu-defun~ (~mu-defmacro~) that extend their native counterparts with the ability to pattern match and destructure their arguments. To a first approximation this is syntactic sugar over function definition and ~mu-case~ expression. ~mu-defun~ exists in two versions: /single-head/ and /multi-head/, where the former is like ~defun~ that also pattern matches its arglist binding any pattern-variables in the body, while the latter allows multiple clauses each with its own arglist pattern and body. Multi-head defun is not unlike and has been inspired by Clojure's multi-head ~defn~ but is strictly more expressive.
+
+Note that dispatch on arity takes priority over destructuring and binding. To that effect the outermost sequence pattern in both single-head and multi-head ~mu-defun~ is strict, so it either matches the same number of elements as arguments passed to it or fails and tries the next clause. In multi-head case internal sequence-patterns are strict as well, so that one can dispatch on the internal structure even if multiple clauses have the same arity; in a single-head only the external []-pattern is strict so that calls with incorrect arity maybe caught; internal sequence patterns, however, are permissive to fascilitate destructuring. None of this is terribly important as long as it matches user expectation which I hope it does.
+
+/Note to Clojure programmers/. Although inspired by Clojure the dispatch semantics of ~mu-defun~ is more expressive. The following is not allowed in Clojure:
+
+#+begin_src clojure
+  (defn foo
+    ([a b c] ...)
+    ([a b &rest pattern] ...))
 #+end_src
+
+nor can you dispatch on the same arity
+
+#+begin_src clojure
+  (defn foo
+    ([a [b c] d] ...)
+    ([a [b] c]   ...))
+#+end_src
+
+I see no reason for us to follow in Clojure footsteps and surrender expressiveness afforded by patterns. /multi.el/ takes the view that it is desirable to dispatch not only on the arity but on the internal structure as well.
 
 ** mu-case                                                           :macro:
 
@@ -168,12 +191,30 @@ intro
   (princ (documentation 'mu-case))
 #+end_src
 
+Some basic examples. Note that ~[pat ...]~ is a sequence-pattern that will happily match both lists and vectors.
+
+#+begin_src emacs-lisp
+  (should (equal '(2 [3 4]) (mu-case [1 2 3 4]
+                              ((l a _ c)    (list a c))
+                              ((v a _ c)    (list a c))
+                              ([_ b | rest] (list b rest))
+                              (otherwise    'no-match))))
+#+end_src
+
+
+** mu-prefer-nested-pcase                                              :var:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation-property 'mu-prefer-nested-pcase 'variable-documentation))
+#+end_src
 
 ** mu-defpattern                                                     :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-defpattern))
 #+end_src
+
+For many examples see pre-defined custom patterns in [[file:multi-patterns.el::;;**%20-%20l-pattern%20-------------------------------------------------%20*;;][multi-patterns.el]]
 
 ** mu-pattern-documentation                                      :procedure:
 
@@ -185,9 +226,20 @@ intro
 
 *** ?-pattern                                                     :pattern:
 
+Predicate pattern. Equivalent to ~(pred function)~ pcase-pattern.
+
+#+begin_src emacs-lisp
+  (should (eq 'match (mu-case 1
+                       ((or (? zerop) (? oddp)) 'match))))
+#+end_src
+
 *** lst-pattern                                                   :pattern:
 
+List pattern. To match it must have the same number of patterns as elements in the list and every pattern must match.  Unlike [[*l-pattern][l-pattern]] it does not allow matching tail of a list with ~&rest~.
+
 *** vec-pattern                                                   :pattern:
+
+Vector pattern. Like [[*lst-pattern][lst-pattern]] but matches vectors.
 
 ** predefined mu-patterns
 
@@ -197,10 +249,20 @@ intro
   (princ (mu-pattern-documentation 'l))
 #+end_src
 
+#+begin_src emacs-lisp
+  (should (equal '(2 3) (mu-case '(1 (2 3))
+                          ((l _ (l a | tail)) (list* a tail)))))
+#+end_src
+
 *** v-pattern                                                     :pattern:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (mu-pattern-documentation 'v))
+#+end_src
+
+#+begin_src emacs-lisp
+  (should (equal '(1 [2 3]) (mu-case [1 2 3]
+                              ((v x | tail) (list x tail)))))
 #+end_src
 
 *** lv-pattern                                                    :pattern:
@@ -215,6 +277,11 @@ intro
   (princ (mu-pattern-documentation 'seq))
 #+end_src
 
+#+begin_src emacs-lisp
+  (should (equal '(1 2 3) (mu-case [(1) [(2)] (3)]
+                            ([[a] [[b]] [c]] (list a b c)))))
+#+end_src
+
 **** mu-seq-pattern-force-list                                    :custom:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
@@ -227,10 +294,24 @@ intro
   (princ (mu-pattern-documentation 'ht))
 #+end_src
 
+#+begin_src emacs-lisp
+  (should (equal '(1 2 3 4) (mu-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
+                              ((ht :a b 'c ('d D)) (list a b c D)))))
+#+end_src
+
 *** ht|-pattern                                                   :pattern:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (mu-pattern-documentation 'ht|))
+#+end_src
+
+Example:
+#+begin_src emacs-lisp
+  (should (equal '(1 2) (mu-case '(:a 1 :b 2 body)
+                          ([| (ht| a b)] (list a b)))))
+
+  (should (equal '(1 2 (body)) (mu-case '(:a 1 :b 2 body)
+                                 ([| (ht| a b [| rest])] (list a b rest)))))
 #+end_src
 
 *** id-pattern                                                    :pattern:
@@ -245,16 +326,44 @@ intro
   (princ (documentation 'mu-let))
 #+end_src
 
+Note that in the example below []-pattern is permissive, so any extra pattern-variables are bound to nil, any extra sequence values that have no patterns to match are discarded:
+
+#+begin_src emacs-lisp
+  (should (equal '(1 2 nil 3 5 6) (mu-let (([x y z]  '(1 2))
+                                           ([a]      '(3 4))
+                                           ((ht b c) (ht (:b 5)
+                                                         (:c 6))))
+                                    (list x y z a b c))))
+#+end_src
+
 ** mu-when-let                                                       :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-when-let))
 #+end_src
 
+In the following example the second binding clause fails to match, so the body never runs and the entire expression returns ~nil~:
+
+Example:
+#+begin_src emacs-lisp
+  (should-not (mu-when-let ((a 1)
+                            ((l b) '(0 4)))
+                (list a b)))
+#+end_src
+
 ** mu-if-let                                                         :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-if-let))
+#+end_src
+
+
+Example:
+#+begin_src emacs-lisp
+  (should (equal '(1) (mu-if-let ((a 1)
+                                  ((l b) '(0 4)))
+                          (list a b)
+                        (list a))))
 #+end_src
 
 ** mu-let-parens                                                    :custom:
@@ -269,6 +378,51 @@ intro
   (princ (documentation 'mu-defun))
 #+end_src
 
+Example: single-head ~mu-defun~
+#+begin_src emacs-lisp
+  (mu-defun simple-foo [a [b [c]] | rest]
+    (list* a b c rest))
+
+  (should (equal '(:a :b nil) (simple-foo :a [:b])))
+#+end_src
+
+Examples: multi-head ~mu-defun~
+#+begin_src emacs-lisp
+  (mu-defun foo-fun (&optional a b &rest args)
+    "docstring"
+    :interactive t
+    ([_ _ x y] (list a b x y))
+    ([_ _ x] (list a b x))
+    ([_ _] (list a b))
+    ([_] (list a b))
+    ([] (list a b)))
+
+  (should (equal '(:a :b 1 2) (foo-fun :a :b 1 2)))
+  (should (equal '(:a :b 1)   (foo-fun :a :b 1)))
+  (should (equal '(:a :b)     (foo-fun :a :b)))
+  (should (equal '(:a nil)    (foo-fun :a)))
+
+  (mu-defun foo (a)
+    :before (princ (format ":before %s" a))
+    ([0] (setf a 1))
+    ([1] (setf a 2)))
+
+  (should (eq 1 (foo 0)))
+  (should (eq 2 (foo 1)))
+  (should (equal ":before 0" (with-output-to-string (foo 0))))
+  (should (equal ":before 1" (with-output-to-string (foo 1))))
+
+  (mu-defun foo (a)
+    :return ret
+    :after (princ (format ":after %s" ret))
+    ([0] 0)
+    ([1] 1))
+
+  (should (equal ":after 0" (with-output-to-string (foo 0))))
+  (should (equal ":after 1" (with-output-to-string (foo 1))))
+
+#+end_src
+
 ** mu-defmacro                                                       :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
@@ -278,7 +432,22 @@ intro
 ** mu (μ)                                                            :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
-  (princ (documentation 'mu)
+  (princ (documentation 'mu))
+#+end_src
+
+Examples:
+#+begin_src emacs-lisp
+  (should (equal
+           '(1 2 3 4)
+           (funcall
+            (mu [a b | args] (list* a b args))
+            1 2 3 4)))
+
+  (let ((mu-lambda (mu (a &rest _)
+                     ([_ b] (list a b))
+                     ([_ b c] (list a b c)))))
+    (should (equal '(1 2)   (funcall mu-lambda 1 2)))
+    (should (equal '(1 2 3) (funcall mu-lambda 1 2 3))))
 #+end_src
 
 ** mu-function?                                                  :procedure:
@@ -305,13 +474,13 @@ Protocols (sometimes called /generic interafaces/) allow type specialization of 
 Protocol methods are effectively generic methods as implemented by ~cl-defgeneric~
 limited to single dispatch. Generic dispatch is performed on the type of the first argument - what ~cl-defmethod~ documentation would call ~(obj TYPE)~ specializer.
 
-Protocol implementations may reify several methods with the same name but different arities. Apropriate method will matched and invoked at dispatch.
+Protocol implementations may reify several methods with the same name but different arities. Apropriate method will be matched and invoked at dispatch.
 
 ** motivation
 
-Why structs? When? They let you bundle stuff and pass it around, but why choose them over something else that's also associative and better still - open? Why choose them over, say, hash-tables? Could it be that they have /identity/. Structs or records are about identity for and foremost. Whenever there's a chance you may want to ask "well, what are you?", records help. Entire /dispatch/ business is about asking that very question. Somewhat hidden behind the facade of ~cl-defstruct~ is a simple fact that structs are no more than glorified maps with a :tag field (or a few required fields). That one field, however, makes certain tasks easier and cleaner to solve. The "closed" bit of structs, IMO, is a mistake. There's really no pretending that Emacs Lisp is a richly typed language with type-system guaranties. Why limit structs to pre-defined slots, then? And if structs are nothing but maps with identity, why demand separate and *static!* interface to work with them? These are the questions /multi-structs/ attempt to answer differently by tweaking cl-structs a bit.
+Structs or records are typically used as containers that let you bundle and pass stuff around. Reasonable question to ask (especially in Lisp) is why choose them over something as "constraint" as structs. There are other data types that are explicitly associative or excibit map-like behaviour with some discipline. Better still many are open collections. Alists, plists, list of lists, hash-tables, vectors if ordered numeric keys is what you want. Structs, however, distinguish themselves by having /identity/. Whenever there's a chance you may want to ask "well, what are you?", structs help. Entire /dispatch/ business is often about asking that very question. Somewhat hidden behind the facade of ~cl-defstruct~ is a simple fact that structs are no more than glorified maps with a :tag field (or a few required fields). That one field, however, makes certain tasks easier and cleaner to solve. The "closed" bit of structs, IMO, is a mistake. There's really no pretending that Emacs Lisp is a richly typed language with type-system guaranties. Why limit structs to pre-defined slots, then? And if structs are nothing but maps with identity, why demand separate and *static!* interface to work with them? These are the questions /multi-structs/ attempt to answer differently by tweaking cl-structs a bit.
 
-Protocols. Why? When? Superficially, protocols are about grouping functions together. They certainly do that but its almost incidental and hardly the defining feature. You could do no worse bagging a bunch of functions in a map: you can store it, you can pass it around, call them anywhere the map turns up. See, no protocols necessary. Protocols are almost cheating - not much more than a bunch of metadata sticking around. Its especially true for /multi-protocols/ that build on cl-generics, so they don't even "bag" those functions. Why have protocols, then? Why give it a name? If I had to put my finger on it, I'd say its about indirection. You give me a couple of low-level functions - I enrich your type with powerful API often shared by other data-types (reusing familiar interfaces is good unless forced). I think /low-level/ here is quite important: a tiny bit of low-level code to implement a handful of protocol methods (hopefully, with well-defined semantics), and presto your data get a new vantage point. This change in perspective can sometimes illuminate elegant designs. Again, think low-level - the essentials that your high-level API can't do without condenced to a stratum of methods with clear, concise, well-documented semantics.
+Protocols. Superficially, protocols are about grouping functions together. They certainly do that but its almost incidental and hardly the defining feature. You could do no worse bagging a bunch of functions in a map: you can store it, you can pass it around, call them anywhere the map turns up. See, no protocols necessary. Protocols are almost cheating - not much more than a bunch of metadata sticking around. Its especially true for /multi-protocols/ that build on cl-generics, so they don't even "bag" those functions. Why have protocols, then? Why give it a name? If I had to put my finger on it, I'd say its about indirection. You give me a couple of low-level functions - I enrich your type with powerful API often shared by other data-types (reusing familiar interfaces is good unless forced). I think /low-level/ here is quite important: a tiny bit of low-level code to implement a handful of protocol methods (hopefully, with well-defined semantics), and presto your data get a new vantage point. This change in perspective can sometimes illuminate elegant designs. Again, think low-level - the essentials that your high-level API can't do without condenced to a stratum of methods with clear, concise, well-documented semantics.
 
 multi-structs is the recognition of the views outlined above: map identity can sometimes be valuable but its still a map; unified API for key-value data-types is almost always the right default; one way to reach it (not universally good) is indirection - enter protocols; finally, point of view and rich vocabulary bring vitality to your designs. Ad-hoc abstractions may elevate the discourse enough so as to let you paint that vague model in your head with code, reify it, make it concrete, make it a toy - something you can try, break and learn from. The experience of playing with it, breaking and patching, seeing it leak at the seems will inevitably inform your model. It is this back and forth that's to be fluid and not mired in unnecessary detail. It is how you learn the domain, the problem at hand and grow your model. Not software! Software comes later. First you explore and learn, then you take it all down and build that cathedral. Right? Right?!
 

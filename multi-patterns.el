@@ -524,18 +524,16 @@ match any excessive patterns against that many nils. Supports
 
 
 (mu-defpattern ht (&rest patterns)
-  "mu-pattern to match hash-tables and alists with values bound
-according to the key PATTERNS that maybe one of:
+  "mu-pattern for hash-tables, structs and alists.
 
-  :a or a  - try keys in order :a, 'a and bind to a,
-  'a       - try keys in order 'a, :a and bind to a,
-  (key id) - try key and bind to id
+------------------------------------------------
+PATTERNS = (key-pat ...)
+ key-pat = id | keywordp | 'symbolp | (key id)
+------------------------------------------------
 
-Example:
-
-  (mu-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
-    ((ht :a b 'c ('d D)) (list a b c D)))"
-
+Keyword key-pat looks up :key then 'key in order binding value to
+variable `key'. Quoted symbol key-pat tries in order 'key then
+:key. (key id) looks up `key' binding value to `id' on success."
   (let* ((patterns (mu--ht-pattern patterns))
          (ht-pats (mapcar #'car patterns))
          (alist-pats (mapcar #'cadr patterns))
@@ -581,20 +579,16 @@ ht seq-tail) for further pattern-matching."
 
 
 (mu-defpattern ht| (&rest patterns)
-  "Match sequence prefix as if its a hash-table with :keyword
-keys. Patterns are keyword-patterns allowed in ht-pattern
+  "Mu-pattern for key-value sequence prefix. Try to match and
+collect sequence elements pair-wise as though they were elements
+of a hash-table. PATTERNS are key-patterns like in ht-pattern
 followed by an optional []-pattern to match the rest of the
-sequence:
+sequence.
 
-  (mu-case '(:a 1 :b 2 body)
-     ([| (ht| a b)] (list a b)))
-  =>
-  '(1 2)
-
-  (mu-case '(:a 1 :b 2 body)
-     ([| (ht| a b [| rest])] (list a b rest)))
-  =>
-  '(1 2 (body))"
+------------------------------------------------
+PATTERNS = (key-pat ... [seq-pattern])
+ key-pat = id | keywordp | 'symbolp | (key id)
+------------------------------------------------"
   (let* ((patterns (nreverse patterns))
          (seq-pat (if (vectorp (car patterns)) (pop patterns) '_)))
     `(app mu--prefix-map [(ht ,@patterns) ,seq-pat])))
@@ -626,6 +620,8 @@ sequence:
 
 
 (mu-defpattern id (binding)
+  "Mu-pattern for identifiers - symbols that maybe used as
+variable names. E.g. it wil not match `t' or `nil'."
   (let ((id? (lambda (s) (and (symbolp s)
                          (not (eq s '()))
                          (not (eq s 't))))))
@@ -646,9 +642,7 @@ sequence:
 
 
 (defmacro mu-case (e &rest clauses)
-  "`pcase'-like matching and destructuring with less noise.
-Sequence pattern [] is strict: must match the entire sequence to
-succeed."
+  "Like `pcase' but uses mu-patterns for matching ..."
   (declare (indent 1)
            (debug (form &rest (mu-pat body))))
   ;; overload []-pattern to be strict by using lv-pattern
@@ -725,8 +719,7 @@ no extra parens, but the entire set of bindings must be inside []."
 
 
 (defmacro mu-let (bindings &rest body)
-  "Like `let*' but allow mu-patterns in place of bindings. Any
-[]-pattern is permissive and assumes open-world collections."
+  "Like `let*' but allow mu-patterns in place of bindings ..."
   (declare (indent 1)
            (debug ((&rest (sexp form)) body)))
   (condition-case err
@@ -735,8 +728,8 @@ no extra parens, but the entire set of bindings must be inside []."
 
 
 (defmacro mu-when-let (bindings &rest body)
-  "Like `when-let*' but allow mu-patterns in place of bindings.
-Any []-pattern is permissive and assumes open-world collections."
+  "Like `when-let*' but allow mu-patterns in binding clauses. See
+`mu-let'."
   (declare (indent 1)
            (debug ((&rest (sexp form)) body)))
   (condition-case err
@@ -745,8 +738,8 @@ Any []-pattern is permissive and assumes open-world collections."
 
 
 (defmacro mu-if-let (bindings then-body &rest else-body)
-  "Like `if-let*' but allow mu-patterns in place of bindings. Any
-[]-pattern is permissive and assumes open-world collections."
+  "Like `if-let*' but allow mu-patterns in binding clauses. See
+`mu-let'."
   (declare (indent 2)
            (debug ((&rest (sexp form)) form body)))
   (condition-case err
@@ -1009,69 +1002,21 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
       `(mu-error :defun-malformed-arglist ',arglist)))))
 
 
-(defun mu--set-defun-docstring (fun-type)
-  "Set docstring for `mu-defun' or `mu-defmacro'"
-  (put (sym "mu-" fun-type) 'function-documentation
-       (format
-        "Like `%s' but with multiple clauses. Each clause
-specifies a `mu-case' pattern to match against the &rest part of
-the ARGLIST followed by the body to run if the match succeeds.
-Clauses are tried in order as if one had multiple definitions of
-the same function NAME. METADATA can be supplied as :attribute -
-expression pairs before the BODY:
-
-  (mu-%s foo (arg &rest args)
-    \"docstring\"
-    :declare     dspec
-    :interactive ispec
-    ([mu-case-args-pat1] body1)
-    ([mu-case-args-pat2] body2)
-      ... ...)
-
-In addition to any variable bound by the corresponding pattern
-every clause has the entire ARGLIST in scope.
-
-METADATA is optional and may include the following attributes:
-
-  :declare dspec - a list of `declare' SPECS,
-
-  :interactive ispec - t or `interactive' ARG-DESCRIPTOR,
-
-  :before expr - expression to execute before the body,
-
-  :return var - bind VAR to defun's result in :after code,
-
-  :after expr -  expression to execute after the body.
-
-EXPR in :before and :after have access to ARGLIST. With :return
-declaration :after EXPR also has VAR in scope.
-
-\(fn NAME ARGLIST METADATA &rest BODY)"
-        fun-type fun-type))
-  nil)
-
-
 ;; TODO [] in mu-defun should really be rewritten to l-pattern since we don't care
 ;; to match sequences here - arglist is a list after all, no reason for overhead.
 
 
 (defmacro mu-defun (name arglist &rest body)
+  "Like `defun' but with multiple clauses ..."
   (declare (indent 2))
   (mu--defun 'defun name arglist body #'mu--wrap-defun))
 
 
 (defmacro mu-defmacro (name arglist &rest body)
+  "Like `defmacro' but with multiple clauses ..."
   (declare (indent 2)
            (debug mu-defun))
   (mu--defun 'defmacro name arglist body #'mu--wrap-defun))
-
-
-;; add docstring to `mu-defun'
-(mu--set-defun-docstring 'defun)
-
-
-;; add docstring to `mu-defmacro'
-(mu--set-defun-docstring 'defmacro)
 
 
 ;;* mu-lambda ---------------------------------------------------- *;;
@@ -1090,14 +1035,9 @@ declaration :after EXPR also has VAR in scope.
 
 
 (defmacro mu (arglist &rest body)
-  "Create a lambda-like anonymous function but allow `mu-defun'
-style single-head destructuring or multi-head dispatching and
-destructuring:
+  "Create an anonymous function, otherwise like `mu-defun'.
 
-  (mu [patterns] body)
-  (mu arglist ([patterns] body) mu-clause...)
-
-\(fn [patterns] body)"
+\(fn ARGLIST METADATA BODY...)"
 
   (declare (indent 1))
   (mu--defun 'mu-lambda 'mu-lambda arglist body #'mu--wrap-lambda))
@@ -1122,6 +1062,8 @@ destructuring:
 
 
 (defmacro mu-defsetter (id &rest body)
+  "Like `gv-define-setter' but allow `mu-defun' dispatch and
+destructuring."
   (declare (indent 2)
            (debug (&or [&define name mu] mu-defun)))
   (let* ((gv-args (gensym "gv-args"))
@@ -1136,6 +1078,83 @@ destructuring:
                        (gv--defsetter ',id
                                       ,setter
                                       ,do ,gv-args))))))
+
+
+;;* docs --------------------------------------------------------- *;;
+
+
+(mu-docfun mu-case
+  "Like `pcase' but uses mu-patterns for matching.
+
+------------------------------
+      E = sexp
+CLAUSES = (clause ...)
+ clause = (pattern body ...)
+        | (otherwise body ...)
+------------------------------
+
+Any sequence []-pattern is treated strictly - must match the
+entire sequence to succeed.")
+
+
+(mu-docfun mu-let
+  "Like `let*' but allow mu-patterns in binding clauses. Any
+pattern-variables bound during pattern matching will be available
+in the BODY.
+
+-------------------------
+BINDINGS = (clause ...)
+  clause = (pattern expr)
+-------------------------
+
+Any sequence []-pattern is permissive.")
+
+
+(mu-docfun mu-defun
+  "Like `defun' but choose the body to execute by
+pattern-matching on the arglist. Clauses are tried in order as if
+multiple definitions of the same function NAME were defined.
+
+------------------------------------
+    ARGLIST = seq-pattern
+            | _
+            | id
+            | (args ...)
+
+   METADATA = [docstring] attr ...
+
+       attr = :declare form
+            | :interactive form
+            | :before form
+            | :return id
+            | :after form
+
+       BODY = body
+            | clause ...
+
+     clause = (seq-pattern body ...)
+
+seq-pattern = `['pattern ...`]'
+------------------------------------
+
+In addition to any pattern-variable bound by a clause-pattern
+each body has ARGLIST variables in scope.
+
+In attr options :declare takes a list of `declare' specs;
+:interactive is either `t' or an `interactive' arg-descriptor;
+:return binds VAR to the result of BODY; :before and :after
+execute their respective forms for side-effect before and after
+BODY. Both forms have ARGLIST bindings in scope, :after form has
+access to the VAR when defined.
+
+ARGLIST is a seq-pattern in a single-head `mu-defun'. In a
+multi-head case one can also bind the entire arglist to an id or
+ignore it with _. Otherwise it must be a `defun' arglist.
+
+\(fn NAME ARGLIST METADATA &rest BODY)")
+
+
+(mu-docfun mu-defmacro (documentation 'mu-defun))
 
 
 ;;* todo --------------------------------------------------------- *;;

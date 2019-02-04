@@ -752,6 +752,17 @@ Set two properties on struct-id symbol :mu-type? tagging it as a
 
 ;;* todo --------------------------------------------------------- *;;
 
+(comment
+
+ ;; TODO lazy-streams by defining `mu-streamable-protocol'. Then someone could
+ ;; implement a crap ton of cool functions that work with sequences. See Racket
+ ;; `gen:stream' for inspiration.
+ (mu-defprotocol mu-streamable-protocol
+   (defmethod mu--stream-empty? (stream))
+   (defmethod mu--stream-first (stream))
+   (defmethod mu--stream-rest (stream)))
+ ;; comment
+ )
 
 (comment
 
