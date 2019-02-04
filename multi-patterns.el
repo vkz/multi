@@ -812,57 +812,35 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
       attrs-clauses)))
 
 
-;; NOTE :before and :after "methods" are tricky. Both are essentially for side
-;; effects which makes them (:after in particular) dangerous. Think carefully how
-;; they play out especially when the defun recursively calls itself say in tail
-;; position. Effect would be that :after of the very first call fires last. If
-;; that :after call manages to close over some stale state and then mutate
-;; something at top-level, it may override whatever more recent data the "later"
-;; :after code installed. Can't think of any dangerous examples atm, but they are
-;; certain to exist. There is use for :before and :after, but IMO more in a :setup
-;; :teardown sense. I'm on the fence about the whole thing now.
-
-
-;; TODO possible solution to :before :after and recursive calls: wrap main defun
-;; body in `cl-flet' that rebinds defun to one without :before and :after for the
-;; dynamic extend of the body. This should ensure they are only called once. IMO
-;; this is resoanable semantics and supports the "recursively call yourself"
-;; pattern that works so well in multi-methods and multi-head defuns. I may not
-;; even need to `unwind-protect':
-(comment
- (defun foo-fun () 0)
- (foo-fun)
- ;; => 0
- (flet ((foo-fun () 42))
-   (foo-fun))
- ;; => 42
- (foo-fun)
- ;; => 0
- (flet ((foo-fun () 42))
-   (error "oops"))
- ;; => error
- (foo-fun)
- ;; => 0
- ;; comment
- )
-
-
-;; :before expr
+;; :before form
 (defun mu--add-before-call (body attrs)
   "If ATTRS has :before code alter BODY to run it first."
   ;; NOTE we expect BODY to be a mu-case expr
-  (if-let ((before (and (ht-p attrs) (ht-get attrs :before))))
-      ;; NOTE user can mutate arglist before the BODY runs, they better know what
-      ;; they're doing - not stopping them
-      `(progn ,before ,body)
+  (if-let ((before (and (ht-p attrs) (ht-get attrs :before)))
+           (var    (gensym "before")))
+      (progn
+        ;; generate defvar and pass it to be installed at top level
+        (setf (ht-get attrs :before-defvar) `(defvar ,var t))
+        `(progn
+           ;; only run before-code when var is set
+           (when ,var ,before)
+           ;; disable before-code in recursive calls
+           (let ((,var nil)) ,body)))
     body))
 
 
-;; :after expr
+;; :setup form
+(defun mu--add-setup-call (body attrs)
+  "If ATTRS has :setup code alter BODY to run it first."
+  ;; NOTE we expect BODY to be a mu-case expr
+  (if-let ((setup (and (ht-p attrs) (ht-get attrs :setup))))
+      `(progn ,setup ,body)
+    body))
+
+
+;; :after form
 (defun mu--add-after-call (body attrs)
-  "If ATTRS has :after CODE alter BODY to run it last. With
-:return VAR in ATTRS bind VAR to the result of BODY when running
-:after code."
+  "If ATTRS has :after CODE alter BODY to run it last."
   ;; NOTE we expect BODY to be a mu-case expr
   (let (return after)
 
@@ -875,11 +853,37 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
 
     (if after
         ;; extend body with after code
+        (let ((return (or return (gensym "return")))
+              (var (gensym "after")))
+          ;; generate defvar and pass it to be installed at top level
+          (setf (ht-get attrs :after-defvar) `(defvar ,var t))
+          ;; disable after-code in recursive calls by resetting var
+          `(let ((,return (let ((,var nil)) ,body)))
+             ;; only run after-code when var is set
+             (when ,var ,after)
+             ,return))
+      ;; body unchanged
+      body)))
+
+
+;; :teardown form
+(defun mu--add-teardown-call (body attrs)
+  "If ATTRS has :teardown CODE alter BODY to run it last."
+  ;; NOTE we expect BODY to be a mu-case expr
+  (let (return teardown)
+
+    (when (ht-p attrs)
+      (setq return (ht-get attrs :return)
+            teardown (ht-get attrs :teardown)))
+
+    (when (and return (not (symbolp return)))
+      (mu-error :defun-return))
+
+    (if teardown
+        ;; extend body with teardown code
         (let ((return (or return (gensym "return"))))
           `(let ((,return ,body))
-             ;; NOTE not stopping user from mutating the returned result but we
-             ;; could with: ,(funcall (lambda (,return) ,after) ,return)
-             ,after
+             ,teardown
              ,return))
       ;; body unchanged
       body)))
@@ -889,6 +893,10 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
   (let* ((body `(mu--case seq ,case-expr-arg
                   ,@body
                   (otherwise (mu-error :defun-no-match ',name))))
+         ;; setup & teardown
+         (body (mu--add-setup-call body attrs))
+         (body (mu--add-teardown-call body attrs))
+         ;; before & after
          (body (mu--add-before-call body attrs))
          (body (mu--add-after-call body attrs)))
     body))
@@ -899,6 +907,10 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
                   ,@body
                   (otherwise
                    (mu-error :defun-no-match ',name))))
+         ;; setup & teardown
+         (body (mu--add-setup-call body attrs))
+         (body (mu--add-teardown-call body attrs))
+         ;; before & after
          (body (mu--add-before-call body attrs))
          (body (mu--add-after-call body attrs)))
     (if lambda-arglist
@@ -908,15 +920,19 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
 
 (defun mu--wrap-defun (fun-type name arglist docstring attrs &rest body)
   (mu-let (((ht debug test before return after
+                before-defvar after-defvar
                 (:declare dspec)
                 (:interactive ispec))
             attrs))
-    `(,fun-type
-      ,name ,arglist
-      ,docstring
-      ,@(when dspec `((declare ,@dspec)))
-      ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
-      ,@body)))
+    `(progn
+       ,before-defvar
+       ,after-defvar
+       (,fun-type
+        ,name ,arglist
+        ,docstring
+        ,@(when dspec `((declare ,@dspec)))
+        ,@(when ispec `((interactive ,@(if (equal 't ispec) '() (list ispec)))))
+        ,@body))))
 
 
 (defun mu--defun (fun-type name arglist body wrap-body)
@@ -1094,8 +1110,10 @@ multiple definitions of the same function NAME were defined.
        attr = :declare form
             | :interactive form
             | :before form
-            | :return id
             | :after form
+            | :return id
+            | :setup form
+            | :teardown form
 
        BODY = body
             | clause ...
@@ -1105,19 +1123,22 @@ multiple definitions of the same function NAME were defined.
 seq-pattern = `['pattern ...`]'
 ------------------------------------
 
-In addition to any pattern-variable bound by a clause-pattern
+In addition to any pattern-variables bound by clause-patterns
 each body has ARGLIST variables in scope.
 
-In attr options :declare takes a list of `declare' specs;
+In attribute options :declare takes a list of `declare' specs;
 :interactive is either `t' or an `interactive' arg-descriptor;
-:return binds VAR to the result of BODY; :before and :after
+:return binds VAR to the result of BODY; :setup and :teardown
 execute their respective forms for side-effect before and after
-BODY. Both forms have ARGLIST bindings in scope, :after form has
-access to the VAR when defined.
+BODY. Both forms have ARGLIST bindings in scope, :teardown form
+has access to the VAR when :return is specified. To avoid before
+and after forms being executed on every recursive call use
+:before and :after attributes instead.
 
-ARGLIST is a seq-pattern in a single-head `mu-defun'. In a
-multi-head case one can also bind the entire arglist to an id or
-ignore it with _. Otherwise it must be a `defun' arglist.
+In a single-head function ARGLIST must be a []-pattern. In a
+multi-head function ARGLIST that is an id will bind ARGLIST to
+that id; ARGLIST that is `_' will be ignored; ARGLIST must be a
+`defun' arglist otherwise.
 
 \(fn NAME ARGLIST METADATA &rest BODY)")
 

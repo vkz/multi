@@ -593,7 +593,31 @@
       ([1] 1))
 
     (should (equal ":after 0" (with-output-to-string (foo 0))))
-    (should (equal ":after 1" (with-output-to-string (foo 1))))))
+    (should (equal ":after 1" (with-output-to-string (foo 1))))
+
+    (mu-defun foo-recursive [n]
+      :before (princ ":before")
+      :after (princ ":after")
+      (if (zerop n) 0 (foo-recursive (1- n))))
+
+    ;; :before and :after should should fire only once per call and ignore any
+    ;; recursive calls. Behave the same no matter how many times we call.
+    (should (equal ":before:after" (with-output-to-string (foo-recursive 3))))
+    (should (equal ":before:after" (with-output-to-string (foo-recursive 3))))
+
+    ;; :setup and :teardown should fire before and after every call
+    (mu-defun foo-with-setup [n]
+      :setup (princ ":setup")
+      :before (princ ":before")
+      :return ret
+      :after (princ ":after")
+      :teardown (princ ":teardown")
+      (if (zerop n) 0 (foo-with-setup (1- n))))
+
+    (should (equal ":before:setup:setup:teardown:teardown:after"
+                   (with-output-to-string (foo-with-setup 1))))
+    (should (equal ":before:setup:setup:teardown:teardown:after"
+                   (with-output-to-string (foo-with-setup 1))))))
 
 
 (ert-deftest mu-test-mu-defsetter ()
