@@ -167,7 +167,7 @@ We also provide ~mu-defun~ (~mu-defmacro~) that extend their native counterparts
 
 Note that dispatch on arity takes priority over destructuring and binding. To that effect the outermost sequence pattern in both single-head and multi-head ~mu-defun~ is strict, so it either matches the same number of elements as arguments passed to it or fails and tries the next clause. In multi-head case internal sequence-patterns are strict as well, so that one can dispatch on the internal structure even if multiple clauses have the same arity; in a single-head only the external []-pattern is strict so that calls with incorrect arity maybe caught; internal sequence patterns, however, are permissive to fascilitate destructuring. None of this is terribly important as long as it matches user expectation which I hope it does.
 
-/Note to Clojure programmers/. Although inspired by Clojure the dispatch semantics of ~mu-defun~ is more expressive. The following is not allowed in Clojure:
+/Note for Clojure programmers/. Although inspired by Clojure the dispatch semantics of ~mu-defun~ is more expressive. The following is not allowed in Clojure:
 
 #+begin_src clojure
   (defn foo
@@ -286,6 +286,23 @@ Vector pattern. Like [[*lst-pattern][lst-pattern]] but matches vectors.
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation-property 'mu-seq-pattern-force-list 'variable-documentation))
+#+end_src
+
+Forcing ~&rest~ submatch to a list is primarily useful when one wants to capture the rest of the sequence and test whether its empty with a traditional ~nil~ check.
+
+Examples:
+#+begin_src emacs-lisp
+  (should (equal [] (mu-case []
+                      ([| rest] rest))))
+
+  (should (equal '() (let ((mu-seq-pattern-force-list 'list))
+                       (mu-case []
+                         ([| rest] rest)))))
+
+  (should (equal '(1 ([2]) (3))
+                 (let ((mu-seq-pattern-force-list 'list))
+                   (mu-case [[1 [2]] 3]
+                     ([[x | y] | z] (list x y z))))))
 #+end_src
 
 *** ht-pattern                                                    :pattern:

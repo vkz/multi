@@ -284,13 +284,24 @@
     (should (equal '(1 2 3 4) (foo 1 '(2 3) 4)))
     (should (equal '(1 2 3) (foo 1 '(2) 3)))
 
-    (comment
-     ;; TODO
-     (eval
-      '(let ((mu-seq-pattern-force-list 'list))
-         (mu-case [[1 [2]] 3]
-           ([[x &rest [y]] &rest z] (list x y z))))
-      'lexical-scope)))
+
+    ;; forcing a list in seq-pattern should work
+    (should (equal [] (mu-case []
+                        ([| rest] rest))))
+
+    (should (equal nil (let ((mu-seq-pattern-force-list 'list))
+                         (mu-case []
+                           ([| rest] rest)))))
+
+    (should (equal '(42)
+                   (let ((mu-seq-pattern-force-list 'list))
+                     (mu-let [[a | rest] '(42)]
+                       (list* a rest)))))
+
+    (should (equal '(1 ([2]) (3))
+                   (let ((mu-seq-pattern-force-list 'list))
+                     (mu-case [[1 [2]] 3]
+                       ([[x | y] | z] (list x y z)))))))
   ;; comment
   )
 

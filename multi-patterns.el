@@ -329,10 +329,12 @@ EDEBUG-SPEC attribute pair.
 
 (defun mu--seq-split (seq pat-len)
   (let* ((subseq (seq-take seq pat-len))
-         (took (length subseq)))
-    (list subseq
-          ;; rest is empty if seq was shorter than patterns
-          (seq-subseq seq took))))
+         (took (length subseq))
+         ;; rest is empty if seq was shorter than patterns
+         (rest (seq-subseq seq took)))
+    (when mu-seq-pattern-force-list
+      (setq rest (seq-into rest 'list)))
+    (list subseq rest)))
 
 
 (defun mu--seq-split-and-pad (seq pat-len)
@@ -344,14 +346,17 @@ EDEBUG-SPEC attribute pair.
                 (:else (mu-error :seq-pattern (type-of seq)))))
          (subseq (seq-take seq pat-len))
          (took (length subseq))
-         (less-by (- pat-len took)))
+         (less-by (- pat-len took))
+         ;; rest is empty if seq was shorter than patterns
+         (rest (seq-subseq seq took)))
+    (when mu-seq-pattern-force-list
+      (setq rest (seq-into rest 'list)))
     ;; return (list padded-head-seq rest-seq)
     (list (if (< took pat-len)
               ;; pad head with nils
               (seq-concatenate type subseq (make-list less-by nil))
             subseq)
-          ;; rest is empty if seq was shorter than patterns
-          (seq-subseq seq took))))
+          rest)))
 
 
 ;;** - l-pattern ------------------------------------------------- *;;
@@ -414,8 +419,8 @@ a &rest subpattern to match remaining items."
 
 (defcustom mu-seq-pattern-force-list nil
   "Force seq-pattern to always cast its &rest submatch to a list.
-Without this setting the &rest supattern match will preserve the
-type of the sequence being matched."
+By default &rest submatch preserves the type of sequence being
+matched."
   :options '(list nil))
 
 
@@ -1146,10 +1151,6 @@ ignore it with _. Otherwise it must be a `defun' arglist.
 ;;* todo --------------------------------------------------------- *;;
 
 
-;; TODO Add support for `find-func'. I think its used internally to generate links
-;; in Help buffers. I'd need to confirm this is something usefull. See
-;; `find-function-regexp-alist' and see how `cl-generic.el' did it.
-
 ;; TODO allow to maintain state between recursive mu-defun calls:
 ;;
 ;;   (mu-defun foo (arglist)
@@ -1193,7 +1194,9 @@ ignore it with _. Otherwise it must be a `defun' arglist.
 ;; TODO I wonder if edebug-specs could somehow be used to make `eldoc' smarter
 ;; about highlighting arguments as you type?
 
-;; TODO Allow to force-list in seq-patterns. See `mu-seq-pattern-force-list'.
+;; TODO Add support for `find-func'. I think its used internally to generate links
+;; in Help buffers. I'd need to confirm this is something usefull. See
+;; `find-function-regexp-alist' and see how `cl-generic.el' did it.
 
 ;; TODO Allow mu-lambdas in standard app-pattern etc: one way is to macroexpand
 ;; arguments at compile time, another is to generate a (let ..) pattern. Wonder if
