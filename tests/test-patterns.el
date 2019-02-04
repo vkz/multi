@@ -418,18 +418,9 @@
                         ;; picks else branch, so no error
                         (list a))))
 
-  ;; should allow uncluttered let-bindings
-  (eval
-   '(let ((mu-let-parens 'no))
-      (should (equal '(1 2) (mu-let (a 1 b 2)
-                              (list a b)))))
-   'lexical-scope)
 
-  (eval
-   '(let ((mu-let-parens 'square))
-      (should (equal '(1 2) (mu-let [a 1 b 2]
-                              (list a b)))))
-   'lexical-scope))
+  (should (equal '(0 1 2) (mu-let [[a b] '(0 1) c 2]
+                            (list a b c)))))
 
 
 ;;* mu-defun ----------------------------------------------------- *;;

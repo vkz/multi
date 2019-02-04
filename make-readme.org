@@ -336,6 +336,16 @@ Note that in the example below []-pattern is permissive, so any extra pattern-va
                                     (list x y z a b c))))
 #+end_src
 
+With patterns on the left traditional Lisp-style let-bindings become busy. This is one case where an alternative Clojure-style let-syntax may be desirable. You may surround let-bindings with [] to minimize leading open-parens, so previous example becomes:
+
+#+begin_src emacs-lisp
+  (should (equal '(1 2 nil 3 5 6) (mu-let [[x y z]  '(1 2)
+                                           [a]      '(3 4)
+                                           (ht b c)  (ht (:b 5)
+                                                         (:c 6))]
+                                    (list x y z a b c))))
+#+end_src
+
 ** mu-when-let                                                       :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
@@ -364,12 +374,6 @@ Example:
                                   ((l b) '(0 4)))
                           (list a b)
                         (list a))))
-#+end_src
-
-** mu-let-parens                                                    :custom:
-
-#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
-  (princ (documentation-property 'mu-let-parens 'variable-documentation))
 #+end_src
 
 ** mu-defun                                                          :macro:

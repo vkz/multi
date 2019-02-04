@@ -552,10 +552,6 @@ variable `key'. Quoted symbol key-pat tries in order 'key then
 ;; against a [(ht pat...) tail-pat].
 
 
-;; TODO This implementation maybe too general. Do I ever expect to match vectors
-;; with an ht| pattern? Do I ever expect keys to be anything but :keywords?
-
-
 ;; NOTE My first version was a trivial recursive function. This loop is ugly but I
 ;; guess more performant? I should've measured.
 (cl-defun mu--prefix-map (body &optional (key-pred #'keywordp))
@@ -659,17 +655,6 @@ variable names. E.g. it wil not match `t' or `nil'."
 ;; with full expressiveness of mu-patterns.
 
 
-;; TODO Is it a bad idea? Should I simply allow the two cases:
-;;   (mu-let [pat val   ...] body)
-;;   (mu-let ((pat val) ...) body
-;; and dispense with this stupid option?
-(defcustom mu-let-parens 'yes
-  "Control if `mu-let' shoud have a set of parens around each
-binding clause like normal `let': 'yes (default), 'no, 'square -
-no extra parens, but the entire set of bindings must be inside []."
-  :options '(yes no square))
-
-
 (defun mu--let (bindings body)
   (let* ((pair (car bindings))
          (pat (car pair))
@@ -712,10 +697,9 @@ no extra parens, but the entire set of bindings must be inside []."
 
 
 (defun mu--let-bindings (bindings)
-  (case mu-let-parens
-    ('yes    bindings)
-    ('no     (seq-partition bindings 2))
-    ('square (seq-partition (seq-into bindings 'list) 2))))
+  (if (vectorp bindings)
+      (seq-partition (seq-into bindings 'list) 2)
+    bindings))
 
 
 (defmacro mu-let (bindings &rest body)
@@ -1102,10 +1086,12 @@ entire sequence to succeed.")
 pattern-variables bound during pattern matching will be available
 in the BODY.
 
--------------------------
-BINDINGS = (clause ...)
-  clause = (pattern expr)
--------------------------
+-------------------------------
+BINDINGS = ((pattern expr) ...)
+         | `['clause ...`]'
+
+  clause = pattern expr
+-------------------------------
 
 Any sequence []-pattern is permissive.")
 
