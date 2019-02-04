@@ -158,17 +158,6 @@ some optimizations `pcase' could have undertaken had it known all
 the clauses (citation needed).")
 
 
-;; TODO rather than intermediating with mu--case, should I allow to parameterize
-;; mu-case directly. Might be cleaner. I hate function proliferation.
-;;
-;;   (mu-case expr
-;;     :seq  seq
-;;     :ns   custom-pat-namespace
-;;     :nest t
-;;     (pat1 body1)
-;;     (pat2 body2))
-
-
 (defmacro mu--case (seq-pat e &rest clauses)
   "`pcase'-like matching and destructuring. SEQ-PAT parameterizes
 [] seq-pattern to be one of: `lv' for strict and `seq' for
@@ -569,14 +558,6 @@ ht seq-tail) for further pattern-matching."
                            collect (cons (pop body) (pop body)))))
     (list (ht<-alist pairs)
           (if vector? (apply #'vector body) body))))
-
-
-;; TODO I'd like to be able to capture prefix-map as hash-table and bind it, so
-;; maybe ht| should accept two arguments each a mu-pattern (:& instead of ht|):
-;;
-;; (:& ht-pat rest-seq-pat)
-;; (:& table rest)
-;; (:& (ht a b) [foo bar])
 
 
 (mu-defpattern ht| (&rest patterns)
@@ -991,10 +972,6 @@ to it, else nil. Do not treat emty body as mu-defun-clauses."
       `(mu-error :defun-malformed-arglist ',arglist)))))
 
 
-;; TODO [] in mu-defun should really be rewritten to l-pattern since we don't care
-;; to match sequences here - arglist is a list after all, no reason for overhead.
-
-
 (defmacro mu-defun (name arglist &rest body)
   "Like `defun' but with multiple clauses ..."
   (declare (indent 2))
@@ -1150,6 +1127,25 @@ ignore it with _. Otherwise it must be a `defun' arglist.
 
 ;;* todo --------------------------------------------------------- *;;
 
+;; TODO maybe I should allow attr options in mu-case related forms: mu-case,
+;; mu-let, mu-defun, mu:
+;;
+;;   (mu-case expr
+;;     :seq  seq
+;;     :ns   custom-pat-namespace
+;;     :nest t
+;;     (pat1 body1)
+;;     (pat2 body2))
+
+;; TODO [] in mu-defun should really be rewritten to l-pattern since we don't care
+;; to match sequences here - arglist is a list after all, no reason for overhead.
+
+;; TODO I'd like to be able to capture prefix-map as hash-table and bind it, so
+;; maybe ht| should accept two arguments each a mu-pattern (:& instead of ht|):
+;;
+;; (:& ht-pat rest-seq-pat)
+;; (:& table rest)
+;; (:& (ht a b) [foo bar])
 
 ;; TODO allow to maintain state between recursive mu-defun calls:
 ;;
