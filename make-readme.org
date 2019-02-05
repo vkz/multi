@@ -740,7 +740,7 @@ Or alter the behavior of the entire struct type by providing custom implementati
 
 Multimethods bring ad-hoc multiple dispatch to Emacs Lisp. Multimethod combines a dispatch function with an open set of methods each associated with a value. When multimethod gets called its dispatch function, defined with ~mu-defmulti~, is applied to the arguments to compute a dispatch value. Dispatch mechanism then checks which method, defined with ~mu-defmethod~, has its value in an /isa?/ relatitonship with the dispatch value and runs that method. To a first approximation isa-relation can be thought of as two values being equal or in a parent-child or ancestor-descendant relationship. Semantics get more involved for collections. Programmers not familiar with multimethods are referred to Clojure's [[https://clojure.org/reference/multimethods][Multimethods and Hierarchies]] tutorial.
 
-/Note for Clojure programmers/. This implementation takes a lot of inspiration from Clojure, so for the most part Clojure programmers should feel right at home modulo some syntactic differences. Naturally, Emacs Lisp type system is nothing like Clojure let alone Java, so depending on your circumstances your programming patterns may require some adjustment.
+/Note for Clojure programmers/. This implementation takes a lot of inspiration from Clojure, so for the most part Clojure programmers should feel right at home modulo some syntactic differences. Naturally, Emacs Lisp type system is nothing like Clojure's let alone Java's, so some of your programming patterns may require adjustment.
 
 ** make-mu-hierarchy                                             :procedure:
 
@@ -980,6 +980,107 @@ Example: default method
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-undefmethod))
+#+end_src
+
+* multi-benchmarks
+
+Multi-benchmarks is a series of macros to measure execution time of arbitrary code. Code is byte-compiled before any such measurment is taken. Whenever possible library functions attempt to account for any overhead they introduce. Measurements are reported as lists that ORG-mode recognizes as tables. This makes comparing, tracking, visualizing and sharing performance stats in an ORG file very convenient.
+
+Please see [[file:benchmarks.org][./benchmarks.org]] in this repository for how multi-benchmarks can leverage ORG-mode to measure and track real code performance.
+
+Examples:
+#+begin_src emacs-lisp
+  (example
+
+   (mu-bench :times 3 (princ (+ 1 2)))
+
+   (let ((mu-bench-debug-print 2))
+     (mu-bench*
+      :times 3
+      :compare t
+      (mu-bench "1" (+ 1 2))
+      (mu-bench/let ((a 1)) "2" (+ 1 a))))
+
+   (mu-bench*/let ((a 0)
+                   (b 1))
+     :times 3
+     :compare t
+     (mu-bench "1" (princ (+ a b)))
+     (mu-bench/let ((a 1)) "2" (princ (+ a b))))
+
+   (mu-defbench bar-bench (a b)
+     :times 3
+     (princ (+ a b)))
+
+   (bar-bench 1 2)
+
+   (mu-defbench* foo-bench (a b)
+     :times 3
+     :compare t
+     (mu-bench :name "1" (princ (+ a b)))
+     (mu-bench/let ((a 1)) :name "2" (princ (+ a b))))
+
+   (foo-bench 0 1)
+
+   (let ((mu-bench-debug-print 2))
+     (mu-bench/context
+         ;; benchmark
+         (mu-bench/let ((a 1) (b 2))
+           :times 3
+           (list (foobar) (barfoo) a b))
+       ;; context
+       (defun foobar () 'foobar)
+       (defun barfoo () 'barfoo)))
+   ;; example
+   )
+#+end_src
+
+** mu-bench-debug-print                                                :var:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation-property 'mu-bench-debug-print 'variable-documentation))
+#+end_src
+
+** mu-bench                                                          :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-bench))
+#+end_src
+
+** mu-bench*                                                         :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-bench*))
+#+end_src
+
+** mu-bench/let                                                      :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-bench/let))
+#+end_src
+
+** mu-bench*/let                                                     :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-bench*/let))
+#+end_src
+
+** mu-defbench                                                       :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-defbench))
+#+end_src
+
+** mu-defbench*                                                      :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-defbench*))
+#+end_src
+
+** mu-bench/context                                                  :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-bench/context))
 #+end_src
 
 * test-readme                                                      :noexport:

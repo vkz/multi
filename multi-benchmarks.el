@@ -91,7 +91,12 @@ buffer.")
 
 
 (defmacro mu-bench/let (varlist &optional doc &rest body)
-  "like `mu-bench' but with additional bindings per VARLIST.
+  "Like `mu-bench' but with additional bindings in VARLIST
+available in BODY.
+
+-------------------------
+VARLIST = ((id expr) ...)
+-------------------------
 
 \(fn varlist &optional docstring &key name times raw &rest body)"
   (declare (indent 1))
@@ -115,9 +120,14 @@ buffer.")
 
 
 (mu-defmacro mu-bench*/let [varlist | (ht| times raw compare [| body])]
-  "Like `mu-bench*' but with additional bindings per VARLIST.
+  "Like `mu-bench*' but with additional bindings in VARLIST
+available in BODY.
 
-\(fn varlist &key times raw compare &rest mu-benches"
+-------------------------
+VARLIST = ((id expr) ...)
+-------------------------
+
+\(fn varlist &key times raw compare &rest mu-benches)"
   :declare ((indent 1))
   (default times :to 10000)
   (let ((header  (if compare 'mu-bench--header* 'mu-bench--header))
@@ -158,14 +168,23 @@ factor"
 
 
 (defmacro mu-bench (&rest args)
-  "Run `benchmark-run-compiled' BODY that many TIMES. Unless RAW
-is requested collect results into an ORG-ready table with
-headings.
+  "`benchmark-run-compiled' BODY that many TIMES. Unless RAW is
+requested collect results into an ORG-ready table with headings.
 
-Accept optional arguments as attributes:
-  :name  string                        - same as docstring
-  :times number  (defaults to 10 000)  - number of iterations
-  :raw   boolean (defaults to nil)     - return raw stats
+(mu-bench [DOC] ATTR-OPTION ... BODY)
+-------------------------------------
+        DOC = stringp
+
+ATTR-OPTION = :name stringp
+            | :times numberp
+            | :raw boolean
+
+       BODY = code ...
+-------------------------------------
+
+TIMES defaults to 10'000. RAW defaults to nil. Unless NAME
+attribute is supplied DOC is used to identify the benchmark in
+statistics produced.
 
 \(fn &optional docstring &key name times raw &rest body)"
   (declare (indent 1))
@@ -173,18 +192,34 @@ Accept optional arguments as attributes:
 
 
 (defmacro mu-bench* (&rest args)
-  "Like `mu-bench' but run multiple MU-BENCHES in the body.
+  "Like `mu-bench' but BODY must be a sequence of mu-benches to
+run.
 
-Accept one extra attribute argument:
-  :compare boolean (defaults to nil) - relative performance
+(mu-bench* [DOC] ATTR-OPTION ... BODY)
+--------------------------------------
+        DOC = stringp
 
-\(fn &optional docstring &key name times raw &rest mu-benches)"
+ATTR-OPTION = :times numberp
+            | :raw boolean
+            | :compare boolean
+
+       BODY = bench ...
+
+      bench = `mu-bench'
+            | `mu-bench/let'
+--------------------------------------
+
+When COMPARE is t report performance relative to the benchmark
+that shows the best time, sort benchmarks table by relative
+performance fastest to slowest.
+
+\(fn &optional docstring &key times raw compare &rest mu-benches)"
   `(mu-bench*/let nil ,@args))
 
 
 (defmacro mu-defbench (name arglist &optional doc &rest body)
-  "Create a defun NAME that wraps BODY in a `mu-bench' which has
-access to variables bound by ARGLIST."
+  "Like `mu-bench' that can be called by NAME with variables in
+ARGLIST in scope."
   (declare (indent defun))
 
   (unless (stringp doc)
@@ -196,8 +231,8 @@ access to variables bound by ARGLIST."
 
 
 (defmacro mu-defbench* (name arglist &optional doc &rest body)
-  "Create a defun NAME that wraps BODY in a `mu-bench*' where
-every mu-bench has access to variables bound by ARGLIST."
+  "Like `mu-bench*' that can be called by NAME with variables in
+ARGLIST in scope."
   (declare (indent defun))
 
   (unless (stringp doc)
@@ -210,8 +245,14 @@ every mu-bench has access to variables bound by ARGLIST."
 
 (defmacro mu-bench/context (mu-bench &rest context)
   "Run MU-BENCH with additional CONTEXT compiled and loaded as
-`progn' before MU-BENCH. It is exactly as if you wrote CONTEXT
-followed by MU-BENCH in a file, byte-compiled and loaded it."
+`progn' before MU-BENCH. Semantically it is as if one wrote
+CONTEXT code followed by MU-BENCH in a file, byte-compiled then
+loaded it.
+
+--------------------------------------
+MU-BENCH = `mu-bench' | `mu-bench/let'
+CONTEXT = body
+--------------------------------------"
   (declare (indent 1))
   (let* ((temp-file (make-temp-file "mu-bench" nil ".el"))
          (bench (sym (gensym "mu-bench")))
@@ -238,51 +279,6 @@ followed by MU-BENCH in a file, byte-compiled and loaded it."
          (when mu-bench-debug-print
            (with-output-to-temp-buffer "*mu-bench-context*"
              (prin1 ,contents) nil))))))
-
-
-(example
-
- (mu-bench :times 3 (princ (+ 1 2)))
-
- (let ((mu-bench-debug-print 2))
-   (mu-bench*
-    :times 3
-    :compare t
-    (mu-bench "1" (+ 1 2))
-    (mu-bench/let ((a 1)) "2" (+ 1 a))))
-
- (mu-bench*/let ((a 0)
-                 (b 1))
-   :times 3
-   :compare t
-   (mu-bench "1" (princ (+ a b)))
-   (mu-bench/let ((a 1)) "2" (princ (+ a b))))
-
- (mu-defbench bar-bench (a b)
-   :times 3
-   (princ (+ a b)))
-
- (bar-bench 1 2)
-
- (mu-defbench* foo-bench (a b)
-   :times 3
-   :compare t
-   (mu-bench :name "1" (princ (+ a b)))
-   (mu-bench/let ((a 1)) :name "2" (princ (+ a b))))
-
- (foo-bench 0 1)
-
- (let ((mu-bench-debug-print 2))
-   (mu-bench/context
-       ;; benchmark
-       (mu-bench/let ((a 1) (b 2))
-         :times 3
-         (list (foobar) (barfoo) a b))
-     ;; context
-     (defun foobar () 'foobar)
-     (defun barfoo () 'barfoo)))
- ;; example
- )
 
 
 (provide 'multi-bench)

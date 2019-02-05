@@ -1,5 +1,10 @@
 # -*- lexical-binding: t; -*-
 
+# Local Variables:
+# lexical-binding: t
+# org-confirm-babel-evaluate: nil
+# End:
+
 #+PROPERTY: header-args :results table raw prepend value :cache no
 
 * require
@@ -7,7 +12,7 @@
 Load benchmarking code
 
 #+begin_src emacs-lisp :results output silent
-(load-file "test-bench.el")
+(load-file "multi-benchmarks.el")
 #+end_src
 
 * multi-patterns
@@ -15,7 +20,7 @@ Load benchmarking code
 Load multi-patterns
 
 #+begin_src emacs-lisp :results output silent
-(load-file "../multi-patterns.el")
+(load-file "multi-patterns.el")
 #+end_src
 
 ** relative performance
@@ -299,7 +304,7 @@ Benchmarks to track perf improvements and spot regressions. Ideally we should co
 Load multi-methods
 
 #+begin_src emacs-lisp :results output silent
-(load-file "../multi-methods.el")
+(load-file "multi-methods.el")
 #+end_src
 
 As a running example we'll be using the following global hierachy:
@@ -511,9 +516,3 @@ Hierarchies are rarely used, so most cache benefit comes from avoiding to isa wi
 |------+------------+-----+--------------------+--------------------------|
 | _    |   1.442045 |   7 | 0.7474569999999403 | Sun Dec 30 11:30:35 2018 |
 
-* locals
-
-# Local Variables:
-# lexical-binding: t
-# org-confirm-babel-evaluate: nil
-# End:
