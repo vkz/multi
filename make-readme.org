@@ -738,6 +738,10 @@ Or alter the behavior of the entire struct type by providing custom implementati
 
 * multi-methods
 
+Multimethods bring ad-hoc multiple dispatch to Emacs Lisp. Multimethod combines a dispatch function with an open set of methods each associated with a value. When multimethod gets called its dispatch function, defined with ~mu-defmulti~, is applied to the arguments to compute a dispatch value. Dispatch mechanism then checks which method, defined with ~mu-defmethod~, has its value in an /isa?/ relatitonship with the dispatch value and runs that method. To a first approximation isa-relation can be thought of as two values being equal or in a parent-child or ancestor-descendant relationship. Semantics get more involved for collections. Programmers not familiar with multimethods are referred to Clojure's [[https://clojure.org/reference/multimethods][Multimethods and Hierarchies]] tutorial.
+
+/Note for Clojure programmers/. This implementation takes a lot of inspiration from Clojure, so for the most part Clojure programmers should feel right at home modulo some syntactic differences. Naturally, Emacs Lisp type system is nothing like Clojure let alone Java, so depending on your circumstances your programming patterns may require some adjustment.
+
 ** make-mu-hierarchy                                             :procedure:
 
 Create a new mu-hierarchy.
