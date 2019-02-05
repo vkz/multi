@@ -736,6 +736,248 @@ Or alter the behavior of the entire struct type by providing custom implementati
   (princ (documentation 'mu.apply))
 #+end_src
 
+* multi-methods
+
+** make-mu-hierarchy                                             :procedure:
+
+Create a new mu-hierarchy.
+
+** mu-global-hierarchy                                                 :var:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation-property 'mu-global-hierarchy 'variable-documentation))
+#+end_src
+
+** mu-active-hierarchy                                           :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-active-hierarchy))
+#+end_src
+
+** mu-with-hierarchy                                                 :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-with-hierarchy))
+#+end_src
+
+** mu-rel                                                            :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-rel))
+#+end_src
+
+Example:
+#+begin_src emacs-lisp
+  (mu-rel 'vector     :isa :collection)
+  (mu-rel 'hash-table :isa :collection)
+
+  (mu-defmulti foo #'type-of)
+  (mu-defmethod foo (c) :when :collection :a-collection)
+  (mu-defmethod foo (s) :when 'string :a-string)
+
+  (should (equal :a-collection (foo [])))
+  (should (equal :a-collection (foo (ht))))
+  (should (equal :a-string (foo "bar")))
+#+end_src
+
+** mu-isa?                                                       :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-isa?))
+#+end_src
+
+** mu-ancestors                                                  :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-ancestors))
+#+end_src
+
+** mu-descendants                                                :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-descendants))
+#+end_src
+
+** mu-isa/generations?                                           :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-isa/generations?))
+#+end_src
+
+** mu-prefer                                                     :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-prefer))
+#+end_src
+
+Example:
+#+begin_src emacs-lisp
+  (mu-rel :rect isa :shape)
+
+  (mu-defmulti bar #'vector)
+  (mu-defmethod bar (x y) :when [:rect :shape] :rect-shape)
+  (mu-defmethod bar (x y) :when [:shape :rect] :shape-rect)
+
+  (should (mu--error-match "multiple methods match" (bar :rect :rect)))
+
+  (mu-prefer bar [:rect :shape] :over [:shape :rect])
+  (mu-prefer bar [:rect :shape] :over [:parallelogram :rect])
+
+  (should (equal :rect-shape (bar :rect :rect)))
+#+end_src
+
+** mu-unprefer                                                   :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-unprefer))
+#+end_src
+
+** mu-defmulti                                                       :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-defmulti))
+#+end_src
+
+See [[*mu-defmethod][mu-defmethod]] for examples.
+
+Unless either ~:hierarchy~ or ~:static-hierarchy~ attribute options are set multi-dispatch defaults to ~mu-global-hierarchy~ to perform ~mu-isa?~ value dispatch. One can switch dispatch to a custom hierarchy created with ~make-mu-hierarchy~ by setting ~:hierarchy~ attribute to that hierarchy. Both default and custom hierarchies can be overriden with ~mu-with-hierarchy~ for the dynamic extent of its body. When such dynamic behavior is not desired set ~:static-hierarchy~ attribute instead.
+
+Example:
+#+begin_src emacs-lisp
+  (let ((hierarchy-1 (make-mu-hierarchy))
+        (hierarchy-2 (make-mu-hierarchy)))
+
+    (mu-defmulti bar #'identity :hierarchy hierarchy-1)
+    (mu-defmethod bar (a) :when :parallelogram :parallelogram)
+    (mu-defmethod bar (a) :when :shape         :shape)
+
+    (mu-rel :rect isa :parallelogram hierarchy-1)
+    (mu-rel :square isa :rect hierarchy-1)
+
+    ;; should run with custom hierarchy-1
+    (should (equal :parallelogram (bar :rect)))
+    (should (equal :parallelogram (bar :square)))
+
+    (mu-with-hierarchy hierarchy-2
+
+      ;; should extend hierarchy-2
+      (mu-rel :rect isa :shape)
+      (mu-rel :square isa :rect)
+
+      ;; should run with hierarchy-2 overriding hierarchy-1
+      (should (equal :shape (bar :rect)))
+      (should (equal :shape (bar :square))))
+
+    ;; should be back to the custom hierarchy-1
+    (should (equal :parallelogram (bar :rect)))
+    (should (equal :parallelogram (bar :square))))
+#+end_src
+
+** mu-defmethod                                                      :macro:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-defmethod))
+#+end_src
+
+Examples:
+#+begin_src emacs-lisp
+
+  ;; dispatch as a function
+  (mu-defmulti foo #'vector)
+
+  (mu-defmethod foo (a b) :when [:a :b] [:a :b])
+  (mu-defmethod foo (a b) :when [:c :d] [:c :d])
+
+  (should (equal [:a :b] (foo :a :b)))
+  (should (equal [:c :d] (foo :c :d)))
+  (should (mu--error-match "no mu-methods match" (foo :a :d)))
+
+  ;; dispatch as a `defun'
+  (mu-defmulti foo (&rest args)
+    "docstring"
+    :hierarchy mu-global-hierarchy
+    (apply #'vector args))
+
+  (mu-defmethod foo (a b) :when [:a :b] [:a :b])
+  (mu-defmethod foo (a b) :when [:c :d] [:c :d])
+
+  (should (equal [:a :b] (foo :a :b)))
+  (should (equal [:c :d] (foo :c :d)))
+
+  ;; single-head `mu-defun' style dispatch
+  (mu-defmulti foo [_ [arg]]
+    "docstring"
+    arg)
+
+  ;; simple `defun' style methods
+  (mu-defmethod foo (a b) :when 1 1)
+  (mu-defmethod foo (a b) :when 2 2)
+
+  (should (eq 1 (foo 0 [1])))
+  (should (eq 2 (foo 0 [2])))
+  (should (mu--error-match "no mu-methods match" (foo 0 [3])))
+
+  ;; `mu' lambda dispatch
+  (mu-defmulti foo (mu [_ [arg]] arg)
+    "docstring"
+    :hierarchy mu-global-hierarchy)
+
+  ;; single-head `mu-defun' style method
+  (mu-defmethod foo [[a] _] :when 1 (list a))
+  ;; `mu' lambda method
+  (mu-defmethod foo (mu [[a b] _] (list a b)) :when 2)
+
+  (should (equal '(a) (foo [a] [1])))
+  (should (equal '(a b) (foo [a b] [2])))
+
+  ;; multi-head `mu-defun' style method
+  (mu-defmethod foo (a b) :when 2
+    ([[a] _] (list a))
+    ([[a b] _] (list a b)))
+
+  (should (equal '(a) (foo [a] [1])))
+  (should (equal '(a b) (foo [a b] [2])))
+
+
+  ;; multi-head dispatch
+  (mu-defmulti foo (&rest args)
+    "docstring"
+    :hierarchy mu-global-hierarchy
+    ([a] a)
+    ([a b] b))
+
+  (mu-defmethod foo (&rest args) :when 1 1)
+  (mu-defmethod foo (&rest args) :when 2 2)
+
+  (should (eq 1 (foo 1)))
+  (should (eq 2 (foo 1 2)))
+#+end_src
+
+Multi-methods allow a catch-all default method that runs when dispatch fails. Pre-installed default simply signals that no matching methods have been found.
+
+Example: default method
+#+begin_src emacs-lisp
+  (mu-defmulti foo #'identity)
+  (mu-defmethod foo (x) :when :a :a)
+
+  ;; pre-installed default method fires
+  (should (mu--error-match "no mu-methods match" (foo :c)))
+
+  ;; user-defined default method
+  (mu-defmethod foo (x) :when :default :default)
+  (should (equal :default (foo :c)))
+
+  ;; no longer default when dispatch val gets a method
+  (mu-defmethod foo (x) :when :c :c)
+  (should (equal :c (foo :c)))
+#+end_src
+
+** mu-undefmethod                                                :procedure:
+
+#+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
+  (princ (documentation 'mu-undefmethod))
+#+end_src
+
 * test-readme                                                      :noexport:
 
 #+begin_src emacs-lisp :exports none :eval no :tangle no

@@ -1,8 +1,5 @@
 ;; -*- lexical-binding: t; -*-
 
-;; TODO go over all code and try to avoid using let-over lambdas. Basically don't
-;; assume we're lexically scoped and everything is a closure. I'd like everything
-;; to work with lexical-binding nil at least for obvious cases.
 
 (require 'multi-prelude)
 (require 'multi-patterns)
@@ -201,12 +198,25 @@ HIERARCHY tree. Return updated HIERARCHY."
 
 
 (defmacro mu-rel (child :isa parent &optional hierarchy)
-  "Establish an isa relationship between CHILD and PARENT."
+  "Establish an isa relationship between CHILD and PARENT in the
+currently active hierarchy or HIERARCHY.
+
+(mu-rel CHILD REL PARENT [HIERARCHY])
+-------------------------------------
+    CHILD = val
+      REL = :isa | isa | any
+   PARENT = val
+HIERARCHY = mu-hierarchy-p
+-------------------------------------
+
+REL argument is provided to help readability but is otherwise
+ignored."
   `(mu--rel ,child ,parent (or ,hierarchy (mu-active-hierarchy))))
 
 
 (defun mu-isa? (child parent &optional hierarchy)
-  "Check if CHILD is isa? related to PARENT."
+  "Check if CHILD is isa? related to PARENT in the currently
+active hierarchy or HIERARCHY."
   (default hierarchy :to (mu-active-hierarchy))
   (or (equal child parent)
       (and (sequencep child)
@@ -246,7 +256,8 @@ HIERARCHY tree. Return updated HIERARCHY."
 
 
 (defun mu-ancestors (x &optional hierarchy compute?)
-  "Return all ancestors of X such that (mu-isa? X ancestor)."
+  "Return all ancestors of X such that (mu-isa? X ancestor) in
+the currently active hierarchy or HIERARCHY."
   (default hierarchy :to (mu-active-hierarchy))
   (if compute?
       (cl-delete-duplicates (mu--ancestors x hierarchy) :test #'equal)
@@ -254,7 +265,8 @@ HIERARCHY tree. Return updated HIERARCHY."
 
 
 (defun mu-descendants (x &optional hierarchy compute?)
-  "Return all descendants of X such that (mu-isa? descendant X)."
+  "Return all descendants of X such that (mu-isa? descendant X)
+in the currently active hierarchy or HIERARCHY."
   (default hierarchy :to (mu-active-hierarchy))
   (if compute?
       (cl-delete-duplicates (mu--descendants x hierarchy) :test #'equal)
@@ -337,13 +349,7 @@ return it."
 
 
 (mu-defun mu-prefer (fun &rest args)
-  "Prefer dispatch X over Y when resolving a method. May be
-called according to one of the following signatures:
-
-  (mu-prefer foo x :to y)
-  (mu-prefer foo x y)
-
-\(mu-prefer foo x :over y)"
+  "Prefer dispatch value X over Y ..."
   ([_ x y] (if-let ((cycle (mu--preference-cycle? x y fun)))
                (mu-error :cyclic-prefer x y cycle)
              (pushnew y (mu-prefers fun x))))
@@ -355,14 +361,7 @@ called according to one of the following signatures:
 
 
 (mu-defun mu-unprefer (fun &rest args)
-  "Remove registered preferences for FUN multi-dispatch function:
-
-  (mu-unprefer foo x :to y) do not prefer X over Y
-  (mu-unprefer foo x y)     do not prefer X over Y
-  (mu-unprefer foo x)       remove all X preferences
-  (mu-unprefer foo)         remove all preferences
-
-\(fn foo x :over y)"
+  "Remove registered preferences for FUN ..."
   ;; remove all prefers
   ([_] (setf (mu-prefers fun) (ht)))
   ;; remove prefers for value X
@@ -434,16 +433,7 @@ signal an error."
 
 
 (defmacro mu-defmulti (name arglist &optional docstring &rest body)
-  "Define a new multi-dispatch function NAME. If ARGLIST and BODY
-follow an `mu-defun' single or multi-head calling convention use
-mu-lambda to create a dispatch function, else assume CL-arglist.
-If ARGLIST is itself a function, the BODY is ignored and that
-function is used to dispatch.
-
-The following attributes can appear before the BODY:
-
-  :hierarchy         custom-hierarchy
-  :static-hierarchy  static-hierarchy"
+  "Define a new multi-dispatch function NAME ..."
   (declare (indent defun))
 
   (unless (stringp docstring)
@@ -500,10 +490,7 @@ The following attributes can appear before the BODY:
 
 
 (defmacro mu-defmethod (name arglist :when val &rest body)
-  "Add a new method to multi-dispatch function NAME for dispatch
-value VAL. If ARGLIST and BODY follow an `mu-defun' single or
-multi-head calling convention use mu-lambda to create a method,
-else assume CL-arglist."
+  "Add a new method to multi-dispatch function NAME ..."
   (declare (indent defun))
   (let* ((mu-multi-head? (mu--defun-multi-head-body body))
          (method (cond
@@ -527,7 +514,101 @@ else assume CL-arglist."
   (ht-remove! (multi fun methods) val))
 
 
-;;* Provide ------------------------------------------------------- *;;
+;;* Docs --------------------------------------------------------- *;;
+
+
+(mu-docfun mu-prefer
+  "Prefer dispatch value X over Y when resolving method FUN.
+
+(mu-prefer FUN ARGS ...)
+------------------------
+     FUN = id
+
+ARGS ... = val :to val
+         | val :over val
+         | val val
+------------------------
+
+\(fn fun x :over y)")
+
+
+(mu-docfun mu-unprefer
+  "Remove registered preferences for FUN multi-dispatch function:
+
+(mu-unprefer FUN ARGS ...)
+--------------------------
+     FUN = id
+
+ARGS ... = val :to val
+         | val :over val
+         | val val
+         | val
+         |
+--------------------------
+
+Called with a single VAL argument removes all preferences defined
+for the dispatch VAL; called with just FUN removes all known
+preferences for FUN.
+
+\(fn foo x :over y)")
+
+
+(mu-docfun mu-defmulti
+  "Define a new multi-dispatch function NAME.
+
+--------------------------------------------------
+        ARGLIST = cl-arglist
+                | seq-pattern
+                | mu-function?
+
+           BODY = [metadata] clause ...
+
+         clause = body
+                | mu-defun-clause ...
+
+       metadata = :hierarchy mu-hierarchy-p
+                | :static-hierarchy mu-hierarchy-p
+
+mu-defun-clause = (seq-pattern body ...)
+
+    seq-pattern = `['mu-pattern ...`]'
+--------------------------------------------------
+
+ARGLIST maybe a CL-ARGLIST, a function (#'function, `lambda',
+`mu' lambda) or a sequence []-pattern. When ARGLIST is itself a
+function, BODY is ignored and that function is used to dispatch.
+ARGLIST and BODY combined may follow single-head or multi-head
+syntax to define a `mu-defun' for dispatch and destructuring.
+
+BODY must return a value to be used for `mu-isa?' dispatch.")
+
+
+(mu-docfun mu-defmethod
+  "Add a new method to multi-dispatch function NAME for dispatch
+value VAL.
+
+----------------------------------------
+        ARGLIST = cl-arglist
+                | seq-pattern
+                | mu-function?
+
+           BODY = clause ...
+
+         clause = body
+                | mu-defun-clause ...
+
+mu-defun-clause = (seq-pattern body ...)
+
+    seq-pattern = `['mu-pattern ...`]'
+----------------------------------------
+
+ARGLIST maybe a `cl-arglist', a function (#'function, `lambda',
+`mu' lambda) or a sequence []-pattern. ARGLIST and BODY combined
+may follow single-head or multi-head syntax to define a
+`mu-defun' for dispatch and destructuring.")
+
+
+;;* Provide ------------------------------------------------------ *;;
 
 
 (provide 'multi-methods)
@@ -627,12 +708,6 @@ else assume CL-arglist."
 ;; Extras
 ;; --------
 
-;; TODO Elisp specific idea is to allow supplying setters in mu-methods, so that
-;; mu-defmethod invocation can be used with gv setters like `setf', `push', `callf'
-;; etc. That makes perfect sence if your dispatch is for looking up some location
-;; based on arguments. It may on occasion be quite natural to use the same syntax
-;; to set new value to that location.
-
 ;; TODO the (mu-methods 'fun &rest keys) interface suggests an interesting
 ;; feature. We could go a bit further than Clojure and allow :before, :after,
 ;; :arround methods, so the mu-methods table doesn't just maps an isa? pattern
@@ -704,55 +779,3 @@ else assume CL-arglist."
 ;; practical benefit? When? How?
 ;; (mu-defmethod foo (a b) :isa :b body)
 ;; (mu-defmethod foo (a b) :parent-of :b body)
-
-;; TODO bugs in gv.el. This most certainly plagues my `mu-defsetter', too
-(comment
- (cl-defstruct baz name)
-
- (setq foo (make-baz :name 'baz))
-
- ;; just a getter
- (defmacro bazzer (struct slot)
-   `(cl-struct-slot-value 'baz ',slot ,struct))
-
- (bazzer foo name)
-
- ;; Setter that doesn't work, because `gv--defsetter' is broken in at least two
- ;; ways and it hits both in this case. We could fix it in this case by defining
- ;; `multi' as a defun instead of a macro passing it slot as a quoted symbol.
- (gv-define-setter bazzer (val struct slot)
-   `(setf (cl-struct-slot-value 'baz ',slot ,struct) ,val))
-
- ;; this signals that `name' is not defined
- (setf (bazzer foo name) 'bar)
-
- ;; the expansion shows us exactly why: `gv--defsetter' is broken in at least two
- ;; ways.
- ;;   (let* ((v foo)
- ;;          (v name))
- ;;     (setf (cl-struct-slot-value 'baz 'v v) 'bar))
- ;;
- ;; 1. the variables it uses to let-bind args in the arglist all use the same
- ;; symbol `v' so they end up shadowing each other when there's more than one
- ;; argument.
- ;;
- ;; 2. If gv isn't a defun but a macro it unassumingly inserts its arguments as
- ;; let-values so if like in our example your macro expects to receive an unquoted
- ;; symbol which it'll correctly quote in the code it generates, well, tough luck.
- ;; `gv--defsetter' will ignore that.
-
- ;; Possible fix for problem 1. is something along these lines:
- (defun gv--defsetter (name setter do args &optional vars)
-   ;; if-test and consequent unchanged from the original
-   (if (null args)
-       (let ((vars (nreverse vars)))
-         (funcall do `(,name ,@vars) (lambda (v) (apply setter v vars))))
-     ;; new code
-     (let ((v (gensym "v")))
-       `(let* ((,v ,(car args)))
-          ,(gv--defsetter name setter do (cdr args) (cons v vars))))))
-
- ;; Dunno about problem 2.
-
- ;; comment
- )

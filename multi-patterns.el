@@ -738,32 +738,6 @@ variable names. E.g. it wil not match `t' or `nil'."
 ;; hope it does.
 
 
-;; NOTE Some observations re Clojure's defn and this implementation. Clojure's
-;; defn is nice but somewhat limiting. IIUC multi-head defn is an fixed arrity
-;; function that may allow an &rest pattern but only where such pattern is of
-;; bigger arrity than every other fixed pattern. So the following is not allowed
-;; in Clojure:
-;;
-;;   (mu-defun foo (&rest args)
-;;     ([a b c] ...)
-;;     ([a b &rest c] ...))
-;;
-;; nor can you dispatch on the same arrity
-;;
-;;   (mu-defun foo (&rest args)
-;;     ([a [b c] d] (list a b c d))
-;;     ([a [b]   c] (list a b c)))
-;;
-;; Why would you ever want that? Well, if you actually perform pattern-matching
-;; like we do with mu-patterns, then it is quite desirable to be able to dispatch
-;; not only on the arrity but on the internal structure as the above example
-;; shows. Far as I can surmount Clojure dispatch and destructure aren't
-;; pattern-based but rather much simpler. You can probably gain most or all of
-;; that by leveraging Clojure Spec and I bet someone will release just such
-;; library before soon. As it stands I see no reason for us to follow in Clojure
-;; footsteps and surrender expressiveness afforded by patterns.
-
-
 (defun mu-function? (obj)
   "Like functionp but accounts for #'function and mu-lambda.
 Intended to be used at compile time on code objects. Not
@@ -1261,6 +1235,58 @@ cool."
       (should (funcall #'predicate (foo-fun 1 2 3))))
 
     (ert 'foo-fun-test))
+ ;; comment
+ )
+
+;; TODO bugs in gv.el. This most certainly plagues my `mu-defsetter', too
+(comment
+ (cl-defstruct baz name)
+
+ (setq foo (make-baz :name 'baz))
+
+ ;; just a getter
+ (defmacro bazzer (struct slot)
+   `(cl-struct-slot-value 'baz ',slot ,struct))
+
+ (bazzer foo name)
+
+ ;; Setter that doesn't work, because `gv--defsetter' is broken in at least two
+ ;; ways and it hits both in this case. We could fix it in this case by defining
+ ;; `multi' as a defun instead of a macro passing it slot as a quoted symbol.
+ (gv-define-setter bazzer (val struct slot)
+   `(setf (cl-struct-slot-value 'baz ',slot ,struct) ,val))
+
+ ;; this signals that `name' is not defined
+ (setf (bazzer foo name) 'bar)
+
+ ;; the expansion shows us exactly why: `gv--defsetter' is broken in at least two
+ ;; ways.
+ ;;   (let* ((v foo)
+ ;;          (v name))
+ ;;     (setf (cl-struct-slot-value 'baz 'v v) 'bar))
+ ;;
+ ;; 1. the variables it uses to let-bind args in the arglist all use the same
+ ;; symbol `v' so they end up shadowing each other when there's more than one
+ ;; argument.
+ ;;
+ ;; 2. If gv isn't a defun but a macro it unassumingly inserts its arguments as
+ ;; let-values so if like in our example your macro expects to receive an unquoted
+ ;; symbol which it'll correctly quote in the code it generates, well, tough luck.
+ ;; `gv--defsetter' will ignore that.
+
+ ;; Possible fix for problem 1. is something along these lines:
+ (defun gv--defsetter (name setter do args &optional vars)
+   ;; if-test and consequent unchanged from the original
+   (if (null args)
+       (let ((vars (nreverse vars)))
+         (funcall do `(,name ,@vars) (lambda (v) (apply setter v vars))))
+     ;; new code
+     (let ((v (gensym "v")))
+       `(let* ((,v ,(car args)))
+          ,(gv--defsetter name setter do (cdr args) (cons v vars))))))
+
+ ;; Dunno about problem 2.
+
  ;; comment
  )
 
