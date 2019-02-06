@@ -9,6 +9,7 @@
 #+PROPERTY: header-args :exports code :results none :cache no
 #+PROPERTY: header-args:emacs-lisp :tangle ./test-readme.el
 #+PROPERTY: header-args:emacs-lisp+ :noeval
+#+PROPERTY: header-args:clojure+ :noeval
 
 * documentation workflow                                           :noexport:
 
@@ -116,7 +117,7 @@ Simply run: =M-x org-babel-execute-buffer=
 
 * multi.el
 
-/multi.el/ brings ad-hoc multiple dispatch to Emacs Lisp.
+/multi.el/ flexible multiple dispatch for Emacs Lisp.
 
 * Introduction
 
@@ -163,16 +164,16 @@ Multi-patterns build on the venerable ~pcase~ macro to give you powerful yet cle
 
 I would like to emphasize that whoever designed ~pcase~ patterns chose some powerful primitives. People redicule it for its noisy syntax and that's fair if you think it a high-level DSL for pattern-matching. But what if you treat as an assembly language: low on abstraction, high on noise and redundancy. We hardly ever choose to write assembly by hand, so don't. This is lisp: pick beautiful syntax and compile it to pcase-patterns. That is exactly what multi-patterns do. That and a bunch of other nice things. Enjoy.
 
-We also provide ~mu-defun~ (~mu-defmacro~) that extend their native counterparts with the ability to pattern match and destructure their arguments. To a first approximation this is syntactic sugar over function definition and ~mu-case~ expression. ~mu-defun~ exists in two versions: /single-head/ and /multi-head/, where the former is like ~defun~ that also pattern matches its arglist binding any pattern-variables in the body, while the latter allows multiple clauses each with its own arglist pattern and body. Multi-head defun is not unlike and has been inspired by Clojure's multi-head ~defn~ but is strictly more expressive.
+We also provide ~mu-defun~ and ~mu-defmacro~ that extend their native counterparts with the ability to pattern match on and destructure arguments. To a first approximation this is syntactic sugar over function definition and ~mu-case~ expression. ~mu-defun~ exists in two versions: /single-head/ and /multi-head/, where the former is like ~defun~ that also pattern matches on its arglist binding any pattern-variables in the body, while the latter allows multiple clauses each with its own arglist pattern and body. Multi-head defun is not unlike and has been inspired by Clojure's multi-head ~defn~ but is strictly more expressive.
 
 Note that dispatch on arity takes priority over destructuring and binding. To that effect the outermost sequence pattern in both single-head and multi-head ~mu-defun~ is strict, so it either matches the same number of elements as arguments passed to it or fails and tries the next clause. In multi-head case internal sequence-patterns are strict as well, so that one can dispatch on the internal structure even if multiple clauses have the same arity; in a single-head only the external []-pattern is strict so that calls with incorrect arity maybe caught; internal sequence patterns, however, are permissive to fascilitate destructuring. None of this is terribly important as long as it matches user expectation which I hope it does.
 
-/Note for Clojure programmers/. Although inspired by Clojure the dispatch semantics of ~mu-defun~ is more expressive. The following is not allowed in Clojure:
+/Note for Clojure programmers/. Although inspired by Clojure the dispatch semantics of ~mu-defun~ are more expressive. The following is not allowed in Clojure:
 
 #+begin_src clojure
   (defn foo
     ([a b c] ...)
-    ([a b &rest pattern] ...))
+    ([a b & pattern] ...))
 #+end_src
 
 nor can you dispatch on the same arity
@@ -191,6 +192,21 @@ I see no reason for us to follow in Clojure footsteps and surrender expressivene
   (princ (documentation 'mu-case))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Like ‘pcase’ but uses mu-patterns for matching.
+
+------------------------------
+      E = sexp
+CLAUSES = (clause ...)
+ clause = (pattern body ...)
+        | (otherwise body ...)
+------------------------------
+
+Any sequence []-pattern is treated strictly - must match the
+entire sequence to succeed.
+#+end_example
+
 Some basic examples. Note that ~[pat ...]~ is a sequence-pattern that will happily match both lists and vectors.
 
 #+begin_src emacs-lisp
@@ -208,11 +224,36 @@ Some basic examples. Note that ~[pat ...]~ is a sequence-pattern that will happi
   (princ (documentation-property 'mu-prefer-nested-pcase 'variable-documentation))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+‘pcase’ expander may on occasion produce pathological
+expansions, where a reasonable 4-clause matcher expands into over
+160K lines of code. Toggling this parameter where this happens
+will force ‘mu-case’ to convert generated pcase-clauses into a
+tree of nested pcase-calls before handing it over to ‘pcase’.
+This shrinks the expansion by orders of magnitude but may defeat
+some optimizations ‘pcase’ could have undertaken had it known all
+the clauses (citation needed).
+#+end_example
+
 ** mu-defpattern                                                     :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-defpattern))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Define an expander for a custom mu-pattern of the form (NAME
+&rest patterns) where actual patterns will be bound in the
+expander according to the ARGLIST. Expander must produce a valid
+mu-pattern. NAME is only required to identify the pattern, the
+macro does not bind it. Optional DOCSTRING maybe supplied to
+improve readability of your code. BODY may start with a :debug
+EDEBUG-SPEC attribute pair.
+
+(fn NAME ARGLIST &optional DOCSTRING &rest BODY)
+#+end_example
 
 For many examples see pre-defined custom patterns in [[file:multi-patterns.el::;;**%20-%20l-pattern%20-------------------------------------------------%20*;;][multi-patterns.el]]
 
@@ -221,6 +262,11 @@ For many examples see pre-defined custom patterns in [[file:multi-patterns.el::;
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-pattern-documentation))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Extract docstring from custom mu-pattern NAME
+#+end_example
 
 ** built-in mu-patterns
 
@@ -249,6 +295,12 @@ Vector pattern. Like [[*lst-pattern][lst-pattern]] but matches vectors.
   (princ (mu-pattern-documentation 'l))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+mu-pattern to match lists. Unlike built-in lst-pattern allow a
+&rest subpattern to match remaining items.
+#+end_example
+
 #+begin_src emacs-lisp
   (should (equal '(2 3) (mu-case '(1 (2 3))
                           ((l _ (l a | tail)) (list* a tail)))))
@@ -259,6 +311,12 @@ Vector pattern. Like [[*lst-pattern][lst-pattern]] but matches vectors.
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (mu-pattern-documentation 'v))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+mu-pattern to match vectors. Unlike built-in vec-pattern allow
+a &rest subpattern to match remaining items.
+#+end_example
 
 #+begin_src emacs-lisp
   (should (equal '(1 [2 3]) (mu-case [1 2 3]
@@ -271,11 +329,29 @@ Vector pattern. Like [[*lst-pattern][lst-pattern]] but matches vectors.
   (princ (mu-pattern-documentation 'lv))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+mu-pattern to match lists and vectors alike. Unlike
+seq-pattern it is strict and behaves like l-pattern for lists or
+v-pattern for vectors: must match the entire sequence to
+succeed.
+#+end_example
+
 *** seq-pattern                                                   :pattern:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (mu-pattern-documentation 'seq))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+mu-pattern to match lists and vectors taking an open-world
+collection view: match as many PATTERNS as available. Fewer
+patterns than items in a sequence will simply match the head of
+the sequence; more patterns will match available items, then
+match any excessive patterns against that many nils. Supports
+&rest subpattern to match remaining items.
+#+end_example
 
 #+begin_src emacs-lisp
   (should (equal '(1 2 3) (mu-case [(1) [(2)] (3)]
@@ -287,6 +363,13 @@ Vector pattern. Like [[*lst-pattern][lst-pattern]] but matches vectors.
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation-property 'mu-seq-pattern-force-list 'variable-documentation))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Force seq-pattern to always cast its &rest submatch to a list.
+By default &rest submatch preserves the type of sequence being
+matched.
+#+end_example
 
 Forcing ~&rest~ submatch to a list is primarily useful when one wants to capture the rest of the sequence and test whether its empty with a traditional ~nil~ check.
 
@@ -311,6 +394,20 @@ Examples:
   (princ (mu-pattern-documentation 'ht))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+mu-pattern for hash-tables, structs and alists.
+
+------------------------------------------------
+PATTERNS = (key-pat ...)
+ key-pat = id | keywordp | ’symbolp | (key id)
+------------------------------------------------
+
+Keyword key-pat looks up :key then ’key in order binding value to
+variable ‘key’. Quoted symbol key-pat tries in order ’key then
+:key. (key id) looks up ‘key’ binding value to ‘id’ on success.
+#+end_example
+
 #+begin_src emacs-lisp
   (should (equal '(1 2 3 4) (mu-case (ht (:a 1) ('b 2) (:c 3) ('d 4))
                               ((ht :a b 'c ('d D)) (list a b c D)))))
@@ -321,6 +418,20 @@ Examples:
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (mu-pattern-documentation 'ht|))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Mu-pattern for key-value sequence prefix. Try to match and
+collect sequence elements pair-wise as though they were elements
+of a hash-table. PATTERNS are key-patterns like in ht-pattern
+followed by an optional []-pattern to match the rest of the
+sequence.
+
+------------------------------------------------
+PATTERNS = (key-pat ... [seq-pattern])
+ key-pat = id | keywordp | ’symbolp | (key id)
+------------------------------------------------
+#+end_example
 
 Example:
 #+begin_src emacs-lisp
@@ -337,11 +448,33 @@ Example:
   (princ (mu-pattern-documentation 'id))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Mu-pattern for identifiers - symbols that maybe used as
+variable names. E.g. it wil not match ‘t’ or ‘nil’.
+#+end_example
+
 ** mu-let                                                            :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-let))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Like ‘let*’ but allow mu-patterns in binding clauses. Any
+pattern-variables bound during pattern matching will be available
+in the BODY.
+
+-------------------------------
+BINDINGS = ((pattern expr) ...)
+         | ‘[’clause ...‘]’
+
+  clause = pattern expr
+-------------------------------
+
+Any sequence []-pattern is permissive.
+#+end_example
 
 Note that in the example below []-pattern is permissive, so any extra pattern-variables are bound to nil, any extra sequence values that have no patterns to match are discarded:
 
@@ -369,6 +502,12 @@ With patterns on the left traditional Lisp-style let-bindings become busy. This 
   (princ (documentation 'mu-when-let))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Like ‘when-let*’ but allow mu-patterns in binding clauses. See
+‘mu-let’.
+#+end_example
+
 In the following example the second binding clause fails to match, so the body never runs and the entire expression returns ~nil~:
 
 Example:
@@ -384,6 +523,12 @@ Example:
   (princ (documentation 'mu-if-let))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Like ‘if-let*’ but allow mu-patterns in binding clauses. See
+‘mu-let’.
+#+end_example
+
 
 Example:
 #+begin_src emacs-lisp
@@ -398,6 +543,56 @@ Example:
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-defun))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Like ‘defun’ but choose the body to execute by
+pattern-matching on the arglist. Clauses are tried in order as if
+multiple definitions of the same function NAME were defined.
+
+------------------------------------
+    ARGLIST = seq-pattern
+            | _
+            | id
+            | (args ...)
+
+   METADATA = [docstring] attr ...
+
+       attr = :declare form
+            | :interactive form
+            | :before form
+            | :after form
+            | :return id
+            | :setup form
+            | :teardown form
+
+       BODY = body
+            | clause ...
+
+     clause = (seq-pattern body ...)
+
+seq-pattern = ‘[’pattern ...‘]’
+------------------------------------
+
+In addition to any pattern-variables bound by clause-patterns
+each body has ARGLIST variables in scope.
+
+In attribute options :declare takes a list of ‘declare’ specs;
+:interactive is either ‘t’ or an ‘interactive’ arg-descriptor;
+:return binds VAR to the result of BODY; :setup and :teardown
+execute their respective forms for side-effect before and after
+BODY. Both forms have ARGLIST bindings in scope, :teardown form
+has access to the VAR when :return is specified. To avoid before
+and after forms being executed on every recursive call use
+:before and :after attributes instead.
+
+In a single-head function ARGLIST must be a []-pattern. In a
+multi-head function ARGLIST that is an id will bind ARGLIST to
+that id; ARGLIST that is ‘_’ will be ignored; ARGLIST must be a
+‘defun’ arglist otherwise.
+
+(fn NAME ARGLIST METADATA &rest BODY)
+#+end_example
 
 Example: single-head ~mu-defun~
 #+begin_src emacs-lisp
@@ -450,11 +645,68 @@ Example:
   (princ (documentation 'mu-defun))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Like ‘defun’ but choose the body to execute by
+pattern-matching on the arglist. Clauses are tried in order as if
+multiple definitions of the same function NAME were defined.
+
+------------------------------------
+    ARGLIST = seq-pattern
+            | _
+            | id
+            | (args ...)
+
+   METADATA = [docstring] attr ...
+
+       attr = :declare form
+            | :interactive form
+            | :before form
+            | :after form
+            | :return id
+            | :setup form
+            | :teardown form
+
+       BODY = body
+            | clause ...
+
+     clause = (seq-pattern body ...)
+
+seq-pattern = ‘[’pattern ...‘]’
+------------------------------------
+
+In addition to any pattern-variables bound by clause-patterns
+each body has ARGLIST variables in scope.
+
+In attribute options :declare takes a list of ‘declare’ specs;
+:interactive is either ‘t’ or an ‘interactive’ arg-descriptor;
+:return binds VAR to the result of BODY; :setup and :teardown
+execute their respective forms for side-effect before and after
+BODY. Both forms have ARGLIST bindings in scope, :teardown form
+has access to the VAR when :return is specified. To avoid before
+and after forms being executed on every recursive call use
+:before and :after attributes instead.
+
+In a single-head function ARGLIST must be a []-pattern. In a
+multi-head function ARGLIST that is an id will bind ARGLIST to
+that id; ARGLIST that is ‘_’ will be ignored; ARGLIST must be a
+‘defun’ arglist otherwise.
+
+(fn NAME ARGLIST METADATA &rest BODY)
+#+end_example
+
 ** mu (μ)                                                            :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Create an anonymous function, otherwise like ‘mu-defun’.
+
+(fn ARGLIST METADATA BODY...)
+#+end_example
 
 Examples:
 #+begin_src emacs-lisp
@@ -477,18 +729,31 @@ Examples:
   (princ (documentation 'mu-function?))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Like functionp but accounts for #’function and mu-lambda.
+Intended to be used at compile time on code objects. Not
+guaranteed to always do the right thing at runtime.
+#+end_example
+
 ** mu-defsetter                                                      :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-defsetter))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Like ‘gv-define-setter’ but allow ‘mu-defun’ dispatch and
+destructuring.
+#+end_example
+
 
 * multi-structs
 
 _multi-structs.el_ implement /mu-structs/ and /mu-protocols/ that were loosely inspired by /Clojure/ records and [[https://clojure.org/reference/protocols][protocols]] and /Racket/'s structs and [[http://docs.racket-lang.org/reference/struct-generics.html][generic interfaces]].
 
-/mu-structs/ are built on top of Emacs Lisp records. Expect all of cl-struct machinery to work. Mu-structs are defined with ~mu-defstruct~ and must inherit either from the base type ~mu-struct~ (default) or one of its descendants. Unlike cl-structs mu-structs are open maps that allow non-slot keys to be looked up and set.
+/mu-structs/ are built on top of Emacs Lisp cl-structs. Expect all of cl-struct machinery to work. Mu-structs are defined with ~mu-defstruct~ and must inherit either from the base type ~mu-struct~ (default) or one of its descendants. Unlike cl-structs mu-structs are open maps that allow non-slot keys to be looked up and set.
 
 Protocols (sometimes called /generic interafaces/) allow type specialization of a set of generic methods. Protocols are defined and assigned a set of methods with ~mu-defprotocol~. Structure types can implement protocols by reifying their registered methods in ~mu-defstruct~ when a new struct type is being defined. Alternatively protocol maybe extended to an existing type with ~mu-extend~.
 
@@ -499,9 +764,9 @@ Protocol implementations may reify several methods with the same name but differ
 
 ** motivation
 
-Structs or records are typically used as containers that let you bundle and pass stuff around. Reasonable question to ask (especially in Lisp) is why choose them over something as "constraint" as structs. There are other data types that are explicitly associative or excibit map-like behaviour with some discipline. Better still many are open collections. Alists, plists, list of lists, hash-tables, vectors if ordered numeric keys is what you want. Structs, however, distinguish themselves by having /identity/. Whenever there's a chance you may want to ask "well, what are you?", structs help. Entire /dispatch/ business is often about asking that very question. Somewhat hidden behind the facade of ~cl-defstruct~ is a simple fact that structs are no more than glorified maps with a :tag field (or a few required fields). That one field, however, makes certain tasks easier and cleaner to solve. The "closed" bit of structs, IMO, is a mistake. There's really no pretending that Emacs Lisp is a richly typed language with type-system guaranties. Why limit structs to pre-defined slots, then? And if structs are nothing but maps with identity, why demand separate and *static!* interface to work with them? These are the questions /multi-structs/ attempt to answer differently by tweaking cl-structs a bit.
+Structs or records are typically used as containers that let you bundle and pass stuff around. Reasonable question to ask (especially in Lisp) is why choose them over something less "constraint". There are other data types that are explicitly associative or excibit map-like behaviour with some discipline. Better still many are open collections. Alists, plists, list of lists, hash-tables, vectors if ordered numeric keys is what you want. Structs, however, distinguish themselves by having /identity/. Whenever there's a chance you may want to ask "well, what are you?", structs help. Entire /dispatch/ business is often about asking that very question. Somewhat hidden behind the facade of ~cl-defstruct~ is a simple fact that structs are no more than glorified maps with a :tag field (or a few required fields). That one field, however, makes certain tasks easier and cleaner to solve. The "closed" bit of structs, IMO, is a mistake. There's really no pretending that Emacs Lisp is a richly typed language with type-system guaranties. Why limit structs to pre-defined slots, then? And if structs are nothing but maps with identity, why demand separate and *static!* interface to work with them? These are the questions /multi-structs/ attempt to answer differently by tweaking cl-structs a bit.
 
-Protocols. Superficially, protocols are about grouping functions together. They certainly do that but its almost incidental and hardly the defining feature. You could do no worse bagging a bunch of functions in a map: you can store it, you can pass it around, call them anywhere the map turns up. See, no protocols necessary. Protocols are almost cheating - not much more than a bunch of metadata sticking around. Its especially true for /multi-protocols/ that build on cl-generics, so they don't even "bag" those functions. Why have protocols, then? Why give it a name? If I had to put my finger on it, I'd say its about indirection. You give me a couple of low-level functions - I enrich your type with powerful API often shared by other data-types (reusing familiar interfaces is good unless forced). I think /low-level/ here is quite important: a tiny bit of low-level code to implement a handful of protocol methods (hopefully, with well-defined semantics), and presto your data get a new vantage point. This change in perspective can sometimes illuminate elegant designs. Again, think low-level - the essentials that your high-level API can't do without condenced to a stratum of methods with clear, concise, well-documented semantics.
+Protocols. Superficially, protocols are about grouping functions together. They certainly do that but its almost incidental and hardly the defining feature. You could do no worse bagging a bunch of functions in a map: you can store it, you can pass it around, call those methods anywhere the map turns up. See, no protocols necessary. Protocols are almost cheating - not much more than a bunch of metadata sticking around. Its especially true for /multi-protocols/ that build on cl-generics, so they don't even "bag" those functions. Why have protocols, then? Why give it a name? If I had to put my finger on it, I'd say its about indirection. You give me a couple of low-level functions - I enrich your type with powerful API often shared by other data-types (reusing familiar interfaces is good unless forced). I think /low-level/ here is quite important: a tiny bit of low-level code to implement a handful of protocol methods (hopefully, with well-defined semantics), and presto your data get a new vantage point. This change in perspective can sometimes illuminate elegant designs. Again, think low-level - the essentials that your high-level API can't do without condenced to a stratum of methods with clear, concise, well-documented semantics.
 
 multi-structs is the recognition of the views outlined above: map identity can sometimes be valuable but its still a map; unified API for key-value data-types is almost always the right default; one way to reach it (not universally good) is indirection - enter protocols; finally, point of view and rich vocabulary bring vitality to your designs. Ad-hoc abstractions may elevate the discourse enough so as to let you paint that vague model in your head with code, reify it, make it concrete, make it a toy - something you can try, break and learn from. The experience of playing with it, breaking and patching, seeing it leak at the seems will inevitably inform your model. It is this back and forth that's to be fluid and not mired in unnecessary detail. It is how you learn the domain, the problem at hand and grow your model. Not software! Software comes later. First you explore and learn, then you take it all down and build that cathedral. Right? Right?!
 
@@ -510,6 +775,29 @@ multi-structs is the recognition of the views outlined above: map identity can s
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-defprotocol))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Combine a set of generic METHODS as protocol NAME.
+
+----------------------------------------------------------
+NAME    = protocol-id
+
+METHODS = (method ...)
+
+method  = (defmethod method-id arglist [docstring] . rest)
+
+rest    = see ‘cl-defgeneric’
+----------------------------------------------------------
+
+Bind variable NAME to the newly created ‘mu-protocol’ struct.
+Translate every method to a ‘cl-defgeneric’ (which see). Store
+arglists as metadata and for documentation but otherwise ignore.
+Tag every method-id symbol with a property :mu-protocol.
+
+Protocol METHODS are cl-generic functions that dispatch on the
+type of their first argument.
+#+end_example
 
 By convention protocol names are expected to have suffix ~able~ while protocol variable created and bound by ~mu-defprotocol~ will have a compound suffix ~able-protocol~ as in ~mu-callable~ vs ~mu-callable-protocol~. So the following definition
 
@@ -534,6 +822,33 @@ Establishing such relations from protocol implementations creates a bridge from 
   (princ (documentation 'mu-extend))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Extend PROTOCOL to one or more existing types.
+
+------------------------------------------------------------------------
+  PROTOCOL = protocol-id
+
+      TYPE = type-id
+
+    method = (defmethod method-id [qualifiers] arglist [docstring] body)
+
+   arglist = ((arg-id type-id) arg ...)
+           | see ‘cl-defmethod’
+
+qualifiers = see ‘cl-defmethod’
+------------------------------------------------------------------------
+
+Also register an ‘isa?’ relation between TYPE and protocol name
+as reported by (mu-protocol-name PROTOCOL) in the active
+multi-methods hierarchy. Do the same for each descendant of TYPE.
+
+To extend protocols to structs under your control consider using
+:implements option of ‘mu-defstruct’ instead.
+
+(fn PROTOCOL [:to TYPE method ...] ...+)
+#+end_example
+
 
 #+begin_src emacs-lisp :tangle no
   (mu-extend mu-callable-protocol
@@ -557,11 +872,23 @@ Establishing such relations from protocol implementations creates a bridge from 
   (princ (documentation 'mu-extends?))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Check if PROTOCOL has been extended to TYPE
+
+(fn &key TYPE PROTOCOL)
+#+end_example
+
 ** mu-implements?                                                :procedure:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-implements?))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Check if OBJECT implements PROTOCOL
+#+end_example
 
 ** mu-type?                                                      :procedure:
 
@@ -569,11 +896,66 @@ Establishing such relations from protocol implementations creates a bridge from 
   (princ (documentation 'mu-type?))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Check if symbol TYPE is tagged as a mu-type (inherits from
+‘mu-struct’)
+#+end_example
+
 ** mu-defstruct                                                      :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-defstruct))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Like ‘cl-defstruct’ but with mu-struct extensions.
+
+------------------------------------------------------------------------
+      NAME = struct-id
+           | see ‘cl-defstruct’
+
+      SLOT = slot-id
+           | see ‘cl-defstruct’
+
+  PROTOCOL =  protocol-id
+
+    METHOD = (defmethod method-id [qualifiers] arglist [docstring] body)
+
+   arglist = ((arg-id type-id) arg ...)
+           | see ‘cl-defmethod’
+
+qualifiers = see ‘cl-defmethod’
+------------------------------------------------------------------------
+
+Every mu-struct implicitly inherits from ‘mu-struct’ type. If
+:include struct property is present its value must be a type that
+ultimately inherits from ‘mu-struct’. Any other type will raise
+an error.
+
+Define extra predicate of the form NAME? as alias for NAME-p.
+
+Define NAME as a getter function for slots and keys of the
+struct. Make NAME a generalized ‘setf’-able variable (see ‘mu.’).
+In general mu-structs are open maps whose keys are not limited to
+slots. Generalized variables ‘mu.’ (or ‘mu:’) and NAME can be
+used to set slots or keys of a struct.
+
+Slots maybe followed by protocol implementations. Every protocol
+implementation starts with :implements attribute followed by
+protocol-name, followed by method implementations. Multiple
+methods maybe implemented for the same method-id but different
+arities. Since protocol methods dispatch on the type of their
+first argument every method will have the structure instance
+bound to it. Each method body implicitly binds every slot-id to
+its respective value in the structure instance.
+
+Set two properties on struct-id symbol :mu-type? tagging it as a
+‘mu-struct’ and :mu-slots that keeps a list of all slot-ids.
+
+(fn NAME SLOT ... [:implements PROTOCOL METHOD ...] ...)
+#+end_example
 
 Every mu-struct is a cl-struct, so most cl-struct infrastructure should work as expected. That includes constructing, getting and setting slots, etc.
 
@@ -600,8 +982,8 @@ Every mu-struct is a cl-struct, so most cl-struct infrastructure should work as 
     :implements mu-callable-protocol
     (defmethod mu--call (f args) name))
 
-  (setq bar (make-bar-struct))
-  (setq foo (make-foo-struct))
+  (setq bar (bar-struct-create))
+  (setq foo (foo-struct-create))
 
   (should (bar-struct? bar))
   (should (foo-struct? bar))
@@ -633,6 +1015,12 @@ Notice that protocol methods implemented inside ~mu-defstruct~ have slots explic
   (princ (documentation-property 'mu-table-protocol 'variable-documentation))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Protocol for table-like types. Define protocol methods
+‘mu--slots’, ‘mu--keys’, ‘mu--get’, ‘mu--set’.
+#+end_example
+
 Table protocol makes working with map-like data easy. It provides unified key-value interface, so when implemented for a custom type, keys can be looked up and set in its instances with ~mu.~ (or ~mu:~) function.
 
 Table protocol has been extended to the following types: ~hash-table~, ~mu-struct~ and therefore to all structures created with ~mu-defstruct~, ~cl-structure-object~ and therefore to all structures created with ~cl-defstruct~, ~symbol~, ~cons~, ~vector~.
@@ -645,11 +1033,23 @@ Table protocol has been extended to the following types: ~hash-table~, ~mu-struc
   (princ (documentation 'mu.slots))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Return required keys in OBJ. OBJ must implement
+‘mu-table-protocol’.
+#+end_example
+
 ** mu.keys (mu:keys)                                             :procedure:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu.keys))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Return all keys in OBJ. OBJ must implement
+‘mu-table-protocol’.
+#+end_example
 
 ** mu. (mu:)                                                     :procedure:
 
@@ -657,13 +1057,20 @@ Table protocol has been extended to the following types: ~hash-table~, ~mu-struc
   (princ (documentation 'mu.))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Look up KEYs in TABLE. Return nil if any KEYs missing. This is
+a generalized variable and therefore ‘setf’-able. TABLE must
+implement ‘mu-table-protocol’.
+#+end_example
+
 As previously mentioned one can use generalized variable defined by ~mu-defstruct~ to lookup and set (potentially nested or missing) keys in a struct. ~mu.~ function is a generalization of this idea that should work for any type that implements ~mu-table-protocol~, so that there's no need for type-specific functions that are morally equivalent. This should aleviate the pain of having to use statically defined struct slot accessors e.g. ~foo-struct-name~ or hash-table specific ~ht-get~ for a single key look up, or ~ht-get*~ for multiple keys, etc.
 
 ~mu.~ is also an attempt compress code without loss of information. It is not uncommon to name local variables that hold struct instances so that one can immediately deduce their type e.g. ~foo~ for a ~foo-struct~ instance. Even generalized variables like ~(foo-struct foo :props)~ duplicate information and introduce unnecessary noise in the code. Struct getters like ~foo-struct-props~ do the same and are static. ~mu.~ offers a reasonably short alternative that works for all major associative types.
 
 #+begin_src emacs-lisp
-  (setq foo (make-foo-struct :props (ht (:b 1))))
-  (setq baz (make-foo-struct :props (ht (:a foo))))
+  (setq foo (foo-struct-create :props (ht (:b 1))))
+  (setq baz (foo-struct-create :props (ht (:a foo))))
 
   ;; look up a deeply nested key
   (should (eq 1 (mu. baz :props :a :props :b)))
@@ -680,9 +1087,9 @@ As previously mentioned one can use generalized variable defined by ~mu-defstruc
 To set nested keys ~mu.~ will create intermediate tables for any missing keys as needed. So, the following example is morally equivalent to the one above:
 
 #+begin_src emacs-lisp
-  (setq baz (make-foo-struct))
+  (setq baz (foo-struct-create))
 
-  (setf (mu. baz :props :a) (make-foo-struct))
+  (setf (mu. baz :props :a) (foo-struct-create))
   (setf (mu. baz :props :a :props :b) 42)
 
   (should (eq 42 (mu. baz :props :a :props :b)))
@@ -694,11 +1101,27 @@ To set nested keys ~mu.~ will create intermediate tables for any missing keys as
   (princ (documentation-property 'mu-equatable-protocol 'variable-documentation))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Protocol for deep equality. Define protocol methods
+‘mu--equal’.
+#+end_example
+
 ** mu.equal                                                      :procedure:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu.equal))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Test if OBJ1 and OBJ2 are of the same type and structurally equal.
+Unlike ‘equal’ perform deep equality comparison of hash-tables as
+values. Like ‘equal’ report nil when comparing hash-tables that
+have hash-tables as keys.
+
+(fn obj1 obj2)
+#+end_example
 
 ** mu-callable-protocol                                                :var:
 
@@ -706,12 +1129,18 @@ To set nested keys ~mu.~ will create intermediate tables for any missing keys as
   (princ (documentation-property 'mu-callable-protocol 'variable-documentation))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Protocol for types that exhibit function-like behaviour.
+Define protocol method ‘mu--call’.
+#+end_example
+
 mu-callable protocol allows one to /invoke/ instances of any type that implements it as if they were procedures. Although this requires the use of API functions ~mu.call~ and ~mu.apply~ in place of the native ~funcall~ and ~apply~, the former two effectively subsume the latter by delegating to them in the default case when instance is already a function.
 
 We implement this protocol for all structures (both mu-structs and cl-structs) as well as hash-tables. Default implementation simply delegates to ~mu.~ to perform key lookup:
 
 #+begin_src emacs-lisp
-  (setq foo (make-foo-struct))
+  (setq foo (foo-struct-create))
   (setf (mu. foo :a :b) 42)
 
   (should (eq 42 (mu.call foo :a :b)))
@@ -730,11 +1159,25 @@ Or alter the behavior of the entire struct type by providing custom implementati
   (princ (documentation 'mu.call))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Like ‘funcall’ but invoke object F with ARGS. Unless F
+implements ‘mu-callable-protocol’ it is assumed to be a function
+and ‘funcall’ is used.
+#+end_example
+
 ** mu.apply (mu:apply)                                           :procedure:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu.apply))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Like ‘apply’ but apply object F to ARGS. Unless F implements
+‘mu-callable-protocol’ it is assumed to be a function and ‘apply’
+is used.
+#+end_example
 
 * multi-methods
 
@@ -752,11 +1195,21 @@ Create a new mu-hierarchy.
   (princ (documentation-property 'mu-global-hierarchy 'variable-documentation))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Global hierarchy
+#+end_example
+
 ** mu-active-hierarchy                                           :procedure:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-active-hierarchy))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Return the hierarchy active in the current dynamic extent.
+#+end_example
 
 ** mu-with-hierarchy                                                 :macro:
 
@@ -764,11 +1217,33 @@ Create a new mu-hierarchy.
   (princ (documentation 'mu-with-hierarchy))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Prefer HIERARCHY during the dynamic extent of the body.
+#+end_example
+
 ** mu-rel                                                            :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-rel))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Establish an isa relationship between CHILD and PARENT in the
+currently active hierarchy or HIERARCHY.
+
+(mu-rel CHILD REL PARENT [HIERARCHY])
+-------------------------------------
+    CHILD = val
+      REL = :isa | isa | any
+   PARENT = val
+HIERARCHY = mu-hierarchy-p
+-------------------------------------
+
+REL argument is provided to help readability but is otherwise
+ignored.
+#+end_example
 
 Example:
 #+begin_src emacs-lisp
@@ -790,11 +1265,22 @@ Example:
   (princ (documentation 'mu-isa?))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Check if CHILD is isa? related to PARENT in the currently
+active hierarchy or HIERARCHY.
+#+end_example
+
 ** mu-ancestors                                                  :procedure:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-ancestors))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Return all ancestors of X such that (mu-isa? X ancestor).
+#+end_example
 
 ** mu-descendants                                                :procedure:
 
@@ -802,17 +1288,44 @@ Example:
   (princ (documentation 'mu-descendants))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Return all descendants of X such that (mu-isa? descendant X).
+#+end_example
+
 ** mu-isa/generations?                                           :procedure:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-isa/generations?))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Like ‘mu-isa?’ but return the generation gap between CHILD and
+PARENT.
+
+(fn X Y &optional (HIERARCHY nil) (GENERATION 0))
+#+end_example
+
 ** mu-prefer                                                     :procedure:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-prefer))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Prefer dispatch value X over Y when resolving method FUN.
+
+--------------------
+ FUN = id
+KEYS = val :to val
+     | val :over val
+     | val val
+--------------------
+
+(fn foo x :over y)
+#+end_example
 
 Example:
 #+begin_src emacs-lisp
@@ -836,11 +1349,54 @@ Example:
   (princ (documentation 'mu-unprefer))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Remove registered preferences for FUN multi-dispatch function:
+
+  (mu-unprefer foo x :to y) do not prefer X over Y
+  (mu-unprefer foo x y)     do not prefer X over Y
+  (mu-unprefer foo x)       remove all X preferences
+  (mu-unprefer foo)         remove all preferences
+
+(fn foo x :over y)
+#+end_example
+
 ** mu-defmulti                                                       :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-defmulti))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Define a new multi-dispatch function NAME.
+
+--------------------------------------------------
+        ARGLIST = cl-arglist
+                | seq-pattern
+                | mu-function?
+
+           BODY = [metadata] clause ...
+
+         clause = body
+                | mu-defun-clause ...
+
+       metadata = :hierarchy mu-hierarchy-p
+                | :static-hierarchy mu-hierarchy-p
+
+mu-defun-clause = (seq-pattern body ...)
+
+    seq-pattern = ‘[’mu-pattern ...‘]’
+--------------------------------------------------
+
+ARGLIST maybe a CL-ARGLIST, a function (#’function, ‘lambda’,
+‘mu’ lambda) or a sequence []-pattern. When ARGLIST is itself a
+function, BODY is ignored and that function is used to dispatch.
+ARGLIST and BODY combined may follow single-head or multi-head
+syntax to define a ‘mu-defun’ for dispatch and destructuring.
+
+BODY must return a value to be used for ‘mu-isa?’ dispatch.
+#+end_example
 
 See [[*mu-defmethod][mu-defmethod]] for examples.
 
@@ -882,6 +1438,32 @@ Example:
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-defmethod))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Add a new method to multi-dispatch function NAME for dispatch
+value VAL.
+
+----------------------------------------
+        ARGLIST = cl-arglist
+                | seq-pattern
+                | mu-function?
+
+           BODY = clause ...
+
+         clause = body
+                | mu-defun-clause ...
+
+mu-defun-clause = (seq-pattern body ...)
+
+    seq-pattern = ‘[’mu-pattern ...‘]’
+----------------------------------------
+
+ARGLIST maybe a ‘cl-arglist’, a function (#’function, ‘lambda’,
+‘mu’ lambda) or a sequence []-pattern. ARGLIST and BODY combined
+may follow single-head or multi-head syntax to define a
+‘mu-defun’ for dispatch and destructuring.
+#+end_example
 
 Examples:
 #+begin_src emacs-lisp
@@ -982,6 +1564,11 @@ Example: default method
   (princ (documentation 'mu-undefmethod))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Remove multi-method for FUN and dispatch value VAL
+#+end_example
+
 * multi-benchmarks
 
 Multi-benchmarks is a series of macros to measure execution time of arbitrary code. Code is byte-compiled before any such measurment is taken. Whenever possible library functions attempt to account for any overhead they introduce. Measurements are reported as lists that ORG-mode recognizes as tables. This makes comparing, tracking, visualizing and sharing performance stats in an ORG file very convenient.
@@ -1041,11 +1628,40 @@ Examples:
   (princ (documentation-property 'mu-bench-debug-print 'variable-documentation))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+t or NUMBER. When in scope every mu-bench will accumulate that
+many results and pretty-print to STDOUT. ‘mu-bench/context’ will
+pretty-print its entire context in a temporary *mu-bench-context*
+buffer.
+#+end_example
+
 ** mu-bench                                                          :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-bench))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+‘benchmark-run-compiled’ BODY that many TIMES. Unless RAW is
+requested collect results into an ORG-ready table with headings.
+
+(mu-bench [DOC] ATTR-OPTION ... BODY)
+-------------------------------------
+        DOC = stringp
+
+ATTR-OPTION = :name stringp
+            | :times numberp
+            | :raw boolean
+-------------------------------------
+
+TIMES defaults to 10’000. RAW defaults to nil. Unless NAME
+attribute is supplied DOC is used to identify the benchmark in
+table of statistics.
+
+(fn &optional docstring &key name times raw &rest body)
+#+end_example
 
 ** mu-bench*                                                         :macro:
 
@@ -1053,11 +1669,50 @@ Examples:
   (princ (documentation 'mu-bench*))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Like ‘mu-bench’ but BODY must be a sequence of mu-benches to
+run.
+
+(mu-bench* [DOC] ATTR-OPTION ... BODY)
+--------------------------------------
+        DOC = stringp
+
+ATTR-OPTION = :name stringp
+            | :times numberp
+            | :raw boolean
+            | :compare boolean
+
+       BODY = bench ...
+
+      bench = ‘mu-bench’
+            | ‘mu-bench/let’
+--------------------------------------
+
+When COMPARE is t report performance relative to the benchmark
+that shows the best time, sort benchmarks table by relative
+performance fastest to slowest.
+
+(fn &optional docstring &key name times raw compare &rest mu-benches)
+#+end_example
+
 ** mu-bench/let                                                      :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-bench/let))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Like ‘mu-bench’ but with additional bindings in VARLIST
+available in BODY.
+
+-------------------------
+VARLIST = ((id expr) ...)
+-------------------------
+
+(fn varlist &optional docstring &key name times raw &rest body)
+#+end_example
 
 ** mu-bench*/let                                                     :macro:
 
@@ -1065,11 +1720,29 @@ Examples:
   (princ (documentation 'mu-bench*/let))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Like ‘mu-bench*’ but with additional bindings in VARLIST
+available in BODY.
+
+-------------------------
+VARLIST = ((id expr) ...)
+-------------------------
+
+(fn varlist &key times raw compare &rest mu-benches)
+#+end_example
+
 ** mu-defbench                                                       :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-defbench))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Create function NAME that runs BODY as ‘mu-bench’ with ARGLIST
+variables in scope.
+#+end_example
 
 ** mu-defbench*                                                      :macro:
 
@@ -1077,11 +1750,35 @@ Examples:
   (princ (documentation 'mu-defbench*))
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Like ‘mu-bench*’ that can be called by NAME with variables in
+ARGLIST in scope.
+
+----------------------
+ BODY = bench ...
+bench = ‘mu-bench’
+      | ‘mu-bench/let’
+----------------------
+#+end_example
+
 ** mu-bench/context                                                  :macro:
 
 #+begin_src emacs-lisp :eval yes :wrap example :exports results :results replace output :tangle no
   (princ (documentation 'mu-bench/context))
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Run MU-BENCH with additional CONTEXT compiled and loaded as
+‘progn’ before MU-BENCH. It is exactly as if you wrote CONTEXT
+followed by MU-BENCH in a file, byte-compiled then loaded it.
+
+--------------------------------------
+MU-BENCH = ‘mu-bench’ | ‘mu-bench/let’
+CONTEXT = body
+--------------------------------------
+#+end_example
 
 * test-readme                                                      :noexport:
 
