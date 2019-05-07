@@ -1,0 +1,2272 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<!-- 2019-05-07 Tue 21:19 -->
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Multiple dispatch for Emacs Lisp</title>
+<meta name="generator" content="Org mode" />
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #ccc;
+    box-shadow: 3px 3px 3px #eee;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: visible;
+    padding-top: 1.2em;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    background-color: white;
+    top: -10px;
+    right: 10px;
+    padding: 3px;
+    border: 1px solid black;
+  }
+  pre.src:hover:before { display: inline;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { width: 90%; }
+  /*]]>*/-->
+</style>
+<script type="text/javascript">
+/*
+@licstart  The following is the entire license notice for the
+JavaScript code in this tag.
+
+Copyright (C) 2012-2018 Free Software Foundation, Inc.
+
+The JavaScript code in this tag is free software: you can
+redistribute it and/or modify it under the terms of the GNU
+General Public License (GNU GPL) as published by the Free Software
+Foundation, either version 3 of the License, or (at your option)
+any later version.  The code is distributed WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+As additional permission under GNU GPL version 3 section 7, you
+may distribute non-source (e.g., minimized or compacted) forms of
+that code without the copy of the GNU GPL normally required by
+section 4, provided you include this license notice and a URL
+through which recipients can access the Corresponding Source.
+
+
+@licend  The above is the entire license notice
+for the JavaScript code in this tag.
+*/
+<!--/*--><![CDATA[/*><!--*/
+ function CodeHighlightOn(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(null != target) {
+     elem.cacheClassElem = elem.className;
+     elem.cacheClassTarget = target.className;
+     target.className = "code-highlighted";
+     elem.className   = "code-highlighted";
+   }
+ }
+ function CodeHighlightOff(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(elem.cacheClassElem)
+     elem.className = elem.cacheClassElem;
+   if(elem.cacheClassTarget)
+     target.className = elem.cacheClassTarget;
+ }
+/*]]>*///-->
+</script>
+</head>
+<body>
+<div id="content">
+<h1 class="title">Multiple dispatch for Emacs Lisp</h1>
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org356548d">1. Introduction</a></li>
+<li><a href="#orge693b67">2. Installation</a></li>
+<li><a href="#org93bb744">3. What to expect?</a></li>
+<li><a href="#org493e89d">4. Reference</a>
+<ul>
+<li><a href="#org7e941c0">4.1. multi-patterns</a>
+<ul>
+<li><a href="#orge7117f7">4.1.1. mu-case&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#orgf963878">4.1.2. mu-prefer-nested-pcase&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></a></li>
+<li><a href="#org9102fb0">4.1.3. mu-defpattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#orgd16a535">4.1.4. mu-pattern-documentation&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org1060a28">4.1.5. built-in mu-patterns</a></li>
+<li><a href="#orgcd5e558">4.1.6. predefined mu-patterns</a></li>
+<li><a href="#org549a054">4.1.7. mu-let&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#orgff6bcec">4.1.8. mu-when-let&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org0d895d0">4.1.9. mu-if-let&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org8b3d92b">4.1.10. mu-defun&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org5e45b64">4.1.11. mu-defmacro&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org3c82714">4.1.12. mu (μ)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org7c90e99">4.1.13. mu-function?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#orgaa5dc79">4.1.14. mu-defsetter&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+</ul>
+</li>
+<li><a href="#orge367e1b">4.2. multi-structs and protocols</a>
+<ul>
+<li><a href="#org45f7b32">4.2.1. mu-defprotocol&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org30a521b">4.2.2. mu-extend&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#orgaa561f8">4.2.3. mu-extends?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org1aba779">4.2.4. mu-implements?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org3791d44">4.2.5. mu-type?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org0d1f5e7">4.2.6. mu-defstruct&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org0635259">4.2.7. mu-table-protocol&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></a></li>
+<li><a href="#orgff55d2f">4.2.8. mu.slots (mu:slots)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org11b9b14">4.2.9. mu.keys (mu:keys)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org9d02e69">4.2.10. mu. (mu:)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org570bac6">4.2.11. mu-equatable-protocol&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></a></li>
+<li><a href="#orga358a3b">4.2.12. mu.equal&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org8f854e1">4.2.13. mu-callable-protocol&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></a></li>
+<li><a href="#orgbea9fbb">4.2.14. mu.call (mu:call)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#orgeec7b24">4.2.15. mu.apply (mu:apply)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+</ul>
+</li>
+<li><a href="#orgb82f8f5">4.3. multi-methods</a>
+<ul>
+<li><a href="#org4432de1">4.3.1. make-mu-hierarchy&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org7f04fc9">4.3.2. mu-global-hierarchy&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></a></li>
+<li><a href="#orgf47ebbe">4.3.3. mu-active-hierarchy&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org2eacdeb">4.3.4. mu-with-hierarchy&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org3f02d6a">4.3.5. mu-rel&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org560c16e">4.3.6. mu-isa?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org1bc0f29">4.3.7. mu-ancestors&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org83d44d5">4.3.8. mu-descendants&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#orgb7062b5">4.3.9. mu-isa/generations?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#orgb32ba2a">4.3.10. mu-prefer&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org448a02c">4.3.11. mu-unprefer&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+<li><a href="#org96640a6">4.3.12. mu-defmulti&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org238ae2f">4.3.13. mu-defmethod&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#orgce4d3bc">4.3.14. mu-undefmethod&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></a></li>
+</ul>
+</li>
+<li><a href="#org7061402">4.4. multi-benchmarks</a>
+<ul>
+<li><a href="#org0332500">4.4.1. mu-bench-debug-print&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></a></li>
+<li><a href="#org90a74d4">4.4.2. mu-bench&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#orgfe4f43f">4.4.3. mu-bench*&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#orgdebb1b6">4.4.4. mu-bench/let&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org233aaf2">4.4.5. mu-bench*/let&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org3009b6e">4.4.6. mu-defbench&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org5367963">4.4.7. mu-defbench*&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+<li><a href="#org8794f50">4.4.8. mu-bench/context&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org356548d" class="outline-2">
+<h2 id="org356548d"><span class="section-number-2">1</span> Introduction</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+<i>multi.el</i> is a multiple dispatch library for Emacs Lisp. It adds support for
+</p>
+<ul class="org-ul">
+<li>type-driven dispatch with <i>multi-protocols</i>,</li>
+<li>ad-hoc polymorphism with <i>multi-methods</i>,</li>
+<li>pattern-matching and destructuring without noise with <i>multi-patterns</i>,</li>
+<li>case-dispatch with <i>multi-defuns</i>,</li>
+<li>benchmarking all of the above with <i>multi-benchmarks</i>.</li>
+</ul>
+</div>
+</div>
+
+
+<div id="outline-container-orge693b67" class="outline-2">
+<h2 id="orge693b67"><span class="section-number-2">2</span> Installation</h2>
+<div class="outline-text-2" id="text-2">
+<blockquote>
+<p>
+This is very much a <i>hacker release</i>, so I intentionally haven't published it on
+any package repositories. In truth I don't yet know how to do that. If you know
+your Elisp devops and want to see this project bundled properly, consider lending
+a hand.
+</p>
+</blockquote>
+
+<p>
+For now, clone this repo and eval code as needed or load it from your <i>init.el</i>.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org93bb744" class="outline-2">
+<h2 id="org93bb744"><span class="section-number-2">3</span> What to expect?</h2>
+<div class="outline-text-2" id="text-3">
+<p>
+<i>Please read this section carefully and manage your expections accordingly.</i>
+</p>
+
+<blockquote>
+<p>
+<b>Warning</b>: <i>hacker release</i> - not very user-friendly.
+</p>
+</blockquote>
+
+<p>
+Little to no effort has been spared on optimization and performance. Even obvious
+things, like caching dispatch in multi-methods, are missing. <b>This is
+intentional</b>: any perf tuning requires careful and consistent measurments and
+systematic approach to code changes not ad-hoc guesswork. To that effect I hope
+I've set ourselves up for success by building <i>multi-benchmarks</i> that would turn
+any optimization effort into productive activity. Check out <a href="benchmarks.html">benchmarks.org</a> to see
+<i>multi-benchmarks</i> in action (if reading on Github, choose RAW format) - it is an
+executable ORG-file. That said <i>multi.el</i> is feature complete and you'll get what
+the introduction has promised.
+</p>
+
+<p>
+If you run into issues or want to contribute do yourself a favor and employ
+<i>Edebug</i> extensively. <i>Edebug</i> is your friend because I took care to <i>edebug-spec</i>
+most if not all macros. <b>So, fret not and step debug it!</b>
+</p>
+
+<p>
+You can get both syntax-highlighting and appropriate <i>Imenu</i> entries for
+<i>multi.el</i>. Have a look at <a href="multi-prelude.el#MissingReference">Font-lock &amp; Imenu</a> outline in <i>multi-prelude.el</i>.
+</p>
+
+<p>
+All user-facing features and majority of private ones have been documented. In
+fact this README along with the Reference below have been generated by <b>executing</b>
+the <a href="make-readme.html">make-readme.org</a> file, which can even extract and test the examples. Isn't
+ORG-mode amazing! Check out the source if curious - I'm not really an ORG expert -
+just playing around.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org493e89d" class="outline-2">
+<h2 id="org493e89d"><span class="section-number-2">4</span> Reference</h2>
+<div class="outline-text-2" id="text-4">
+</div>
+<div id="outline-container-org7e941c0" class="outline-3">
+<h3 id="org7e941c0"><span class="section-number-3">4.1</span> multi-patterns</h3>
+<div class="outline-text-3" id="text-4-1">
+
+<div id="orgbd56604" class="figure">
+<p><img src="./resources/byte-compiling_in_presence_of_pcase_patterns_-_Emacs_Stack_Exchange.png" alt="byte-compiling_in_presence_of_pcase_patterns_-_Emacs_Stack_Exchange.png" />
+</p>
+<p><span class="figure-number">Figure 1: </span>Sentiment about `pcase'</p>
+</div>
+
+<p>
+Multi-patterns build on the venerable <code>pcase</code> macro to give you powerful yet clean
+pattern-matching. No more <code>quote</code>, <code>unquote</code> all over the place.
+</p>
+
+<p>
+We also provide <code>mu-defun</code> and <code>mu-defmacro</code> that extend their native counterparts
+with the ability to pattern match on and destructure arguments. To a first
+approximation this is syntactic sugar over function definition and <code>mu-case</code>
+expression. <code>mu-defun</code> exists in two versions: <i>single-head</i> and <i>multi-head</i>,
+where the former is like <code>defun</code> that also pattern matches on its arglist binding
+any pattern-variables in the body, while the latter allows multiple clauses each
+with its own arglist pattern and body. Multi-head defun is not unlike and has been
+inspired by Clojure's multi-head <code>defn</code> but is strictly more expressive.
+</p>
+</div>
+
+<div id="outline-container-orge7117f7" class="outline-4">
+<h4 id="orge7117f7"><span class="section-number-4">4.1.1</span> mu-case&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-1-1">
+<pre class="example">
+Like ‘pcase’ but uses mu-patterns for matching.
+
+------------------------------
+      E = sexp
+CLAUSES = (clause ...)
+ clause = (pattern body ...)
+        | (otherwise body ...)
+------------------------------
+
+Any sequence []-pattern is treated strictly - must match the
+entire sequence to succeed.
+</pre>
+
+<p>
+Some basic examples. Note that <code>[pat ...]</code> is a sequence-pattern that will happily
+match both lists and vectors.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>2 <span style="color: #7B665C;">[</span>3 4<span style="color: #7B665C;">]</span><span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-case</span> <span style="color: #7B665C;">[</span>1 2 3 4<span style="color: #7B665C;">]</span>
+                            <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>l a _ c<span style="color: #5C7E81;">)</span>    <span style="color: #5C7E81;">(</span>list a c<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+                            <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>v a _ c<span style="color: #5C7E81;">)</span>    <span style="color: #5C7E81;">(</span>list a c<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+                            <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">[</span>_ b | rest<span style="color: #5C7E81;">]</span> <span style="color: #5C7E81;">(</span>list b rest<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+                            <span style="color: #7B665C;">(</span>otherwise    'no-match<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+
+<div id="outline-container-orgf963878" class="outline-4">
+<h4 id="orgf963878"><span class="section-number-4">4.1.2</span> mu-prefer-nested-pcase&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></h4>
+<div class="outline-text-4" id="text-4-1-2">
+<pre class="example">
+‘pcase’ expander may on occasion produce pathological
+expansions, where a reasonable 4-clause matcher expands into over
+160K lines of code. Toggling this parameter where this happens
+will force ‘mu-case’ to convert generated pcase-clauses into a
+tree of nested pcase-calls before handing it over to ‘pcase’.
+This shrinks the expansion by orders of magnitude but may defeat
+some optimizations ‘pcase’ could have undertaken had it known all
+the clauses (citation needed).
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org9102fb0" class="outline-4">
+<h4 id="org9102fb0"><span class="section-number-4">4.1.3</span> mu-defpattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-1-3">
+<pre class="example">
+Define an expander for a custom mu-pattern of the form (NAME
+&amp;rest patterns) where actual patterns will be bound in the
+expander according to the ARGLIST. Expander must produce a valid
+mu-pattern. NAME is only required to identify the pattern, the
+macro does not bind it. Optional DOCSTRING maybe supplied to
+improve readability of your code. BODY may start with a :debug
+EDEBUG-SPEC attribute pair.
+
+(fn NAME ARGLIST &amp;optional DOCSTRING &amp;rest BODY)
+</pre>
+
+<p>
+For many examples see pre-defined custom patterns in <a href="multi-patterns.el#MissingReference">multi-patterns.el</a>
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgd16a535" class="outline-4">
+<h4 id="orgd16a535"><span class="section-number-4">4.1.4</span> mu-pattern-documentation&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-1-4">
+<pre class="example">
+Extract docstring from custom mu-pattern NAME
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org1060a28" class="outline-4">
+<h4 id="org1060a28"><span class="section-number-4">4.1.5</span> built-in mu-patterns</h4>
+<div class="outline-text-4" id="text-4-1-5">
+</div>
+<ol class="org-ol">
+<li><a id="orge82500a"></a>?-pattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="pattern">pattern</span></span><br />
+<div class="outline-text-5" id="text-4-1-5-1">
+<p>
+Predicate pattern. Equivalent to <code>(pred function)</code> pcase-pattern.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq 'match <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-case</span> 1
+                     <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">or</span> <span style="color: #837486;">(</span>? zerop<span style="color: #837486;">)</span> <span style="color: #837486;">(</span>? oddp<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span> 'match<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</li>
+
+<li><a id="orgde1a37b"></a>lst-pattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="pattern">pattern</span></span><br />
+<div class="outline-text-5" id="text-4-1-5-2">
+<p>
+List pattern. To match it must have the same number of patterns as elements in the
+list and every pattern must match. Unlike <a href="#org7bc350f">l-pattern</a> it does not allow matching
+tail of a list with <code>&amp;rest</code>.
+</p>
+</div>
+</li>
+
+<li><a id="orgf11d394"></a>vec-pattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="pattern">pattern</span></span><br />
+<div class="outline-text-5" id="text-4-1-5-3">
+<p>
+Vector pattern. Like <a href="#orgde1a37b">lst-pattern</a> but matches vectors.
+</p>
+</div>
+</li>
+</ol>
+</div>
+
+<div id="outline-container-orgcd5e558" class="outline-4">
+<h4 id="orgcd5e558"><span class="section-number-4">4.1.6</span> predefined mu-patterns</h4>
+<div class="outline-text-4" id="text-4-1-6">
+</div>
+<ol class="org-ol">
+<li><a id="org7bc350f"></a>l-pattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="pattern">pattern</span></span><br />
+<div class="outline-text-5" id="text-4-1-6-1">
+<pre class="example">
+mu-pattern to match lists. Unlike built-in lst-pattern allow a
+&amp;rest subpattern to match remaining items.
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>2 3<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-case</span> '<span style="color: #7B665C;">(</span>1 <span style="color: #5C7E81;">(</span>2 3<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+                        <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>l _ <span style="color: #837486;">(</span>l a | tail<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span> <span style="color: #5C7E81;">(</span>list* a tail<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</li>
+
+<li><a id="org441d20a"></a>v-pattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="pattern">pattern</span></span><br />
+<div class="outline-text-5" id="text-4-1-6-2">
+<pre class="example">
+mu-pattern to match vectors. Unlike built-in vec-pattern allow
+a &amp;rest subpattern to match remaining items.
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>1 <span style="color: #7B665C;">[</span>2 3<span style="color: #7B665C;">]</span><span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-case</span> <span style="color: #7B665C;">[</span>1 2 3<span style="color: #7B665C;">]</span>
+                            <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>v x | tail<span style="color: #5C7E81;">)</span> <span style="color: #5C7E81;">(</span>list x tail<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</li>
+
+<li><a id="orgd7e676a"></a>lv-pattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="pattern">pattern</span></span><br />
+<div class="outline-text-5" id="text-4-1-6-3">
+<pre class="example">
+mu-pattern to match lists and vectors alike. Unlike
+seq-pattern it is strict and behaves like l-pattern for lists or
+v-pattern for vectors: must match the entire sequence to
+succeed.
+</pre>
+</div>
+</li>
+
+<li><a id="org107c841"></a>seq-pattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="pattern">pattern</span></span><br />
+<div class="outline-text-5" id="text-4-1-6-4">
+<pre class="example">
+mu-pattern to match lists and vectors taking an open-world
+collection view: match as many PATTERNS as available. Fewer
+patterns than items in a sequence will simply match the head of
+the sequence; more patterns will match available items, then
+match any excessive patterns against that many nils. Supports
+&amp;rest subpattern to match remaining items.
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>1 2 3<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-case</span> <span style="color: #7B665C;">[</span><span style="color: #5C7E81;">(</span>1<span style="color: #5C7E81;">)</span> <span style="color: #5C7E81;">[</span><span style="color: #837486;">(</span>2<span style="color: #837486;">)</span><span style="color: #5C7E81;">]</span> <span style="color: #5C7E81;">(</span>3<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">]</span>
+                          <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">[</span><span style="color: #837486;">[</span>a<span style="color: #837486;">]</span> <span style="color: #837486;">[</span><span style="color: #9C6F68;">[</span>b<span style="color: #9C6F68;">]</span><span style="color: #837486;">]</span> <span style="color: #837486;">[</span>c<span style="color: #837486;">]</span><span style="color: #5C7E81;">]</span> <span style="color: #5C7E81;">(</span>list a b c<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+
+<ol class="org-ol">
+<li><a id="org75b245f"></a>mu-seq-pattern-force-list&#xa0;&#xa0;&#xa0;<span class="tag"><span class="custom">custom</span></span><br />
+<div class="outline-text-6" id="text-4-1-6-4-1">
+<pre class="example">
+Force seq-pattern to always cast its &amp;rest submatch to a list.
+By default &amp;rest submatch preserves the type of sequence being
+matched.
+</pre>
+
+<p>
+Forcing <code>&amp;rest</code> submatch to a list is primarily useful when one wants to capture
+the rest of the sequence and test whether its empty with a traditional <code>nil</code>
+check.
+</p>
+
+<p>
+Examples:
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal <span style="color: #9C6F68;">[]</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-case</span> <span style="color: #7B665C;">[]</span>
+                    <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">[</span>| rest<span style="color: #5C7E81;">]</span> rest<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">()</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">let</span> <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>mu-seq-pattern-force-list 'list<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+                     <span style="color: #7B665C;">(</span><span style="color: #DD6F48;">mu-case</span> <span style="color: #5C7E81;">[]</span>
+                       <span style="color: #5C7E81;">(</span><span style="color: #837486;">[</span>| rest<span style="color: #837486;">]</span> rest<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>1 <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">[</span>2<span style="color: #5C7E81;">]</span><span style="color: #7B665C;">)</span> <span style="color: #7B665C;">(</span>3<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span>
+               <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">let</span> <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>mu-seq-pattern-force-list 'list<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+                 <span style="color: #7B665C;">(</span><span style="color: #DD6F48;">mu-case</span> <span style="color: #5C7E81;">[</span><span style="color: #837486;">[</span>1 <span style="color: #9C6F68;">[</span>2<span style="color: #9C6F68;">]</span><span style="color: #837486;">]</span> 3<span style="color: #5C7E81;">]</span>
+                   <span style="color: #5C7E81;">(</span><span style="color: #837486;">[</span><span style="color: #9C6F68;">[</span>x | y<span style="color: #9C6F68;">]</span> | z<span style="color: #837486;">]</span> <span style="color: #837486;">(</span>list x y z<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</li>
+</ol>
+</li>
+
+<li><a id="org5c8286a"></a>ht-pattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="pattern">pattern</span></span><br />
+<div class="outline-text-5" id="text-4-1-6-5">
+<pre class="example">
+mu-pattern for hash-tables, structs and alists.
+
+------------------------------------------------
+PATTERNS = (key-pat ...)
+ key-pat = id | keywordp | ’symbolp | (key id)
+------------------------------------------------
+
+Keyword key-pat looks up :key then ’key in order binding value to
+variable ‘key’. Quoted symbol key-pat tries in order ’key then
+:key. (key id) looks up ‘key’ binding value to ‘id’ on success.
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>1 2 3 4<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-case</span> <span style="color: #7B665C;">(</span><span style="color: #DD6F48;">ht</span> <span style="color: #5C7E81;">(</span><span style="color: #FE8019;">:a</span> 1<span style="color: #5C7E81;">)</span> <span style="color: #5C7E81;">(</span>'b 2<span style="color: #5C7E81;">)</span> <span style="color: #5C7E81;">(</span><span style="color: #FE8019;">:c</span> 3<span style="color: #5C7E81;">)</span> <span style="color: #5C7E81;">(</span>'d 4<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+                            <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">ht</span> <span style="color: #FE8019;">:a</span> b 'c <span style="color: #837486;">(</span>'d D<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span> <span style="color: #5C7E81;">(</span>list a b c D<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</li>
+
+<li><a id="org6a19ffb"></a>ht|-pattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="pattern">pattern</span></span><br />
+<div class="outline-text-5" id="text-4-1-6-6">
+<pre class="example">
+Mu-pattern for key-value sequence prefix. Try to match and
+collect sequence elements pair-wise as though they were elements
+of a hash-table. PATTERNS are key-patterns like in ht-pattern
+followed by an optional []-pattern to match the rest of the
+sequence.
+
+------------------------------------------------
+PATTERNS = (key-pat ... [seq-pattern])
+ key-pat = id | keywordp | ’symbolp | (key id)
+------------------------------------------------
+</pre>
+
+<p>
+Example:
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>1 2<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-case</span> '<span style="color: #7B665C;">(</span><span style="color: #FE8019;">:a</span> 1 <span style="color: #FE8019;">:b</span> 2 body<span style="color: #7B665C;">)</span>
+                        <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">[</span>| <span style="color: #837486;">(</span>ht| a b<span style="color: #837486;">)</span><span style="color: #5C7E81;">]</span> <span style="color: #5C7E81;">(</span>list a b<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>1 2 <span style="color: #7B665C;">(</span>body<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-case</span> '<span style="color: #7B665C;">(</span><span style="color: #FE8019;">:a</span> 1 <span style="color: #FE8019;">:b</span> 2 body<span style="color: #7B665C;">)</span>
+                               <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">[</span>| <span style="color: #837486;">(</span>ht| a b <span style="color: #9C6F68;">[</span>| rest<span style="color: #9C6F68;">]</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">]</span> <span style="color: #5C7E81;">(</span>list a b rest<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</li>
+
+<li><a id="orgf572db4"></a>id-pattern&#xa0;&#xa0;&#xa0;<span class="tag"><span class="pattern">pattern</span></span><br />
+<div class="outline-text-5" id="text-4-1-6-7">
+<pre class="example">
+Mu-pattern for identifiers - symbols that maybe used as
+variable names. E.g. it wil not match ‘t’ or ‘nil’.
+</pre>
+</div>
+</li>
+</ol>
+</div>
+
+<div id="outline-container-org549a054" class="outline-4">
+<h4 id="org549a054"><span class="section-number-4">4.1.7</span> mu-let&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-1-7">
+<pre class="example">
+Like ‘let*’ but allow mu-patterns in binding clauses. Any
+pattern-variables bound during pattern matching will be available
+in the BODY.
+
+-------------------------------
+BINDINGS = ((pattern expr) ...)
+         | ‘[’clause ...‘]’
+
+  clause = pattern expr
+-------------------------------
+
+Any sequence []-pattern is permissive.
+</pre>
+
+<p>
+Note that in the example below []-pattern is permissive, so any extra
+pattern-variables are bound to nil, any extra sequence values that have no
+patterns to match are discarded:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>1 2 nil 3 5 6<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-let</span> <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span><span style="color: #837486;">[</span>x y z<span style="color: #837486;">]</span>  '<span style="color: #837486;">(</span>1 2<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+                                         <span style="color: #5C7E81;">(</span><span style="color: #837486;">[</span>a<span style="color: #837486;">]</span>      '<span style="color: #837486;">(</span>3 4<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+                                         <span style="color: #5C7E81;">(</span><span style="color: #837486;">(</span><span style="color: #DD6F48;">ht</span> b c<span style="color: #837486;">)</span> <span style="color: #837486;">(</span><span style="color: #DD6F48;">ht</span> <span style="color: #9C6F68;">(</span><span style="color: #FE8019;">:b</span> 5<span style="color: #9C6F68;">)</span>
+                                                       <span style="color: #9C6F68;">(</span><span style="color: #FE8019;">:c</span> 6<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+                                  <span style="color: #7B665C;">(</span>list x y z a b c<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+With patterns on the left traditional Lisp-style let-bindings become busy. This is
+one case where an alternative Clojure-style let-syntax may be desirable. You may
+surround let-bindings with [] to minimize leading open-parens, so previous example
+becomes:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>1 2 nil 3 5 6<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-let</span> <span style="color: #7B665C;">[</span><span style="color: #5C7E81;">[</span>x y z<span style="color: #5C7E81;">]</span>  '<span style="color: #5C7E81;">(</span>1 2<span style="color: #5C7E81;">)</span>
+                                         <span style="color: #5C7E81;">[</span>a<span style="color: #5C7E81;">]</span>      '<span style="color: #5C7E81;">(</span>3 4<span style="color: #5C7E81;">)</span>
+                                         <span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">ht</span> b c<span style="color: #5C7E81;">)</span>  <span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">ht</span> <span style="color: #837486;">(</span><span style="color: #FE8019;">:b</span> 5<span style="color: #837486;">)</span>
+                                                       <span style="color: #837486;">(</span><span style="color: #FE8019;">:c</span> 6<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span><span style="color: #7B665C;">]</span>
+                                  <span style="color: #7B665C;">(</span>list x y z a b c<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgff6bcec" class="outline-4">
+<h4 id="orgff6bcec"><span class="section-number-4">4.1.8</span> mu-when-let&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-1-8">
+<pre class="example">
+Like ‘when-let*’ but allow mu-patterns in binding clauses. See
+‘mu-let’.
+</pre>
+
+<p>
+In the following example the second binding clause fails to match, so the body
+never runs and the entire expression returns <code>nil</code>:
+</p>
+
+<p>
+Example:
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should-not</span> <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu-when-let</span> <span style="color: #9C6F68;">(</span><span style="color: #7B665C;">(</span>a 1<span style="color: #7B665C;">)</span>
+                          <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>l b<span style="color: #5C7E81;">)</span> '<span style="color: #5C7E81;">(</span>0 4<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span>
+              <span style="color: #9C6F68;">(</span>list a b<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org0d895d0" class="outline-4">
+<h4 id="org0d895d0"><span class="section-number-4">4.1.9</span> mu-if-let&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-1-9">
+<pre class="example">
+Like ‘if-let*’ but allow mu-patterns in binding clauses. See
+‘mu-let’.
+</pre>
+
+
+<p>
+Example:
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>1<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-if-let</span> <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>a 1<span style="color: #5C7E81;">)</span>
+                                <span style="color: #5C7E81;">(</span><span style="color: #837486;">(</span>l b<span style="color: #837486;">)</span> '<span style="color: #837486;">(</span>0 4<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+                        <span style="color: #7B665C;">(</span>list a b<span style="color: #7B665C;">)</span>
+                      <span style="color: #7B665C;">(</span>list a<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org8b3d92b" class="outline-4">
+<h4 id="org8b3d92b"><span class="section-number-4">4.1.10</span> mu-defun&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-1-10">
+<pre class="example">
+Like ‘defun’ but choose the body to execute by
+pattern-matching on the arglist. Clauses are tried in order as if
+multiple definitions of the same function NAME were defined.
+
+------------------------------------
+    ARGLIST = seq-pattern
+            | _
+            | id
+            | (args ...)
+
+   METADATA = [docstring] attr ...
+
+       attr = :declare form
+            | :interactive form
+            | :before form
+            | :after form
+            | :return id
+            | :setup form
+            | :teardown form
+
+       BODY = body
+            | clause ...
+
+     clause = (seq-pattern body ...)
+
+seq-pattern = ‘[’pattern ...‘]’
+------------------------------------
+
+In addition to any pattern-variables bound by clause-patterns
+each body has ARGLIST variables in scope.
+
+In attribute options :declare takes a list of ‘declare’ specs;
+:interactive is either ‘t’ or an ‘interactive’ arg-descriptor;
+:return binds VAR to the result of BODY; :setup and :teardown
+execute their respective forms for side-effect before and after
+BODY. Both forms have ARGLIST bindings in scope, :teardown form
+has access to the VAR when :return is specified. To avoid before
+and after forms being executed on every recursive call use
+:before and :after attributes instead.
+
+In a single-head function ARGLIST must be a []-pattern. In a
+multi-head function ARGLIST that is an id will bind ARGLIST to
+that id; ARGLIST that is ‘_’ will be ignored; ARGLIST must be a
+‘defun’ arglist otherwise.
+
+(fn NAME ARGLIST METADATA &amp;rest BODY)
+</pre>
+
+<p>
+<i>Note for Clojure programmers</i>. Although inspired by Clojure the dispatch
+semantics of <code>mu-defun</code> are more expressive. The following is not allowed in
+Clojure:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-clojure"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">defn</span> <span style="color: #A89984;">foo</span>
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span>a b c<span style="color: #9C6F68;">]</span> ...<span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span>a b &amp; pattern<span style="color: #9C6F68;">]</span> ...<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+nor can you dispatch on the same arity
+</p>
+
+<div class="org-src-container">
+<pre class="src src-clojure"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">defn</span> <span style="color: #A89984;">foo</span>
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span>a <span style="color: #7B665C;">[</span>b c<span style="color: #7B665C;">]</span> d<span style="color: #9C6F68;">]</span> ...<span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span>a <span style="color: #7B665C;">[</span>b<span style="color: #7B665C;">]</span> c<span style="color: #9C6F68;">]</span>   ...<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+I see no reason for us to follow in Clojure footsteps and surrender expressiveness
+afforded by patterns. <i>multi.el</i> takes the view that it is desirable to dispatch
+not only on the arity but on the internal structure as well.
+</p>
+
+<p>
+Note that dispatch on arity takes priority over destructuring and binding. To that
+effect the outermost sequence pattern in both single-head and multi-head
+<code>mu-defun</code> is strict, so it either matches the same number of elements as
+arguments passed to it or fails and tries the next clause. In multi-head case
+internal sequence-patterns are strict as well, so that one can dispatch on the
+internal structure even if multiple clauses have the same arity; in a single-head
+only the external []-pattern is strict so that calls with incorrect arity maybe
+caught; internal sequence patterns, however, are permissive to fascilitate
+destructuring. None of this is terribly important as long as it matches user
+expectation which I hope it does.
+</p>
+
+<p>
+Example: single-head <code>mu-defun</code>
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defun</span> <span style="color: #A89984;">simple-foo</span> <span style="color: #837486;">[</span>a <span style="color: #9C6F68;">[</span>b <span style="color: #7B665C;">[</span>c<span style="color: #7B665C;">]</span><span style="color: #9C6F68;">]</span> | rest<span style="color: #837486;">]</span>
+  <span style="color: #837486;">(</span>list* a b c rest<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span><span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span> nil<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span>simple-foo <span style="color: #FE8019;">:a</span> <span style="color: #7B665C;">[</span><span style="color: #FE8019;">:b</span><span style="color: #7B665C;">]</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+Examples: multi-head <code>mu-defun</code>
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defun</span> <span style="color: #A89984;">foo-fun</span> <span style="color: #837486;">(</span><span style="color: #66999D;">&amp;optional</span> a b <span style="color: #66999D;">&amp;rest</span> args<span style="color: #837486;">)</span>
+  <span style="color: #528B8B;">"docstring"</span>
+  <span style="color: #FE8019;">:interactive</span> t
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span>_ _ x y<span style="color: #9C6F68;">]</span> <span style="color: #9C6F68;">(</span>list a b x y<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span>_ _ x<span style="color: #9C6F68;">]</span> <span style="color: #9C6F68;">(</span>list a b x<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span>_ _<span style="color: #9C6F68;">]</span> <span style="color: #9C6F68;">(</span>list a b<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span>_<span style="color: #9C6F68;">]</span> <span style="color: #9C6F68;">(</span>list a b<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[]</span> <span style="color: #9C6F68;">(</span>list a b<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span><span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span> 1 2<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span>foo-fun <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span> 1 2<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span><span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span> 1<span style="color: #9C6F68;">)</span>   <span style="color: #9C6F68;">(</span>foo-fun <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span> 1<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span><span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #9C6F68;">)</span>     <span style="color: #9C6F68;">(</span>foo-fun <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span><span style="color: #FE8019;">:a</span> nil<span style="color: #9C6F68;">)</span>    <span style="color: #9C6F68;">(</span>foo-fun <span style="color: #FE8019;">:a</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+In addition to <code>:interactive</code> and <code>:declare</code>, whose semantics come directly from
+<code>defun</code>, <code>mu-defun</code> takes several other options as attributes. <code>:return</code> lets one
+bind the result to an identifier that will be in scope in code forms specified
+with <code>:after</code> and <code>:teardown</code> attributes. More generally one can specify forms to
+run immediately before and after the function's body. This is normally done for
+side-effects. Think of <code>:setup</code> and <code>:teardown</code> as prep-work before the function
+runs and clean up after. Both forms have function's arglist in scope. When
+present, these forms run unconditionally every time the function is called. This
+may lead to unexpected behavior when the same function is called recursively. To
+avoid this use <code>:before</code> and <code>:after</code> forms instead. These will not be executed in
+nested invocations.
+</p>
+
+<p>
+Example:
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defun</span> <span style="color: #A89984;">foo-with-setup</span> <span style="color: #837486;">[</span>n<span style="color: #837486;">]</span>
+  <span style="color: #FE8019;">:return</span>   ret
+  <span style="color: #FE8019;">:setup</span>    <span style="color: #837486;">(</span>princ <span style="color: #528B8B;">":setup"</span><span style="color: #837486;">)</span>
+  <span style="color: #FE8019;">:teardown</span> <span style="color: #837486;">(</span>princ <span style="color: #528B8B;">":teardown"</span><span style="color: #837486;">)</span>
+  <span style="color: #FE8019;">:before</span>   <span style="color: #837486;">(</span>princ <span style="color: #528B8B;">":before"</span><span style="color: #837486;">)</span>
+  <span style="color: #FE8019;">:after</span>    <span style="color: #837486;">(</span>princ <span style="color: #9C6F68;">(</span>format <span style="color: #528B8B;">":after %s"</span> ret<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">if</span> <span style="color: #9C6F68;">(</span>zerop n<span style="color: #9C6F68;">)</span>
+      0
+    <span style="color: #9C6F68;">(</span>foo-with-setup <span style="color: #7B665C;">(</span>1- n<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span>
+ <span style="color: #837486;">(</span>equal <span style="color: #528B8B;">":before:setup:setup:teardown:teardown:after 0"</span>
+        <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">with-output-to-string</span>
+          <span style="color: #7B665C;">(</span>foo-with-setup 1<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org5e45b64" class="outline-4">
+<h4 id="org5e45b64"><span class="section-number-4">4.1.11</span> mu-defmacro&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-1-11">
+<pre class="example">
+Like ‘defun’ but choose the body to execute by
+pattern-matching on the arglist. Clauses are tried in order as if
+multiple definitions of the same function NAME were defined.
+
+------------------------------------
+    ARGLIST = seq-pattern
+            | _
+            | id
+            | (args ...)
+
+   METADATA = [docstring] attr ...
+
+       attr = :declare form
+            | :interactive form
+            | :before form
+            | :after form
+            | :return id
+            | :setup form
+            | :teardown form
+
+       BODY = body
+            | clause ...
+
+     clause = (seq-pattern body ...)
+
+seq-pattern = ‘[’pattern ...‘]’
+------------------------------------
+
+In addition to any pattern-variables bound by clause-patterns
+each body has ARGLIST variables in scope.
+
+In attribute options :declare takes a list of ‘declare’ specs;
+:interactive is either ‘t’ or an ‘interactive’ arg-descriptor;
+:return binds VAR to the result of BODY; :setup and :teardown
+execute their respective forms for side-effect before and after
+BODY. Both forms have ARGLIST bindings in scope, :teardown form
+has access to the VAR when :return is specified. To avoid before
+and after forms being executed on every recursive call use
+:before and :after attributes instead.
+
+In a single-head function ARGLIST must be a []-pattern. In a
+multi-head function ARGLIST that is an id will bind ARGLIST to
+that id; ARGLIST that is ‘_’ will be ignored; ARGLIST must be a
+‘defun’ arglist otherwise.
+
+(fn NAME ARGLIST METADATA &amp;rest BODY)
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org3c82714" class="outline-4">
+<h4 id="org3c82714"><span class="section-number-4">4.1.12</span> mu (μ)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-1-12">
+<pre class="example">
+Create an anonymous function, otherwise like ‘mu-defun’.
+
+(fn ARGLIST METADATA BODY...)
+</pre>
+
+<p>
+Examples:
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal
+         '<span style="color: #9C6F68;">(</span>1 2 3 4<span style="color: #9C6F68;">)</span>
+         <span style="color: #9C6F68;">(</span>funcall
+          <span style="color: #7B665C;">(</span><span style="color: #DD6F48;">mu</span> <span style="color: #5C7E81;">[</span>a b | args<span style="color: #5C7E81;">]</span> <span style="color: #5C7E81;">(</span>list* a b args<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+          1 2 3 4<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">let</span> <span style="color: #837486;">(</span><span style="color: #9C6F68;">(</span>mu-lambda <span style="color: #7B665C;">(</span><span style="color: #DD6F48;">mu</span> <span style="color: #5C7E81;">(</span>a <span style="color: #66999D;">&amp;rest</span> _<span style="color: #5C7E81;">)</span>
+                   <span style="color: #5C7E81;">(</span><span style="color: #837486;">[</span>_ b<span style="color: #837486;">]</span> <span style="color: #837486;">(</span>list a b<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+                   <span style="color: #5C7E81;">(</span><span style="color: #837486;">[</span>_ b c<span style="color: #837486;">]</span> <span style="color: #837486;">(</span>list a b c<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #9C6F68;">(</span>equal '<span style="color: #7B665C;">(</span>1 2<span style="color: #7B665C;">)</span>   <span style="color: #7B665C;">(</span>funcall mu-lambda 1 2<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #9C6F68;">(</span>equal '<span style="color: #7B665C;">(</span>1 2 3<span style="color: #7B665C;">)</span> <span style="color: #7B665C;">(</span>funcall mu-lambda 1 2 3<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org7c90e99" class="outline-4">
+<h4 id="org7c90e99"><span class="section-number-4">4.1.13</span> mu-function?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-1-13">
+<pre class="example">
+Like functionp but accounts for #’function and mu-lambda.
+Intended to be used at compile time on code objects. Not
+guaranteed to always do the right thing at runtime.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgaa5dc79" class="outline-4">
+<h4 id="orgaa5dc79"><span class="section-number-4">4.1.14</span> mu-defsetter&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-1-14">
+<pre class="example">
+Like ‘gv-define-setter’ but allow ‘mu-defun’ dispatch and
+destructuring.
+</pre>
+</div>
+</div>
+</div>
+
+
+<div id="outline-container-orge367e1b" class="outline-3">
+<h3 id="orge367e1b"><span class="section-number-3">4.2</span> multi-structs and protocols</h3>
+<div class="outline-text-3" id="text-4-2">
+<p>
+<span class="underline">multi-structs.el</span> implement <i>mu-structs</i> and <i>mu-protocols</i> that were loosely
+inspired by <i>Clojure</i> records and <a href="https://clojure.org/reference/protocols">protocols</a> and <i>Racket</i>'s structs and <a href="http://docs.racket-lang.org/reference/struct-generics.html">generic
+interfaces</a> although Racket doesn't allow delegation, so polymorphic it may be, but
+not really what you come to expect from type dispatch.
+</p>
+
+<p>
+<i>mu-structs</i> are built on top of Emacs Lisp cl-structs. Expect all of cl-struct
+machinery to work. Mu-structs are defined with <code>mu-defstruct</code> and must inherit
+either from the base type <code>mu-struct</code> (default) or one of its descendants. Unlike
+cl-structs mu-structs are open maps that allow non-slot keys to be looked up and
+set.
+</p>
+
+<p>
+Protocols (sometimes called <i>generic interafaces</i>) allow type specialization of a
+set of generic methods. Protocols are defined and assigned a set of methods with
+<code>mu-defprotocol</code>. Structure types can implement protocols by reifying their
+registered methods in <code>mu-defstruct</code> when a new struct type is being defined.
+Alternatively protocol maybe extended to an existing type with <code>mu-extend</code>.
+</p>
+
+<p>
+Protocol methods are effectively generic methods as implemented by <code>cl-defgeneric</code>
+limited to single dispatch. Generic dispatch is performed on the type of the first
+argument - what <code>cl-defmethod</code> documentation would call <code>(obj TYPE)</code> specializer.
+</p>
+
+<p>
+Protocol implementations may reify several methods with the same name but
+different arities. Apropriate method will be matched and invoked at dispatch.
+</p>
+
+<p>
+We also implement and extend to existing types several useful protocols e.g.
+<code>mu-table-protocol</code> allows one to query any associative data structure with the
+same set of functions. For instance setting and querying a nested key in a
+hash-table becomes as trivial as:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setf</span> <span style="color: #837486;">(</span>mu. table <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span> <span style="color: #FE8019;">:c</span><span style="color: #837486;">)</span> 42<span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span>mu. table <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span> <span style="color: #FE8019;">:c</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+the above <code>setf</code> will even create nested hash-tables for intermediate keys that
+are missing.
+</p>
+</div>
+
+<div id="outline-container-org45f7b32" class="outline-4">
+<h4 id="org45f7b32"><span class="section-number-4">4.2.1</span> mu-defprotocol&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-2-1">
+<pre class="example">
+Combine a set of generic METHODS as protocol NAME.
+
+----------------------------------------------------------
+NAME    = protocol-id
+
+METHODS = (method ...)
+
+method  = (defmethod method-id arglist [docstring] . rest)
+
+rest    = see ‘cl-defgeneric’
+----------------------------------------------------------
+
+Bind variable NAME to the newly created ‘mu-protocol’ struct.
+Translate every method to a ‘cl-defgeneric’ (which see). Store
+arglists as metadata and for documentation but otherwise ignore.
+Tag every method-id symbol with a property :mu-protocol.
+
+Protocol METHODS are cl-generic functions that dispatch on the
+type of their first argument.
+</pre>
+
+<p>
+By convention protocol names are expected to have suffix <code>able</code> while protocol
+variable created and bound by <code>mu-defprotocol</code> will have a compound suffix
+<code>able-protocol</code> as in <code>mu-callable</code> vs <code>mu-callable-protocol</code>. So the following
+definition
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defprotocol</span> <span style="color: #66999D;">mu-callable-protocol</span>
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">defmethod</span> <span style="color: #A89984;">mu--call</span> <span style="color: #9C6F68;">(</span>f args<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+will bind variable <code>mu-callable-protocol</code> to a fresh <code>mu-protocol</code> struct whose
+name is <code>mu-callable</code>. It will also register all methods that appear in the body
+as cl-generic functions and part of the protocol. For the moment method arglists
+are no more than metadata and won't effect how methods are reified or used.
+</p>
+
+<p>
+The calling convention of previous paragraph is not enforced by implementation but
+would make multi-method style <code>isa?</code> relations sound and read more natural. That
+is any time a type implements a protocol a new relation is added to multi-methods
+hierarchy of the form: TYPE isa PROTOCOLLABLE. For example:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-rel</span> 'hash-table <span style="color: #FE8019;">:isa</span> 'mu-callable<span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+Establishing such relations from protocol implementations creates a bridge from a
+more rigid style of dispatch sanctioned by protocols to a more ad-hoc style
+offered by multi-methods. I.e. it should be possible to perform a multi-method
+<code>type-of</code> dispatch on a protocol that would be satisfied by any type that
+implements said protocol.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org30a521b" class="outline-4">
+<h4 id="org30a521b"><span class="section-number-4">4.2.2</span> mu-extend&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-2-2">
+<pre class="example">
+Extend PROTOCOL to one or more existing types.
+
+------------------------------------------------------------------------
+  PROTOCOL = protocol-id
+
+      TYPE = type-id
+
+    method = (defmethod method-id [qualifiers] arglist [docstring] body)
+
+   arglist = ((arg-id type-id) arg ...)
+           | see ‘cl-defmethod’
+
+qualifiers = see ‘cl-defmethod’
+------------------------------------------------------------------------
+
+Also register an ‘isa?’ relation between TYPE and protocol name
+as reported by (mu-protocol-name PROTOCOL) in the active
+multi-methods hierarchy. Do the same for each descendant of TYPE.
+
+To extend protocols to structs under your control consider using
+:implements option of ‘mu-defstruct’ instead.
+
+(fn PROTOCOL [:to TYPE method ...] ...+)
+</pre>
+
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-extend</span> <span style="color: #66999D;">mu-callable-protocol</span>
+
+  <span style="color: #FE8019;">:to</span> cl-structure-object
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">defmethod</span> <span style="color: #A89984;">mu--call</span> <span style="color: #9C6F68;">(</span>obj args<span style="color: #9C6F68;">)</span>
+    <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">if-let</span> <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>f <span style="color: #837486;">(</span><span style="color: #DD6F48;">or</span> <span style="color: #9C6F68;">(</span>get <span style="color: #7B665C;">(</span>type-of obj<span style="color: #7B665C;">)</span> <span style="color: #FE8019;">:call</span><span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span>mu. obj <span style="color: #FE8019;">:call</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+        <span style="color: #7B665C;">(</span>apply f obj args<span style="color: #7B665C;">)</span>
+      <span style="color: #7B665C;">(</span>apply #'mu. obj args<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+
+  <span style="color: #FE8019;">:to</span> hash-table
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">defmethod</span> <span style="color: #A89984;">mu--call</span> <span style="color: #9C6F68;">(</span>obj args<span style="color: #9C6F68;">)</span>
+    <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">if-let</span> <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>f <span style="color: #837486;">(</span>ht-get obj <span style="color: #FE8019;">:call</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+        <span style="color: #7B665C;">(</span>apply f obj args<span style="color: #7B665C;">)</span>
+      <span style="color: #7B665C;">(</span>apply #'mu. obj args<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgaa561f8" class="outline-4">
+<h4 id="orgaa561f8"><span class="section-number-4">4.2.3</span> mu-extends?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-2-3">
+<pre class="example">
+Check if PROTOCOL has been extended to TYPE
+
+(fn &amp;key TYPE PROTOCOL)
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org1aba779" class="outline-4">
+<h4 id="org1aba779"><span class="section-number-4">4.2.4</span> mu-implements?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-2-4">
+<pre class="example">
+Check if OBJECT implements PROTOCOL
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org3791d44" class="outline-4">
+<h4 id="org3791d44"><span class="section-number-4">4.2.5</span> mu-type?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-2-5">
+<pre class="example">
+Check if symbol TYPE is tagged as a mu-type (inherits from
+‘mu-struct’)
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org0d1f5e7" class="outline-4">
+<h4 id="org0d1f5e7"><span class="section-number-4">4.2.6</span> mu-defstruct&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-2-6">
+<pre class="example">
+Like ‘cl-defstruct’ but with mu-struct extensions.
+
+------------------------------------------------------------------------
+      NAME = struct-id
+           | see ‘cl-defstruct’
+
+      SLOT = slot-id
+           | see ‘cl-defstruct’
+
+  PROTOCOL =  protocol-id
+
+    METHOD = (defmethod method-id [qualifiers] arglist [docstring] body)
+
+   arglist = ((arg-id type-id) arg ...)
+           | see ‘cl-defmethod’
+
+qualifiers = see ‘cl-defmethod’
+------------------------------------------------------------------------
+
+Every mu-struct implicitly inherits from ‘mu-struct’ type. If
+:include struct property is present its value must be a type that
+ultimately inherits from ‘mu-struct’. Any other type will raise
+an error.
+
+Define extra predicate of the form NAME? as alias for NAME-p.
+
+Define NAME as a getter function for slots and keys of the
+struct. Make NAME a generalized ‘setf’-able variable (see ‘mu.’).
+In general mu-structs are open maps whose keys are not limited to
+slots. Generalized variables ‘mu.’ (or ‘mu:’) and NAME can be
+used to set slots or keys of a struct.
+
+Slots maybe followed by protocol implementations. Every protocol
+implementation starts with :implements attribute followed by
+protocol-name, followed by method implementations. Multiple
+methods maybe implemented for the same method-id but different
+arities. Since protocol methods dispatch on the type of their
+first argument every method will have the structure instance
+bound to it. Each method body implicitly binds every slot-id to
+its respective value in the structure instance.
+
+Set two properties on struct-id symbol :mu-type? tagging it as a
+‘mu-struct’ and :mu-slots that keeps a list of all slot-ids.
+
+(fn NAME SLOT ... [:implements PROTOCOL METHOD ...] ...)
+</pre>
+
+<p>
+Every mu-struct is a cl-struct, so most cl-struct infrastructure should work as
+expected. That includes constructing, getting and setting slots, etc.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">define a new mu-struct</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defstruct</span> <span style="color: #66999D;">foo-struct</span> props<span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">define a new mu-struct that inherits from `</span><span style="color: #BBAA97;">foo-struct</span><span style="color: #7C6F64;">' and provides its own</span>
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">(partial) implementation of two protocols</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defstruct</span> <span style="color: #837486;">(</span><span style="color: #66999D;">bar-struct</span> <span style="color: #9C6F68;">(</span><span style="color: #FE8019;">:include</span> foo-struct<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span>name <span style="color: #FE8019;">:bar</span><span style="color: #837486;">)</span>
+
+  <span style="color: #FE8019;">:implements</span> mu-table-protocol
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">defmethod</span> <span style="color: #A89984;">mu--get</span> <span style="color: #9C6F68;">(</span>obj key<span style="color: #9C6F68;">)</span>
+    <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">case</span> key
+      <span style="color: #7B665C;">(</span>'name name<span style="color: #7B665C;">)</span>
+      <span style="color: #7B665C;">(</span>'props <span style="color: #5C7E81;">(</span>bar-struct-props obj<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">defmethod</span> <span style="color: #A89984;">mu--set</span> <span style="color: #9C6F68;">(</span>obj key val<span style="color: #9C6F68;">)</span>
+    <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">case</span> key
+      <span style="color: #7B665C;">(</span>'name <span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setf</span> <span style="color: #837486;">(</span>bar-struct-name obj<span style="color: #837486;">)</span> val<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+      <span style="color: #7B665C;">(</span>'props <span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setf</span> <span style="color: #837486;">(</span>bar-struct-props obj<span style="color: #837486;">)</span> val<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+
+  <span style="color: #FE8019;">:implements</span> mu-callable-protocol
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">defmethod</span> <span style="color: #A89984;">mu--call</span> <span style="color: #9C6F68;">(</span>f args<span style="color: #9C6F68;">)</span> name<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setq</span> bar <span style="color: #837486;">(</span>bar-struct-create<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setq</span> foo <span style="color: #837486;">(</span>foo-struct-create<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>bar-struct? bar<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>foo-struct? bar<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>mu-struct? bar<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+<code>mu-defstruct</code> also defines a generalized-variable of the same name as struct
+(<code>foo-struct</code> and <code>bar-struct</code> in our example) that can be used to get and set
+struct slots and potentially deeply nested keys assuming the default
+implementation of <code>mu-table-protocol</code> (see <code>mu.</code> function).
+</p>
+
+<p>
+With a crude implementation of the protocol above we can set and get slots of a
+bar-struct instance but not much more. Default implementation affords more power.
+One can set values deep in the structure starting with its slots, or even set keys
+that aren't slot. That is structs are treated as open maps.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setf</span> <span style="color: #837486;">(</span>bar-struct bar 'name<span style="color: #837486;">)</span> <span style="color: #FE8019;">:baz</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq <span style="color: #FE8019;">:baz</span> <span style="color: #9C6F68;">(</span>bar-struct bar 'name<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setf</span> <span style="color: #837486;">(</span>foo-struct foo <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:a</span> 'b <span style="color: #FE8019;">:c</span><span style="color: #837486;">)</span> 42<span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq 42 <span style="color: #9C6F68;">(</span>foo-struct foo <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:a</span> 'b <span style="color: #FE8019;">:c</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setf</span> <span style="color: #837486;">(</span>foo-struct foo <span style="color: #FE8019;">:not-a-slot</span><span style="color: #837486;">)</span> '<span style="color: #837486;">()</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">push</span> 42 <span style="color: #837486;">(</span>foo-struct foo <span style="color: #FE8019;">:not-a-slot</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>42<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span>foo-struct foo <span style="color: #FE8019;">:not-a-slot</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+Notice that protocol methods implemented inside <code>mu-defstruct</code> have slots
+explicitly defined (not inherited) in the struct definition in their lexical
+scope. So, for instance, <code>mu--call</code> method above can refer to the current slot
+value <code>name</code>.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org0635259" class="outline-4">
+<h4 id="org0635259"><span class="section-number-4">4.2.7</span> mu-table-protocol&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></h4>
+<div class="outline-text-4" id="text-4-2-7">
+<pre class="example">
+Protocol for table-like types. Define protocol methods
+‘mu--slots’, ‘mu--keys’, ‘mu--get’, ‘mu--set’.
+</pre>
+
+<p>
+Table protocol makes working with map-like data easy. It provides unified
+key-value interface, so when implemented for a custom type, keys can be looked up
+and set in its instances with <code>mu.</code> (or <code>mu:</code>) function.
+</p>
+
+<p>
+Table protocol has been extended to the following types: <code>hash-table</code>, <code>mu-struct</code>
+and therefore to all structures created with <code>mu-defstruct</code>, <code>cl-structure-object</code>
+and therefore to all structures created with <code>cl-defstruct</code>, <code>symbol</code>, <code>cons</code>,
+<code>vector</code>.
+</p>
+
+<p>
+<i>Last 3 of the listed types are experimental with access semantics not quite
+worked out, but they should work for typical cases.</i>
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgff55d2f" class="outline-4">
+<h4 id="orgff55d2f"><span class="section-number-4">4.2.8</span> mu.slots (mu:slots)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-2-8">
+<pre class="example">
+Return required keys in OBJ. OBJ must implement
+‘mu-table-protocol’.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org11b9b14" class="outline-4">
+<h4 id="org11b9b14"><span class="section-number-4">4.2.9</span> mu.keys (mu:keys)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-2-9">
+<pre class="example">
+Return all keys in OBJ. OBJ must implement
+‘mu-table-protocol’.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org9d02e69" class="outline-4">
+<h4 id="org9d02e69"><span class="section-number-4">4.2.10</span> mu. (mu:)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-2-10">
+<pre class="example">
+Look up KEYs in TABLE. Return nil if any KEYs missing. This is
+a generalized variable and therefore ‘setf’-able. TABLE must
+implement ‘mu-table-protocol’.
+</pre>
+
+<p>
+As previously mentioned one can use generalized variable defined by <code>mu-defstruct</code>
+to lookup and set (potentially nested or missing) keys in a struct. <code>mu.</code> function
+is a generalization of this idea that should work for any type that implements
+<code>mu-table-protocol</code>, so that there's no need for type-specific functions that are
+morally equivalent. This should aleviate the pain of having to use statically
+defined struct slot accessors e.g. <code>foo-struct-name</code> or hash-table specific
+<code>ht-get</code> for a single key look up, or <code>ht-get*</code> for multiple keys, etc.
+</p>
+
+<p>
+<code>mu.</code> is also an attempt compress code without loss of information. It is not
+uncommon to name local variables that hold struct instances so that one can
+immediately deduce their type e.g. <code>foo</code> for a <code>foo-struct</code> instance. Even
+generalized variables like <code>(foo-struct foo :props)</code> duplicate information and
+introduce unnecessary noise in the code. Struct getters like <code>foo-struct-props</code> do
+the same and are static. <code>mu.</code> offers a reasonably short alternative that works
+for all major associative types.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setq</span> foo <span style="color: #837486;">(</span>foo-struct-create <span style="color: #FE8019;">:props</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">ht</span> <span style="color: #7B665C;">(</span><span style="color: #FE8019;">:b</span> 1<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setq</span> baz <span style="color: #837486;">(</span>foo-struct-create <span style="color: #FE8019;">:props</span> <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">ht</span> <span style="color: #7B665C;">(</span><span style="color: #FE8019;">:a</span> foo<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">look up a deeply nested key</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq 1 <span style="color: #9C6F68;">(</span>mu. baz <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:b</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">mutate stored value</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setf</span> <span style="color: #837486;">(</span>mu. baz <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:b</span><span style="color: #837486;">)</span> 42<span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq 42 <span style="color: #9C6F68;">(</span>mu. baz <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:b</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">create a new nested key</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setf</span> <span style="color: #837486;">(</span>mu. baz <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:new-key</span><span style="color: #837486;">)</span> 0<span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>zerop <span style="color: #9C6F68;">(</span>mu. baz <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:new-key</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+To set nested keys <code>mu.</code> will create intermediate tables for any missing keys as
+needed. So, the following example is morally equivalent to the one above:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setq</span> baz <span style="color: #837486;">(</span>foo-struct-create<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setf</span> <span style="color: #837486;">(</span>mu. baz <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:a</span><span style="color: #837486;">)</span> <span style="color: #837486;">(</span>foo-struct-create<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setf</span> <span style="color: #837486;">(</span>mu. baz <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:b</span><span style="color: #837486;">)</span> 42<span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq 42 <span style="color: #9C6F68;">(</span>mu. baz <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:props</span> <span style="color: #FE8019;">:b</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org570bac6" class="outline-4">
+<h4 id="org570bac6"><span class="section-number-4">4.2.11</span> mu-equatable-protocol&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></h4>
+<div class="outline-text-4" id="text-4-2-11">
+<pre class="example">
+Protocol for deep equality. Define protocol methods
+‘mu--equal’.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orga358a3b" class="outline-4">
+<h4 id="orga358a3b"><span class="section-number-4">4.2.12</span> mu.equal&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-2-12">
+<pre class="example">
+Test if OBJ1 and OBJ2 are of the same type and structurally equal.
+Unlike ‘equal’ perform deep equality comparison of hash-tables as
+values. Like ‘equal’ report nil when comparing hash-tables that
+have hash-tables as keys.
+
+(fn obj1 obj2)
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org8f854e1" class="outline-4">
+<h4 id="org8f854e1"><span class="section-number-4">4.2.13</span> mu-callable-protocol&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></h4>
+<div class="outline-text-4" id="text-4-2-13">
+<pre class="example">
+Protocol for types that exhibit function-like behaviour.
+Define protocol method ‘mu--call’.
+</pre>
+
+<p>
+mu-callable protocol allows one to <i>invoke</i> instances of any type that implements
+it as if they were procedures. Although this requires the use of API functions
+<code>mu.call</code> and <code>mu.apply</code> in place of the native <code>funcall</code> and <code>apply</code>, the former
+two effectively subsume the latter by delegating to them in the default case when
+instance is already a function.
+</p>
+
+<p>
+We implement this protocol for all structures (both mu-structs and cl-structs) as
+well as hash-tables. Default implementation simply delegates to <code>mu.</code> to perform
+key lookup:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setq</span> foo <span style="color: #837486;">(</span>foo-struct-create<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">setf</span> <span style="color: #837486;">(</span>mu. foo <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #837486;">)</span> 42<span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq 42 <span style="color: #9C6F68;">(</span>mu.call foo <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq 42 <span style="color: #9C6F68;">(</span>mu.apply foo <span style="color: #FE8019;">:a</span> '<span style="color: #7B665C;">(</span><span style="color: #FE8019;">:b</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+One can override the default instance behaviour by setting a <code>'call</code> slot of a
+struct (when available), a <code>:call</code> key of a hash-table or a mu-struct to a
+function. This function will be applied instead of the default with the instance
+passed as the first argument.
+</p>
+
+<p>
+Or alter the behavior of the entire struct type by providing custom implementation
+of the <code>mu-callable-protocol</code>.
+</p>
+
+<p>
+<i>Inspired by Racket structs that can be made into procedures.</i>
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgbea9fbb" class="outline-4">
+<h4 id="orgbea9fbb"><span class="section-number-4">4.2.14</span> mu.call (mu:call)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-2-14">
+<pre class="example">
+Like ‘funcall’ but invoke object F with ARGS. Unless F
+implements ‘mu-callable-protocol’ it is assumed to be a function
+and ‘funcall’ is used.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgeec7b24" class="outline-4">
+<h4 id="orgeec7b24"><span class="section-number-4">4.2.15</span> mu.apply (mu:apply)&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-2-15">
+<pre class="example">
+Like ‘apply’ but apply object F to ARGS. Unless F implements
+‘mu-callable-protocol’ it is assumed to be a function and ‘apply’
+is used.
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgb82f8f5" class="outline-3">
+<h3 id="orgb82f8f5"><span class="section-number-3">4.3</span> multi-methods</h3>
+<div class="outline-text-3" id="text-4-3">
+<p>
+Multimethods bring ad-hoc multiple dispatch to Emacs Lisp. Multimethod combines a
+dispatch function with an open set of methods each associated with a value. When
+multimethod gets called its dispatch function, defined with <code>mu-defmulti</code>, is
+applied to the arguments to compute a dispatch value. Dispatch mechanism then
+checks which method, defined with <code>mu-defmethod</code>, has its value in an <i>isa?</i>
+relatitonship with the dispatch value and runs that method. To a first
+approximation isa-relation can be thought of as two values being equal or in a
+parent-child or ancestor-descendant relationship. Semantics get more involved for
+collections. Programmers not familiar with multimethods are referred to Clojure's
+<a href="https://clojure.org/reference/multimethods">Multimethods and Hierarchies</a> tutorial.
+</p>
+
+<p>
+<i>Note for Clojure programmers</i>. This implementation takes a lot of inspiration
+from Clojure, so for the most part you should feel right at home modulo some
+syntactic differences. Naturally, Emacs Lisp type system is nothing like Clojure's
+let alone Java's, so some of your programming patterns may require adjustment.
+</p>
+</div>
+
+<div id="outline-container-org4432de1" class="outline-4">
+<h4 id="org4432de1"><span class="section-number-4">4.3.1</span> make-mu-hierarchy&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-3-1">
+<p>
+Create a new mu-hierarchy.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org7f04fc9" class="outline-4">
+<h4 id="org7f04fc9"><span class="section-number-4">4.3.2</span> mu-global-hierarchy&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></h4>
+<div class="outline-text-4" id="text-4-3-2">
+<pre class="example">
+Global hierarchy
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgf47ebbe" class="outline-4">
+<h4 id="orgf47ebbe"><span class="section-number-4">4.3.3</span> mu-active-hierarchy&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-3-3">
+<pre class="example">
+Return the hierarchy active in the current dynamic extent.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org2eacdeb" class="outline-4">
+<h4 id="org2eacdeb"><span class="section-number-4">4.3.4</span> mu-with-hierarchy&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-3-4">
+<pre class="example">
+Prefer HIERARCHY during the dynamic extent of the body.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org3f02d6a" class="outline-4">
+<h4 id="org3f02d6a"><span class="section-number-4">4.3.5</span> mu-rel&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-3-5">
+<pre class="example">
+Establish an isa relationship between CHILD and PARENT in the
+currently active hierarchy or HIERARCHY.
+
+(mu-rel CHILD REL PARENT [HIERARCHY])
+-------------------------------------
+    CHILD = val
+      REL = :isa | isa | any
+   PARENT = val
+HIERARCHY = mu-hierarchy-p
+-------------------------------------
+
+REL argument is provided to help readability but is otherwise
+ignored.
+</pre>
+
+<p>
+Example:
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-rel</span> 'vector     <span style="color: #FE8019;">:isa</span> <span style="color: #FE8019;">:collection</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-rel</span> 'hash-table <span style="color: #FE8019;">:isa</span> <span style="color: #FE8019;">:collection</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmulti</span> <span style="color: #A89984;">foo</span> #'type-of<span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>c<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #FE8019;">:collection</span> <span style="color: #FE8019;">:a-collection</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>s<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> 'string <span style="color: #FE8019;">:a-string</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal <span style="color: #FE8019;">:a-collection</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #7B665C;">[]</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal <span style="color: #FE8019;">:a-collection</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #7B665C;">(</span><span style="color: #DD6F48;">ht</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal <span style="color: #FE8019;">:a-string</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #528B8B;">"bar"</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org560c16e" class="outline-4">
+<h4 id="org560c16e"><span class="section-number-4">4.3.6</span> mu-isa?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-3-6">
+<pre class="example">
+Check if CHILD is isa? related to PARENT in the currently
+active hierarchy or HIERARCHY.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org1bc0f29" class="outline-4">
+<h4 id="org1bc0f29"><span class="section-number-4">4.3.7</span> mu-ancestors&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-3-7">
+<pre class="example">
+Return all ancestors of X such that (mu-isa? X ancestor) in
+the currently active hierarchy or HIERARCHY.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org83d44d5" class="outline-4">
+<h4 id="org83d44d5"><span class="section-number-4">4.3.8</span> mu-descendants&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-3-8">
+<pre class="example">
+Return all descendants of X such that (mu-isa? descendant X)
+in the currently active hierarchy or HIERARCHY.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgb7062b5" class="outline-4">
+<h4 id="orgb7062b5"><span class="section-number-4">4.3.9</span> mu-isa/generations?&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-3-9">
+<pre class="example">
+Like ‘mu-isa?’ but return the generation gap between CHILD and
+PARENT.
+
+(fn X Y &amp;optional (HIERARCHY nil) (GENERATION 0))
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgb32ba2a" class="outline-4">
+<h4 id="orgb32ba2a"><span class="section-number-4">4.3.10</span> mu-prefer&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-3-10">
+<pre class="example">
+Prefer dispatch value X over Y when resolving method FUN.
+
+(mu-prefer FUN ARGS ...)
+------------------------
+     FUN = id
+
+ARGS ... = val :to val
+         | val :over val
+         | val val
+------------------------
+
+(fn fun x :over y)
+</pre>
+
+<p>
+Example:
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-rel</span> <span style="color: #FE8019;">:rect</span> isa <span style="color: #FE8019;">:shape</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmulti</span> <span style="color: #A89984;">bar</span> #'vector<span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">bar</span> <span style="color: #837486;">(</span>x y<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:rect</span> <span style="color: #FE8019;">:shape</span><span style="color: #837486;">]</span> <span style="color: #FE8019;">:rect-shape</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">bar</span> <span style="color: #837486;">(</span>x y<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:shape</span> <span style="color: #FE8019;">:rect</span><span style="color: #837486;">]</span> <span style="color: #FE8019;">:shape-rect</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>mu--error-match <span style="color: #528B8B;">"multiple methods match"</span> <span style="color: #9C6F68;">(</span>bar <span style="color: #FE8019;">:rect</span> <span style="color: #FE8019;">:rect</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span>mu-prefer bar <span style="color: #837486;">[</span><span style="color: #FE8019;">:rect</span> <span style="color: #FE8019;">:shape</span><span style="color: #837486;">]</span> <span style="color: #FE8019;">:over</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:shape</span> <span style="color: #FE8019;">:rect</span><span style="color: #837486;">]</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span>mu-prefer bar <span style="color: #837486;">[</span><span style="color: #FE8019;">:rect</span> <span style="color: #FE8019;">:shape</span><span style="color: #837486;">]</span> <span style="color: #FE8019;">:over</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:parallelogram</span> <span style="color: #FE8019;">:rect</span><span style="color: #837486;">]</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal <span style="color: #FE8019;">:rect-shape</span> <span style="color: #9C6F68;">(</span>bar <span style="color: #FE8019;">:rect</span> <span style="color: #FE8019;">:rect</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org448a02c" class="outline-4">
+<h4 id="org448a02c"><span class="section-number-4">4.3.11</span> mu-unprefer&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-3-11">
+<pre class="example">
+Remove registered preferences for FUN multi-dispatch function:
+
+(mu-unprefer FUN ARGS ...)
+--------------------------
+     FUN = id
+
+ARGS ... = val :to val
+         | val :over val
+         | val val
+         | val
+         |
+--------------------------
+
+Called with a single VAL argument removes all preferences defined
+for the dispatch VAL; called with just FUN removes all known
+preferences for FUN.
+
+(fn foo x :over y)
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org96640a6" class="outline-4">
+<h4 id="org96640a6"><span class="section-number-4">4.3.12</span> mu-defmulti&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-3-12">
+<pre class="example">
+Define a new multi-dispatch function NAME.
+
+--------------------------------------------------
+        ARGLIST = cl-arglist
+                | seq-pattern
+                | mu-function?
+
+           BODY = [metadata] clause ...
+
+         clause = body
+                | mu-defun-clause ...
+
+       metadata = :hierarchy mu-hierarchy-p
+                | :static-hierarchy mu-hierarchy-p
+
+mu-defun-clause = (seq-pattern body ...)
+
+    seq-pattern = ‘[’mu-pattern ...‘]’
+--------------------------------------------------
+
+ARGLIST maybe a CL-ARGLIST, a function (#’function, ‘lambda’,
+‘mu’ lambda) or a sequence []-pattern. When ARGLIST is itself a
+function, BODY is ignored and that function is used to dispatch.
+ARGLIST and BODY combined may follow single-head or multi-head
+syntax to define a ‘mu-defun’ for dispatch and destructuring.
+
+BODY must return a value to be used for ‘mu-isa?’ dispatch.
+</pre>
+
+<p>
+See <a href="#org238ae2f">mu-defmethod</a> for examples.
+</p>
+
+<p>
+Unless either <code>:hierarchy</code> or <code>:static-hierarchy</code> attribute options are set
+multi-dispatch defaults to <code>mu-global-hierarchy</code> to perform <code>mu-isa?</code> value
+dispatch. One can switch dispatch to a custom hierarchy created with
+<code>make-mu-hierarchy</code> by setting <code>:hierarchy</code> attribute to that hierarchy. Both
+default and custom hierarchies can be overriden with <code>mu-with-hierarchy</code> for the
+dynamic extent of its body. When such dynamic behavior is not desired set
+<code>:static-hierarchy</code> attribute instead.
+</p>
+
+<p>
+Example:
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">let</span> <span style="color: #837486;">(</span><span style="color: #9C6F68;">(</span>hierarchy-1 <span style="color: #7B665C;">(</span>make-mu-hierarchy<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span>
+      <span style="color: #9C6F68;">(</span>hierarchy-2 <span style="color: #7B665C;">(</span>make-mu-hierarchy<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu-defmulti</span> <span style="color: #A89984;">bar</span> #'identity <span style="color: #FE8019;">:hierarchy</span> hierarchy-1<span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">bar</span> <span style="color: #9C6F68;">(</span>a<span style="color: #9C6F68;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #FE8019;">:parallelogram</span> <span style="color: #FE8019;">:parallelogram</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">bar</span> <span style="color: #9C6F68;">(</span>a<span style="color: #9C6F68;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #FE8019;">:shape</span>         <span style="color: #FE8019;">:shape</span><span style="color: #837486;">)</span>
+
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu-rel</span> <span style="color: #FE8019;">:rect</span> isa <span style="color: #FE8019;">:parallelogram</span> hierarchy-1<span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu-rel</span> <span style="color: #FE8019;">:square</span> isa <span style="color: #FE8019;">:rect</span> hierarchy-1<span style="color: #837486;">)</span>
+
+  <span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">should run with custom hierarchy-1</span>
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #9C6F68;">(</span>equal <span style="color: #FE8019;">:parallelogram</span> <span style="color: #7B665C;">(</span>bar <span style="color: #FE8019;">:rect</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #9C6F68;">(</span>equal <span style="color: #FE8019;">:parallelogram</span> <span style="color: #7B665C;">(</span>bar <span style="color: #FE8019;">:square</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu-with-hierarchy</span> hierarchy-2
+
+    <span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">should extend hierarchy-2</span>
+    <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-rel</span> <span style="color: #FE8019;">:rect</span> isa <span style="color: #FE8019;">:shape</span><span style="color: #9C6F68;">)</span>
+    <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-rel</span> <span style="color: #FE8019;">:square</span> isa <span style="color: #FE8019;">:rect</span><span style="color: #9C6F68;">)</span>
+
+    <span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">should run with hierarchy-2 overriding hierarchy-1</span>
+    <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #7B665C;">(</span>equal <span style="color: #FE8019;">:shape</span> <span style="color: #5C7E81;">(</span>bar <span style="color: #FE8019;">:rect</span><span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span>
+    <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #7B665C;">(</span>equal <span style="color: #FE8019;">:shape</span> <span style="color: #5C7E81;">(</span>bar <span style="color: #FE8019;">:square</span><span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+
+  <span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">should be back to the custom hierarchy-1</span>
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #9C6F68;">(</span>equal <span style="color: #FE8019;">:parallelogram</span> <span style="color: #7B665C;">(</span>bar <span style="color: #FE8019;">:rect</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #9C6F68;">(</span>equal <span style="color: #FE8019;">:parallelogram</span> <span style="color: #7B665C;">(</span>bar <span style="color: #FE8019;">:square</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org238ae2f" class="outline-4">
+<h4 id="org238ae2f"><span class="section-number-4">4.3.13</span> mu-defmethod&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-3-13">
+<pre class="example">
+Add a new method to multi-dispatch function NAME for dispatch
+value VAL.
+
+----------------------------------------
+        ARGLIST = cl-arglist
+                | seq-pattern
+                | mu-function?
+
+           BODY = clause ...
+
+         clause = body
+                | mu-defun-clause ...
+
+mu-defun-clause = (seq-pattern body ...)
+
+    seq-pattern = ‘[’mu-pattern ...‘]’
+----------------------------------------
+
+ARGLIST maybe a ‘cl-arglist’, a function (#’function, ‘lambda’,
+‘mu’ lambda) or a sequence []-pattern. ARGLIST and BODY combined
+may follow single-head or multi-head syntax to define a
+‘mu-defun’ for dispatch and destructuring.
+</pre>
+
+<p>
+Examples:
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp">
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">dispatch as a function</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmulti</span> <span style="color: #A89984;">foo</span> #'vector<span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>a b<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #837486;">]</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #837486;">]</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>a b<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:c</span> <span style="color: #FE8019;">:d</span><span style="color: #837486;">]</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:c</span> <span style="color: #FE8019;">:d</span><span style="color: #837486;">]</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal <span style="color: #9C6F68;">[</span><span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #9C6F68;">]</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal <span style="color: #9C6F68;">[</span><span style="color: #FE8019;">:c</span> <span style="color: #FE8019;">:d</span><span style="color: #9C6F68;">]</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #FE8019;">:c</span> <span style="color: #FE8019;">:d</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>mu--error-match <span style="color: #528B8B;">"no mu-methods match"</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:d</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">dispatch as a `</span><span style="color: #BBAA97;">defun</span><span style="color: #7C6F64;">'</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmulti</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span><span style="color: #66999D;">&amp;rest</span> args<span style="color: #837486;">)</span>
+  <span style="color: #528B8B;">"docstring"</span>
+  <span style="color: #FE8019;">:hierarchy</span> mu-global-hierarchy
+  <span style="color: #837486;">(</span>apply #'vector args<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>a b<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #837486;">]</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #837486;">]</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>a b<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:c</span> <span style="color: #FE8019;">:d</span><span style="color: #837486;">]</span> <span style="color: #837486;">[</span><span style="color: #FE8019;">:c</span> <span style="color: #FE8019;">:d</span><span style="color: #837486;">]</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal <span style="color: #9C6F68;">[</span><span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #9C6F68;">]</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:b</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal <span style="color: #9C6F68;">[</span><span style="color: #FE8019;">:c</span> <span style="color: #FE8019;">:d</span><span style="color: #9C6F68;">]</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #FE8019;">:c</span> <span style="color: #FE8019;">:d</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">single-head `</span><span style="color: #BBAA97;">mu-defun</span><span style="color: #7C6F64;">' style dispatch</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmulti</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">[</span>_ <span style="color: #9C6F68;">[</span>arg<span style="color: #9C6F68;">]</span><span style="color: #837486;">]</span>
+  <span style="color: #528B8B;">"docstring"</span>
+  arg<span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">simple `</span><span style="color: #BBAA97;">defun</span><span style="color: #7C6F64;">' style methods</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>a b<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> 1 1<span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>a b<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> 2 2<span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq 1 <span style="color: #9C6F68;">(</span>foo 0 <span style="color: #7B665C;">[</span>1<span style="color: #7B665C;">]</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq 2 <span style="color: #9C6F68;">(</span>foo 0 <span style="color: #7B665C;">[</span>2<span style="color: #7B665C;">]</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>mu--error-match <span style="color: #528B8B;">"no mu-methods match"</span> <span style="color: #9C6F68;">(</span>foo 0 <span style="color: #7B665C;">[</span>3<span style="color: #7B665C;">]</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">`</span><span style="color: #BBAA97;">mu</span><span style="color: #7C6F64;">' lambda dispatch</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmulti</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu</span> <span style="color: #9C6F68;">[</span>_ <span style="color: #7B665C;">[</span>arg<span style="color: #7B665C;">]</span><span style="color: #9C6F68;">]</span> arg<span style="color: #837486;">)</span>
+  <span style="color: #528B8B;">"docstring"</span>
+  <span style="color: #FE8019;">:hierarchy</span> mu-global-hierarchy<span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">single-head `</span><span style="color: #BBAA97;">mu-defun</span><span style="color: #7C6F64;">' style method</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">[</span><span style="color: #9C6F68;">[</span>a<span style="color: #9C6F68;">]</span> _<span style="color: #837486;">]</span> <span style="color: #FE8019;">:when</span> 1 <span style="color: #837486;">(</span>list a<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">`</span><span style="color: #BBAA97;">mu</span><span style="color: #7C6F64;">' lambda method</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu</span> <span style="color: #9C6F68;">[</span><span style="color: #7B665C;">[</span>a b<span style="color: #7B665C;">]</span> _<span style="color: #9C6F68;">]</span> <span style="color: #9C6F68;">(</span>list a b<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> 2<span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>a<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #7B665C;">[</span>a<span style="color: #7B665C;">]</span> <span style="color: #7B665C;">[</span>1<span style="color: #7B665C;">]</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>a b<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #7B665C;">[</span>a b<span style="color: #7B665C;">]</span> <span style="color: #7B665C;">[</span>2<span style="color: #7B665C;">]</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">multi-head `</span><span style="color: #BBAA97;">mu-defun</span><span style="color: #7C6F64;">' style method</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>a b<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> 2
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span><span style="color: #7B665C;">[</span>a<span style="color: #7B665C;">]</span> _<span style="color: #9C6F68;">]</span> <span style="color: #9C6F68;">(</span>list a<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span><span style="color: #7B665C;">[</span>a b<span style="color: #7B665C;">]</span> _<span style="color: #9C6F68;">]</span> <span style="color: #9C6F68;">(</span>list a b<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>a<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #7B665C;">[</span>a<span style="color: #7B665C;">]</span> <span style="color: #7B665C;">[</span>1<span style="color: #7B665C;">]</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal '<span style="color: #9C6F68;">(</span>a b<span style="color: #9C6F68;">)</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #7B665C;">[</span>a b<span style="color: #7B665C;">]</span> <span style="color: #7B665C;">[</span>2<span style="color: #7B665C;">]</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">multi-head dispatch</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmulti</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span><span style="color: #66999D;">&amp;rest</span> args<span style="color: #837486;">)</span>
+  <span style="color: #528B8B;">"docstring"</span>
+  <span style="color: #FE8019;">:hierarchy</span> mu-global-hierarchy
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span>a<span style="color: #9C6F68;">]</span> a<span style="color: #837486;">)</span>
+  <span style="color: #837486;">(</span><span style="color: #9C6F68;">[</span>a b<span style="color: #9C6F68;">]</span> b<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span><span style="color: #66999D;">&amp;rest</span> args<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> 1 1<span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span><span style="color: #66999D;">&amp;rest</span> args<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> 2 2<span style="color: #5C7E81;">)</span>
+
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq 1 <span style="color: #9C6F68;">(</span>foo 1<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>eq 2 <span style="color: #9C6F68;">(</span>foo 1 2<span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+
+<p>
+Multi-methods allow a catch-all default method that runs when dispatch fails.
+Pre-installed default simply signals that no matching methods have been found.
+</p>
+
+<p>
+Example: default method
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmulti</span> <span style="color: #A89984;">foo</span> #'identity<span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>x<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #FE8019;">:a</span> <span style="color: #FE8019;">:a</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">pre-installed default method fires</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>mu--error-match <span style="color: #528B8B;">"no mu-methods match"</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #FE8019;">:c</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">user-defined default method</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>x<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #FE8019;">:default</span> <span style="color: #FE8019;">:default</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal <span style="color: #FE8019;">:default</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #FE8019;">:c</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+
+<span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">no longer default when dispatch val gets a method</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">mu-defmethod</span> <span style="color: #A89984;">foo</span> <span style="color: #837486;">(</span>x<span style="color: #837486;">)</span> <span style="color: #FE8019;">:when</span> <span style="color: #FE8019;">:c</span> <span style="color: #FE8019;">:c</span><span style="color: #5C7E81;">)</span>
+<span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">should</span> <span style="color: #837486;">(</span>equal <span style="color: #FE8019;">:c</span> <span style="color: #9C6F68;">(</span>foo <span style="color: #FE8019;">:c</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgce4d3bc" class="outline-4">
+<h4 id="orgce4d3bc"><span class="section-number-4">4.3.14</span> mu-undefmethod&#xa0;&#xa0;&#xa0;<span class="tag"><span class="procedure">procedure</span></span></h4>
+<div class="outline-text-4" id="text-4-3-14">
+<pre class="example">
+Remove multi-method for FUN and dispatch value VAL
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org7061402" class="outline-3">
+<h3 id="org7061402"><span class="section-number-3">4.4</span> multi-benchmarks</h3>
+<div class="outline-text-3" id="text-4-4">
+<blockquote>
+<p>
+Although bundled together with all things <i>multi</i>, benchmarks may actually belong
+in a package of their own.
+</p>
+</blockquote>
+
+<p>
+Multi-benchmarks is a series of macros to measure execution time of arbitrary
+code. Code is byte-compiled before any such measurment is taken. Whenever possible
+library functions attempt to account for any overhead they introduce. Measurements
+are reported as lists that ORG-mode recognizes as tables. This makes comparing,
+tracking, visualizing and sharing performance stats in an ORG file very
+convenient.
+</p>
+
+<p>
+Please see <a href="benchmarks.html">./benchmarks.org</a> in this repository for how multi-benchmarks can
+leverage ORG-mode to measure and track real code performance.
+</p>
+
+<p>
+Examples:
+</p>
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #5C7E81;">(</span><span style="color: #DD6F48;">example</span>
+
+ <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu-bench</span> <span style="color: #FE8019;">:times</span> 3 <span style="color: #9C6F68;">(</span>princ <span style="color: #7B665C;">(</span>+ 1 2<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+
+ <span style="color: #837486;">(</span><span style="color: #DD6F48;">let</span> <span style="color: #9C6F68;">(</span><span style="color: #7B665C;">(</span>mu-bench-debug-print 2<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span>
+   <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-bench*</span>
+    <span style="color: #FE8019;">:times</span> 3
+    <span style="color: #FE8019;">:compare</span> t
+    <span style="color: #7B665C;">(</span><span style="color: #DD6F48;">mu-bench</span> <span style="color: #528B8B;">"1"</span> <span style="color: #5C7E81;">(</span>+ 1 2<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+    <span style="color: #7B665C;">(</span><span style="color: #DD6F48;">mu-bench/let</span> <span style="color: #5C7E81;">(</span><span style="color: #837486;">(</span>a 1<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span> <span style="color: #528B8B;">"2"</span> <span style="color: #5C7E81;">(</span>+ 1 a<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+
+ <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu-bench*/let</span> <span style="color: #9C6F68;">(</span><span style="color: #7B665C;">(</span>a 0<span style="color: #7B665C;">)</span>
+                 <span style="color: #7B665C;">(</span>b 1<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span>
+   <span style="color: #FE8019;">:times</span> 3
+   <span style="color: #FE8019;">:compare</span> t
+   <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-bench</span> <span style="color: #528B8B;">"1"</span> <span style="color: #7B665C;">(</span>princ <span style="color: #5C7E81;">(</span>+ a b<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span>
+   <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-bench/let</span> <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>a 1<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span> <span style="color: #528B8B;">"2"</span> <span style="color: #7B665C;">(</span>princ <span style="color: #5C7E81;">(</span>+ a b<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+
+ <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu-defbench</span> bar-bench <span style="color: #9C6F68;">(</span>a b<span style="color: #9C6F68;">)</span>
+   <span style="color: #FE8019;">:times</span> 3
+   <span style="color: #9C6F68;">(</span>princ <span style="color: #7B665C;">(</span>+ a b<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+
+ <span style="color: #837486;">(</span>bar-bench 1 2<span style="color: #837486;">)</span>
+
+ <span style="color: #837486;">(</span><span style="color: #DD6F48;">mu-defbench*</span> foo-bench <span style="color: #9C6F68;">(</span>a b<span style="color: #9C6F68;">)</span>
+   <span style="color: #FE8019;">:times</span> 3
+   <span style="color: #FE8019;">:compare</span> t
+   <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-bench</span> <span style="color: #FE8019;">:name</span> <span style="color: #528B8B;">"1"</span> <span style="color: #7B665C;">(</span>princ <span style="color: #5C7E81;">(</span>+ a b<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span>
+   <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-bench/let</span> <span style="color: #7B665C;">(</span><span style="color: #5C7E81;">(</span>a 1<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span> <span style="color: #FE8019;">:name</span> <span style="color: #528B8B;">"2"</span> <span style="color: #7B665C;">(</span>princ <span style="color: #5C7E81;">(</span>+ a b<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+
+ <span style="color: #837486;">(</span>foo-bench 0 1<span style="color: #837486;">)</span>
+
+ <span style="color: #837486;">(</span><span style="color: #DD6F48;">let</span> <span style="color: #9C6F68;">(</span><span style="color: #7B665C;">(</span>mu-bench-debug-print 2<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span>
+   <span style="color: #9C6F68;">(</span><span style="color: #DD6F48;">mu-bench/context</span>
+       <span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">benchmark</span>
+       <span style="color: #7B665C;">(</span><span style="color: #DD6F48;">mu-bench/let</span> <span style="color: #5C7E81;">(</span><span style="color: #837486;">(</span>a 1<span style="color: #837486;">)</span> <span style="color: #837486;">(</span>b 2<span style="color: #837486;">)</span><span style="color: #5C7E81;">)</span>
+         <span style="color: #FE8019;">:times</span> 3
+         <span style="color: #5C7E81;">(</span>list <span style="color: #837486;">(</span>foobar<span style="color: #837486;">)</span> <span style="color: #837486;">(</span>barfoo<span style="color: #837486;">)</span> a b<span style="color: #5C7E81;">)</span><span style="color: #7B665C;">)</span>
+     <span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">context</span>
+     <span style="color: #7B665C;">(</span><span style="color: #DD6F48;">defun</span> <span style="color: #A89984;">foobar</span> <span style="color: #5C7E81;">()</span> 'foobar<span style="color: #7B665C;">)</span>
+     <span style="color: #7B665C;">(</span><span style="color: #DD6F48;">defun</span> <span style="color: #A89984;">barfoo</span> <span style="color: #5C7E81;">()</span> 'barfoo<span style="color: #7B665C;">)</span><span style="color: #9C6F68;">)</span><span style="color: #837486;">)</span>
+ <span style="color: #7C6F64;">;; </span><span style="color: #7C6F64;">example</span>
+ <span style="color: #5C7E81;">)</span>
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org0332500" class="outline-4">
+<h4 id="org0332500"><span class="section-number-4">4.4.1</span> mu-bench-debug-print&#xa0;&#xa0;&#xa0;<span class="tag"><span class="var">var</span></span></h4>
+<div class="outline-text-4" id="text-4-4-1">
+<pre class="example">
+t or NUMBER. When in scope every mu-bench will accumulate that
+many results and pretty-print to STDOUT. ‘mu-bench/context’ will
+pretty-print its entire context in a temporary *mu-bench-context*
+buffer.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org90a74d4" class="outline-4">
+<h4 id="org90a74d4"><span class="section-number-4">4.4.2</span> mu-bench&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-4-2">
+<pre class="example">
+‘benchmark-run-compiled’ BODY that many TIMES. Unless RAW is
+requested collect results into an ORG-ready table with headings.
+
+(mu-bench [DOC] ATTR-OPTION ... BODY)
+-------------------------------------
+        DOC = stringp
+
+ATTR-OPTION = :name stringp
+            | :times numberp
+            | :raw boolean
+
+       BODY = code ...
+-------------------------------------
+
+TIMES defaults to 10’000. RAW defaults to nil. Unless NAME
+attribute is supplied DOC is used to identify the benchmark in
+statistics produced.
+
+(fn &amp;optional docstring &amp;key name times raw &amp;rest body)
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgfe4f43f" class="outline-4">
+<h4 id="orgfe4f43f"><span class="section-number-4">4.4.3</span> mu-bench*&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-4-3">
+<pre class="example">
+Like ‘mu-bench’ but BODY must be a sequence of mu-benches to
+run.
+
+(mu-bench* [DOC] ATTR-OPTION ... BODY)
+--------------------------------------
+        DOC = stringp
+
+ATTR-OPTION = :times numberp
+            | :raw boolean
+            | :compare boolean
+
+       BODY = bench ...
+
+      bench = ‘mu-bench’
+            | ‘mu-bench/let’
+--------------------------------------
+
+When COMPARE is t report performance relative to the benchmark
+that shows the best time, sort benchmarks table by relative
+performance fastest to slowest.
+
+(fn &amp;optional docstring &amp;key times raw compare &amp;rest mu-benches)
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgdebb1b6" class="outline-4">
+<h4 id="orgdebb1b6"><span class="section-number-4">4.4.4</span> mu-bench/let&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-4-4">
+<pre class="example">
+Like ‘mu-bench’ but with additional bindings in VARLIST
+available in BODY.
+
+-------------------------
+VARLIST = ((id expr) ...)
+-------------------------
+
+(fn varlist &amp;optional docstring &amp;key name times raw &amp;rest body)
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org233aaf2" class="outline-4">
+<h4 id="org233aaf2"><span class="section-number-4">4.4.5</span> mu-bench*/let&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-4-5">
+<pre class="example">
+Like ‘mu-bench*’ but with additional bindings in VARLIST
+available in BODY.
+
+-------------------------
+VARLIST = ((id expr) ...)
+-------------------------
+
+(fn varlist &amp;key times raw compare &amp;rest mu-benches)
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org3009b6e" class="outline-4">
+<h4 id="org3009b6e"><span class="section-number-4">4.4.6</span> mu-defbench&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-4-6">
+<pre class="example">
+Like ‘mu-bench’ that can be called by NAME with variables in
+ARGLIST in scope.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org5367963" class="outline-4">
+<h4 id="org5367963"><span class="section-number-4">4.4.7</span> mu-defbench*&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-4-7">
+<pre class="example">
+Like ‘mu-bench*’ that can be called by NAME with variables in
+ARGLIST in scope.
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org8794f50" class="outline-4">
+<h4 id="org8794f50"><span class="section-number-4">4.4.8</span> mu-bench/context&#xa0;&#xa0;&#xa0;<span class="tag"><span class="macro">macro</span></span></h4>
+<div class="outline-text-4" id="text-4-4-8">
+<pre class="example">
+Run MU-BENCH with additional CONTEXT compiled and loaded as
+‘progn’ before MU-BENCH. Semantically it is as if one wrote
+CONTEXT code followed by MU-BENCH in a file, byte-compiled then
+loaded it.
+
+--------------------------------------
+MU-BENCH = ‘mu-bench’ | ‘mu-bench/let’
+CONTEXT = body
+--------------------------------------
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+<p class="date">Created: 2019-05-07 Tue 21:19</p>
+<p class="validation"><a href="http://validator.w3.org/check?uri=referer">Validate</a></p>
+</div>
+</body>
+</html>
