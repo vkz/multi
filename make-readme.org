@@ -161,7 +161,7 @@ things, like caching dispatch in multi-methods, are missing. _This is
 intentional_: any perf tuning requires careful and consistent measurments and
 systematic approach to code changes not ad-hoc guesswork. To that effect I hope
 I've set ourselves for success by building /multi-benchmarks/ that would turn any
-optimization effort into productive activity. Check out benchmarks.org to see
+optimization effort into productive activity. Check out [[file:benchmarks.org][benchmarks.org]] to see
 /multi-benchmarks/ in action (if reading on Github, choose RAW format) - it is an
 executable ORG-file. That said /multi.el/ is feature complete and you'll get what
 the introduction has promised.
@@ -847,7 +847,7 @@ We also implement and extend to existing types several useful protocols e.g.
 same set of functions. For instance setting and querying a nested key in a
 hash-table becomes as trivial as:
 
-#+begin_src emacs-lisp
+#+begin_src emacs-lisp :tangle no
   (setf (mu. table :a :b :c) 42)
   (mu. table :a :b :c)
 #+end_src
@@ -1428,7 +1428,8 @@ active hierarchy or HIERARCHY.
 
 #+RESULTS:
 #+begin_example
-Return all ancestors of X such that (mu-isa? X ancestor).
+Return all ancestors of X such that (mu-isa? X ancestor) in
+the currently active hierarchy or HIERARCHY.
 #+end_example
 
 *** mu-descendants                                              :procedure:
@@ -1439,7 +1440,8 @@ Return all ancestors of X such that (mu-isa? X ancestor).
 
 #+RESULTS:
 #+begin_example
-Return all descendants of X such that (mu-isa? descendant X).
+Return all descendants of X such that (mu-isa? descendant X)
+in the currently active hierarchy or HIERARCHY.
 #+end_example
 
 *** mu-isa/generations?                                         :procedure:
@@ -1466,14 +1468,16 @@ PARENT.
 #+begin_example
 Prefer dispatch value X over Y when resolving method FUN.
 
---------------------
- FUN = id
-KEYS = val :to val
-     | val :over val
-     | val val
---------------------
+(mu-prefer FUN ARGS ...)
+------------------------
+     FUN = id
 
-(fn foo x :over y)
+ARGS ... = val :to val
+         | val :over val
+         | val val
+------------------------
+
+(fn fun x :over y)
 #+end_example
 
 Example:
@@ -1502,10 +1506,20 @@ Example:
 #+begin_example
 Remove registered preferences for FUN multi-dispatch function:
 
-  (mu-unprefer foo x :to y) do not prefer X over Y
-  (mu-unprefer foo x y)     do not prefer X over Y
-  (mu-unprefer foo x)       remove all X preferences
-  (mu-unprefer foo)         remove all preferences
+(mu-unprefer FUN ARGS ...)
+--------------------------
+     FUN = id
+
+ARGS ... = val :to val
+         | val :over val
+         | val val
+         | val
+         |
+--------------------------
+
+Called with a single VAL argument removes all preferences defined
+for the dispatch VAL; called with just FUN removes all known
+preferences for FUN.
 
 (fn foo x :over y)
 #+end_example
@@ -1821,11 +1835,13 @@ requested collect results into an ORG-ready table with headings.
 ATTR-OPTION = :name stringp
             | :times numberp
             | :raw boolean
+
+       BODY = code ...
 -------------------------------------
 
 TIMES defaults to 10’000. RAW defaults to nil. Unless NAME
 attribute is supplied DOC is used to identify the benchmark in
-table of statistics.
+statistics produced.
 
 (fn &optional docstring &key name times raw &rest body)
 #+end_example
@@ -1845,8 +1861,7 @@ run.
 --------------------------------------
         DOC = stringp
 
-ATTR-OPTION = :name stringp
-            | :times numberp
+ATTR-OPTION = :times numberp
             | :raw boolean
             | :compare boolean
 
@@ -1860,7 +1875,7 @@ When COMPARE is t report performance relative to the benchmark
 that shows the best time, sort benchmarks table by relative
 performance fastest to slowest.
 
-(fn &optional docstring &key name times raw compare &rest mu-benches)
+(fn &optional docstring &key times raw compare &rest mu-benches)
 #+end_example
 
 *** mu-bench/let                                                    :macro:
@@ -1907,8 +1922,8 @@ VARLIST = ((id expr) ...)
 
 #+RESULTS:
 #+begin_example
-Create function NAME that runs BODY as ‘mu-bench’ with ARGLIST
-variables in scope.
+Like ‘mu-bench’ that can be called by NAME with variables in
+ARGLIST in scope.
 #+end_example
 
 *** mu-defbench*                                                    :macro:
@@ -1921,12 +1936,6 @@ variables in scope.
 #+begin_example
 Like ‘mu-bench*’ that can be called by NAME with variables in
 ARGLIST in scope.
-
-----------------------
- BODY = bench ...
-bench = ‘mu-bench’
-      | ‘mu-bench/let’
-----------------------
 #+end_example
 
 *** mu-bench/context                                                :macro:
@@ -1938,8 +1947,9 @@ bench = ‘mu-bench’
 #+RESULTS:
 #+begin_example
 Run MU-BENCH with additional CONTEXT compiled and loaded as
-‘progn’ before MU-BENCH. It is exactly as if you wrote CONTEXT
-followed by MU-BENCH in a file, byte-compiled then loaded it.
+‘progn’ before MU-BENCH. Semantically it is as if one wrote
+CONTEXT code followed by MU-BENCH in a file, byte-compiled then
+loaded it.
 
 --------------------------------------
 MU-BENCH = ‘mu-bench’ | ‘mu-bench/let’
