@@ -1,5 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
+;; Copyright (C) 2018, 2019 by Vlad Kozin
 
 ;; Disable lexical-binding check for now
 (setq mu-lexical-binding nil)

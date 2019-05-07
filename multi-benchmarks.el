@@ -1,5 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
+;; Copyright (C) 2018, 2019 by Vlad Kozin
 
 ;; Inspiration:
 ;; https://github.com/alphapapa/emacs-package-dev-handbook#profiling--optimization
