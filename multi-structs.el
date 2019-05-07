@@ -752,6 +752,8 @@ Set two properties on struct-id symbol :mu-type? tagging it as a
 
 ;;* todo --------------------------------------------------------- *;;
 
+;; TODO Use `mu:' as accessor, `mu.' for functions e.g. `mu.fold', `mu.map' etc.
+
 (comment
 
  ;; TODO lazy-streams by defining `mu-streamable-protocol'. Then someone could

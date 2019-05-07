@@ -137,94 +137,6 @@ Simply run: =M-x org-babel-execute-buffer=
 - case-dispatch with /multi-defuns/,
 - benchmarking all of the above with /multi-benchmarks/.
 
-As many an Elisp library /multi.el/ started as an attempt to scratch my own itch.
-I wrote a smallish package for my own consumption that had a bit of UI going on.
-Mostly just a query - response type of interaction, so nothing terribly complex.
-However basic it still had to react to what user did, update and "render" state,
-yada yada yada. The initial prototype was also my first time programming Emacs
-Lisp in earnest. It worked just fine even if the code looked busy.
-
-You know how you decide to build a thing to pick up a new language? By the time
-you're done you've leveled up enough to be embarassed by the code you wrote. This
-time was no exception. Personally, I don't think it gets any better as you grow,
-you generally just settle on the good enough 2nd or 3rd iteration. So, as this
-story goes my 2nd iteration worked just as well, looked less busy and was an ok
-piece of Elisp overall. Why then did it it feel so tangled. I know I went
-overboard with macros, but I was trying to make code less mired in minutae.
-
-Narrator: nah, boy just likes to spice things up with unhygienic macros.
-
-Whether you admit to it or not in a typical UI you end up encoding a finite state
-machine with whatever ad-hoc tooling your language of choice provides. There's a
-gadzillion ways of doing it in a "Von Turing" universe, but that being lisp I just
-wrote a bunch of functions that call each other to transition. That worked
-perfectly fine but even with just a handful of states and inputs I had trouble
-mapping code paths to transitions. It was already a drag, think how bad I'll have
-it coming back to this code a month from now. A year?
-
-I wanted to give my future self enough visual cues, so I switched to an explicit
-transition function. I wanted my data to carry some load, too, so I chose to
-dispatch with the venerable if noisy ~pcase~. In my experience it pays to
-enumerate the states of your machine and not hide the fact that, well, it is one.
-Could be hella lotta work, if at all feasible, in a big system but mine was small,
-so the case dispatch took about a screen worth of code.
-
-=M-x launch-missiles=: it runs, does what's expected, user's happy. Code's ok, no
-truly icky corners to be embarrassed about. Why is the uneasy feeling at the back
-of my skull, then?
-
-Fine, forget its Emacs Lisp. What implementation would feel right? I thought
-multi-methods if used just to encode the state-machine would stand out and look
-clean. Elisp offered none. An idle thought - there wasn't any real necessity to
-actually do it - but it sounded like good time and I thought I could do it in
-about 300 lines of code. A day at most and I'll learn me enough Emacs Lisp to be
-dangerous.
-
-Narrator: he could, he did, and then ...
-
-180 commits later I had multi-methods alright, but I also accidentally more Emacs
-Lisp: multi-patterns that abstract and declutter ~pcase~; multi-head defuns (think
-Clojure's defn multi-case dispatch) with proper matching and destructuring of
-arguments; multi-lambdas that do the same but unonymously; multi-structs and
-multi-protocols because I wanted a unified interface to associative data and what
-not; multi-benchmarks cause at some point I'll have to start thinking about
-performance; and a bunch of tiny things here and there. Looking back I haven't the
-foggiest how it got out of hand so.
-
-Elisp has pretty decent generic dispatch courtecy of its Common Lisp compat
-package. IIUC it is strictly more expressive than say Clojure protocols. Now that
-I type this it occurs to me that cl-generics offering specializers like ~eql~
-means I could've generalized it to Clojure style ~isa?~ dispatch and presto -
-Elisp has multi-methods and generics in one package. Why didn't I think of this at
-the time? I even had an occasion to use /cl-generics/ elsewhere in the /package
-that shall not be named/ to great effect. Oh, well.
-
-cl-generics are quite expressive, dare I even say good for a language with minimal
-type support. FWIW I'd say they at least hold their own against Clojure protocols.
-Of course protocols trade off multi-argument dispatch for something else rather
-valuable and if you throw in multi-methods, well, I think for problems where
-ad-hoc dispatch fits well Clojure has Elisp beat. One problem. As you jump on the
-cl-generic bandwagon everything wants to be a struct or a class instance or
-whatever.
-
-
-Working with structs is awkward especially when you nest them, mix with other
-structured data like hash-tables or lists. It doesn't have to be, but it is in my
-experience with Scheme, Racket and now Elisp. The whole ~foo-struct-slotname~
-static getter business is just bonkers. Functions proliferate quickly when you
-write lisp - its the very first abstraction you reach to and the second, and
-probably the third. It is bad enough that I have to keep a ton of other functions
-in my head, but now I need to do mental calisthenics every time I want to lookup a
-value in a struct - god have mercy if it happens to be another struct and I need
-to look deeper. Worse - you can't tell at a glance where you call semantically
-rich funtions and where you merely get and set a bunch of slots. No keys or slots
-stand out to give you visual cues and take some cognitive load off. Lack of proper
-namespaces doesn't help any - you quickly find yourself drowning in a see of
-prefixes. I can't tell you what compelled me to hack multi-methods instead of
-addressing the struct business and sticking with tried and true cl-generics. I
-only think that a reasonable justification now that I've solved the "struct
-problem" with multi-protocols. But this happens some 150 commits later.
-
 * multi-patterns
 
 #+CAPTION: Sentiment about `pcase'
@@ -233,22 +145,7 @@ problem" with multi-protocols. But this happens some 150 commits later.
 [[./resources/byte-compiling_in_presence_of_pcase_patterns_-_Emacs_Stack_Exchange.png]]
 
 Multi-patterns build on the venerable ~pcase~ macro to give you powerful yet clean
-pattern-matching. Indeed pcase is known to be quite noisy and is often avoided by
-devs for that very reason. This leads to a rather sad reality where a fair amount
-of Emacs Lisp code defaults to low-level Lisp primitives like ~car~, ~cdr~ and
-friends. What may not be immediately apparent is that this is often trading
-syntactic noise for semantic one. Its not uncommon to find yourself drowning in a
-sea of destructuring code that completely obfuscates the real problem being
-solved. Sometimes waranted by performance considerations, it doesn't need to be
-the default modus operandi. At least not for your typical Emacs Lisp script.
-
-I would like to emphasize that whoever designed ~pcase~ patterns chose some
-powerful primitives. People redicule it for its noisy syntax and that's fair if
-you think it a high-level DSL for pattern-matching. But what if you treat as an
-assembly language: low on abstraction, high on noise and redundancy. We hardly
-ever choose to write assembly by hand, so don't. This is lisp: pick beautiful
-syntax and compile it to pcase-patterns. That is exactly what multi-patterns do.
-That and a bunch of other nice things. Enjoy.
+pattern-matching. No more ~quote~, ~unquote~ all over the place.
 
 We also provide ~mu-defun~ and ~mu-defmacro~ that extend their native counterparts
 with the ability to pattern match on and destructure arguments. To a first
@@ -258,39 +155,6 @@ where the former is like ~defun~ that also pattern matches on its arglist bindin
 any pattern-variables in the body, while the latter allows multiple clauses each
 with its own arglist pattern and body. Multi-head defun is not unlike and has been
 inspired by Clojure's multi-head ~defn~ but is strictly more expressive.
-
-Note that dispatch on arity takes priority over destructuring and binding. To that
-effect the outermost sequence pattern in both single-head and multi-head
-~mu-defun~ is strict, so it either matches the same number of elements as
-arguments passed to it or fails and tries the next clause. In multi-head case
-internal sequence-patterns are strict as well, so that one can dispatch on the
-internal structure even if multiple clauses have the same arity; in a single-head
-only the external []-pattern is strict so that calls with incorrect arity maybe
-caught; internal sequence patterns, however, are permissive to fascilitate
-destructuring. None of this is terribly important as long as it matches user
-expectation which I hope it does.
-
-/Note for Clojure programmers/. Although inspired by Clojure the dispatch
-semantics of ~mu-defun~ are more expressive. The following is not allowed in
-Clojure:
-
-#+begin_src clojure
-  (defn foo
-    ([a b c] ...)
-    ([a b & pattern] ...))
-#+end_src
-
-nor can you dispatch on the same arity
-
-#+begin_src clojure
-  (defn foo
-    ([a [b c] d] ...)
-    ([a [b] c]   ...))
-#+end_src
-
-I see no reason for us to follow in Clojure footsteps and surrender expressiveness
-afforded by patterns. /multi.el/ takes the view that it is desirable to dispatch
-not only on the arity but on the internal structure as well.
 
 ** mu-case                                                           :macro:
 
@@ -711,6 +575,39 @@ that id; ARGLIST that is ‘_’ will be ignored; ARGLIST must be a
 (fn NAME ARGLIST METADATA &rest BODY)
 #+end_example
 
+/Note for Clojure programmers/. Although inspired by Clojure the dispatch
+semantics of ~mu-defun~ are more expressive. The following is not allowed in
+Clojure:
+
+#+begin_src clojure
+  (defn foo
+    ([a b c] ...)
+    ([a b & pattern] ...))
+#+end_src
+
+nor can you dispatch on the same arity
+
+#+begin_src clojure
+  (defn foo
+    ([a [b c] d] ...)
+    ([a [b] c]   ...))
+#+end_src
+
+I see no reason for us to follow in Clojure footsteps and surrender expressiveness
+afforded by patterns. /multi.el/ takes the view that it is desirable to dispatch
+not only on the arity but on the internal structure as well.
+
+Note that dispatch on arity takes priority over destructuring and binding. To that
+effect the outermost sequence pattern in both single-head and multi-head
+~mu-defun~ is strict, so it either matches the same number of elements as
+arguments passed to it or fails and tries the next clause. In multi-head case
+internal sequence-patterns are strict as well, so that one can dispatch on the
+internal structure even if multiple clauses have the same arity; in a single-head
+only the external []-pattern is strict so that calls with incorrect arity maybe
+caught; internal sequence patterns, however, are permissive to fascilitate
+destructuring. None of this is terribly important as long as it matches user
+expectation which I hope it does.
+
 Example: single-head ~mu-defun~
 #+begin_src emacs-lisp
   (mu-defun simple-foo [a [b [c]] | rest]
@@ -876,11 +773,12 @@ destructuring.
 #+end_example
 
 
-* multi-structs
+* multi-structs and protocols
 
 _multi-structs.el_ implement /mu-structs/ and /mu-protocols/ that were loosely
 inspired by /Clojure/ records and [[https://clojure.org/reference/protocols][protocols]] and /Racket/'s structs and [[http://docs.racket-lang.org/reference/struct-generics.html][generic
-interfaces]].
+interfaces]] although Racket doesn't allow delegation, so polymorphic it may be, but
+not really what you come to expect from type dispatch.
 
 /mu-structs/ are built on top of Emacs Lisp cl-structs. Expect all of cl-struct
 machinery to work. Mu-structs are defined with ~mu-defstruct~ and must inherit
@@ -901,55 +799,18 @@ argument - what ~cl-defmethod~ documentation would call ~(obj TYPE)~ specializer
 Protocol implementations may reify several methods with the same name but
 different arities. Apropriate method will be matched and invoked at dispatch.
 
-** motivation
+We also implement and extend to existing types several useful protocols e.g.
+~mu-table-protocol~ allows one to query any associative data structure with the
+same set of functions. For instance setting and querying a nested key in a
+hash-table becomes as trivial as:
 
-Structs or records are typically used as containers that let you bundle and pass
-stuff around. Reasonable question to ask (especially in Lisp) is why choose them
-over something less "constraint". There are other data types that are explicitly
-associative or excibit map-like behaviour with some discipline. Better still many
-are open collections. Alists, plists, list of lists, hash-tables, vectors if
-ordered numeric keys is what you want. Structs, however, distinguish themselves by
-having /identity/. Whenever there's a chance you may want to ask "well, what are
-you?", structs help. Entire /dispatch/ business is often about asking that very
-question. Somewhat hidden behind the facade of ~cl-defstruct~ is a simple fact
-that structs are no more than glorified maps with a :tag field (or a few required
-fields). That one field, however, makes certain tasks easier and cleaner to solve.
-The "closed" bit of structs, IMO, is a mistake. There's really no pretending that
-Emacs Lisp is a richly typed language with type-system guaranties. Why limit
-structs to pre-defined slots, then? And if structs are nothing but maps with
-identity, why demand separate and *static!* interface to work with them? These are
-the questions /multi-structs/ attempt to answer differently by tweaking cl-structs
-a bit.
+#+begin_src emacs-lisp
+  (setf (mu. table :a :b :c) 42)
+  (mu. table :a :b :c)
+#+end_src
 
-Protocols. Superficially, protocols are about grouping functions together. They
-certainly do that but its almost incidental and hardly the defining feature. You
-could do no worse bagging a bunch of functions in a map: you can store it, you can
-pass it around, call those methods anywhere the map turns up. See, no protocols
-necessary. Protocols are almost cheating - not much more than a bunch of metadata
-sticking around. Its especially true for /multi-protocols/ that build on
-cl-generics, so they don't even "bag" those functions. Why have protocols, then?
-Why give it a name? If I had to put my finger on it, I'd say its about
-indirection. You give me a couple of low-level functions - I enrich your type with
-powerful API often shared by other data-types (reusing familiar interfaces is good
-unless forced). I think /low-level/ here is quite important: a tiny bit of
-low-level code to implement a handful of protocol methods (hopefully, with
-well-defined semantics), and presto your data get a new vantage point. This change
-in perspective can sometimes illuminate elegant designs. Again, think low-level -
-the essentials that your high-level API can't do without condenced to a stratum of
-methods with clear, concise, well-documented semantics.
-
-multi-structs is the recognition of the views outlined above: map identity can
-sometimes be valuable but its still a map; unified API for key-value data-types is
-almost always the right default; one way to reach it (not universally good) is
-indirection - enter protocols; finally, point of view and rich vocabulary bring
-vitality to your designs. Ad-hoc abstractions may elevate the discourse enough so
-as to let you paint that vague model in your head with code, reify it, make it
-concrete, make it a toy - something you can try, break and learn from. The
-experience of playing with it, breaking and patching, seeing it leak at the seems
-will inevitably inform your model. It is this back and forth that's to be fluid
-and not mired in unnecessary detail. It is how you learn the domain, the problem
-at hand and grow your model. Not software! Software comes later. First you explore
-and learn, then you take it all down and build that cathedral. Right? Right?!
+the above ~setf~ will even create nested hash-tables for intermediate keys that
+are missing.
 
 ** mu-defprotocol                                                    :macro:
 
@@ -1426,10 +1287,9 @@ collections. Programmers not familiar with multimethods are referred to Clojure'
 [[https://clojure.org/reference/multimethods][Multimethods and Hierarchies]] tutorial.
 
 /Note for Clojure programmers/. This implementation takes a lot of inspiration
-from Clojure, so for the most part Clojure programmers should feel right at home
-modulo some syntactic differences. Naturally, Emacs Lisp type system is nothing
-like Clojure's let alone Java's, so some of your programming patterns may require
-adjustment.
+from Clojure, so for the most part you should feel right at home modulo some
+syntactic differences. Naturally, Emacs Lisp type system is nothing like Clojure's
+let alone Java's, so some of your programming patterns may require adjustment.
 
 ** make-mu-hierarchy                                             :procedure:
 
@@ -1823,6 +1683,11 @@ Remove multi-method for FUN and dispatch value VAL
 #+end_example
 
 * multi-benchmarks
+
+#+begin_quote
+Although bundled together with all things /multi/, benchmarks may actually belong
+in a package of their own.
+#+end_quote
 
 Multi-benchmarks is a series of macros to measure execution time of arbitrary
 code. Code is byte-compiled before any such measurment is taken. Whenever possible
