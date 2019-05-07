@@ -11,6 +11,9 @@
 #+PROPERTY: header-args:clojure+ :noeval
 
 * documentation workflow                                           :noexport:
+:PROPERTIES:
+:TOC:      ignore
+:END:
 
 ** TODO consider workflow
 
@@ -76,6 +79,9 @@ of it at the bottom of the source file by setting relevant properties
 
 
 * make-readme                                                      :noexport:
+:PROPERTIES:
+:TOC:      ignore
+:END:
 
 Simply run: =M-x org-babel-execute-buffer=
 
@@ -133,6 +139,19 @@ Simply run: =M-x org-babel-execute-buffer=
 - benchmarking all of the above with /multi-benchmarks/.
 
 
+* Table of Contents
+:PROPERTIES:
+:TOC:      this
+:END:
+  - [[#introduction][Introduction]]
+  - [[#installation][Installation]]
+  - [[#what-to-expect][What to expect?]]
+  - [[#reference][Reference]]
+    - [[#multi-patterns][multi-patterns]]
+    - [[#multi-structs-and-protocols][multi-structs and protocols]]
+    - [[#multi-methods][multi-methods]]
+    - [[#multi-benchmarks][multi-benchmarks]]
+
 * Installation
 
 #+begin_quote
@@ -176,7 +195,42 @@ ORG-mode amazing! Check out the source if curious - I'm not really an ORG expert
 just playing around.
 
 * Reference
+:PROPERTIES:
+:TOC: 1
+:END:
+
 ** multi-patterns
+:PROPERTIES:
+:TOC:      children
+:END:
+      -  [[#intro][intro]]
+      -  [[#mu-case][mu-case]]
+      -  [[#mu-prefer-nested-pcase][mu-prefer-nested-pcase]]
+      -  [[#mu-defpattern][mu-defpattern]]
+      -  [[#mu-pattern-documentation][mu-pattern-documentation]]
+      -  [[#built-in-mu-patterns][built-in mu-patterns]]
+        -  [[#-pattern][?-pattern]]
+        -  [[#lst-pattern][lst-pattern]]
+        -  [[#vec-pattern][vec-pattern]]
+      -  [[#predefined-mu-patterns][predefined mu-patterns]]
+        -  [[#l-pattern][l-pattern]]
+        -  [[#v-pattern][v-pattern]]
+        -  [[#lv-pattern][lv-pattern]]
+        -  [[#seq-pattern][seq-pattern]]
+          -  [[#mu-seq-pattern-force-list][mu-seq-pattern-force-list]]
+        -  [[#ht-pattern][ht-pattern]]
+        -  [[#ht-pattern][ht|-pattern]]
+        -  [[#id-pattern][id-pattern]]
+      -  [[#mu-let][mu-let]]
+      -  [[#mu-when-let][mu-when-let]]
+      -  [[#mu-if-let][mu-if-let]]
+      -  [[#mu-defun][mu-defun]]
+      -  [[#mu-defmacro][mu-defmacro]]
+      -  [[#mu-%CE%BC][mu (μ)]]
+      -  [[#mu-function][mu-function?]]
+      -  [[#mu-defsetter][mu-defsetter]]
+
+*** intro
 
 #+CAPTION: Sentiment about `pcase'
 #+NAME:   fig:pcase
@@ -813,6 +867,27 @@ destructuring.
 
 
 ** multi-structs and protocols
+:PROPERTIES:
+:TOC:      children
+:END:
+      -  [[#intro][intro]]
+      -  [[#mu-defprotocol][mu-defprotocol]]
+      -  [[#mu-extend][mu-extend]]
+      -  [[#mu-extends][mu-extends?]]
+      -  [[#mu-implements][mu-implements?]]
+      -  [[#mu-type][mu-type?]]
+      -  [[#mu-defstruct][mu-defstruct]]
+      -  [[#mu-table-protocol][mu-table-protocol]]
+      -  [[#muslots-muslots][mu.slots (mu:slots)]]
+      -  [[#mukeys-mukeys][mu.keys (mu:keys)]]
+      -  [[#mu-mu][mu. (mu:)]]
+      -  [[#mu-equatable-protocol][mu-equatable-protocol]]
+      -  [[#muequal][mu.equal]]
+      -  [[#mu-callable-protocol][mu-callable-protocol]]
+      -  [[#mucall-mucall][mu.call (mu:call)]]
+      -  [[#muapply-muapply][mu.apply (mu:apply)]]
+
+*** intro
 
 _multi-structs.el_ implement /mu-structs/ and /mu-protocols/ that were loosely
 inspired by /Clojure/ records and [[https://clojure.org/reference/protocols][protocols]] and /Racket/'s structs and [[http://docs.racket-lang.org/reference/struct-generics.html][generic
@@ -1313,6 +1388,26 @@ is used.
 #+end_example
 
 ** multi-methods
+:PROPERTIES:
+:TOC:      children
+:END:
+      -  [[#intro][intro]]
+      -  [[#make-mu-hierarchy][make-mu-hierarchy]]
+      -  [[#mu-global-hierarchy][mu-global-hierarchy]]
+      -  [[#mu-active-hierarchy][mu-active-hierarchy]]
+      -  [[#mu-with-hierarchy][mu-with-hierarchy]]
+      -  [[#mu-rel][mu-rel]]
+      -  [[#mu-isa][mu-isa?]]
+      -  [[#mu-ancestors][mu-ancestors]]
+      -  [[#mu-descendants][mu-descendants]]
+      -  [[#mu-isagenerations][mu-isa/generations?]]
+      -  [[#mu-prefer][mu-prefer]]
+      -  [[#mu-unprefer][mu-unprefer]]
+      -  [[#mu-defmulti][mu-defmulti]]
+      -  [[#mu-defmethod][mu-defmethod]]
+      -  [[#mu-undefmethod][mu-undefmethod]]
+
+*** intro
 
 Multimethods bring ad-hoc multiple dispatch to Emacs Lisp. Multimethod combines a
 dispatch function with an open set of methods each associated with a value. When
@@ -1736,6 +1831,20 @@ Remove multi-method for FUN and dispatch value VAL
 #+end_example
 
 ** multi-benchmarks
+:PROPERTIES:
+:TOC:      children
+:END:
+      -  [[#intro][intro]]
+      -  [[#mu-bench-debug-print][mu-bench-debug-print]]
+      -  [[#mu-bench][mu-bench]]
+      -  [[#mu-bench][mu-bench*]]
+      -  [[#mu-benchlet][mu-bench/let]]
+      -  [[#mu-benchlet][mu-bench*/let]]
+      -  [[#mu-defbench][mu-defbench]]
+      -  [[#mu-defbench][mu-defbench*]]
+      -  [[#mu-benchcontext][mu-bench/context]]
+
+*** intro
 
 #+begin_quote
 Although bundled together with all things /multi/, benchmarks may actually belong
@@ -1954,6 +2063,9 @@ CONTEXT = body
 #+end_example
 
 * test-readme                                                      :noexport:
+:PROPERTIES:
+:TOC:      ignore
+:END:
 
 #+begin_src emacs-lisp :exports none :eval no :tangle no
   ;; -*- lexical-binding: t; -*-

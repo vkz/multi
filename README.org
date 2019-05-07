@@ -1,4 +1,4 @@
-# Created 2019-05-07 Tue 21:17
+# Created 2019-05-07 Tue 22:23
 #+OPTIONS: author:nil
 #+OPTIONS: prop:nil
 #+OPTIONS: d:nil
@@ -18,6 +18,16 @@
 - case-dispatch with /multi-defuns/,
 - benchmarking all of the above with /multi-benchmarks/.
 
+
+* Table of Contents
+- [[#introduction][Introduction]]
+- [[#installation][Installation]]
+- [[#what-to-expect][What to expect?]]
+- [[#reference][Reference]]
+  - [[#multi-patterns][multi-patterns]]
+  - [[#multi-structs-and-protocols][multi-structs and protocols]]
+  - [[#multi-methods][multi-methods]]
+  - [[#multi-benchmarks][multi-benchmarks]]
 
 * Installation
 
@@ -62,7 +72,36 @@ ORG-mode amazing! Check out the source if curious - I'm not really an ORG expert
 just playing around.
 
 * Reference
+
 ** multi-patterns
+- [[#intro][intro]]
+- [[#mu-case][mu-case]]
+- [[#mu-prefer-nested-pcase][mu-prefer-nested-pcase]]
+- [[#mu-defpattern][mu-defpattern]]
+- [[#mu-pattern-documentation][mu-pattern-documentation]]
+- [[#built-in-mu-patterns][built-in mu-patterns]]
+  - [[#-pattern][?-pattern]]
+  - [[#lst-pattern][lst-pattern]]
+  - [[#vec-pattern][vec-pattern]]
+- [[#predefined-mu-patterns][predefined mu-patterns]]
+  - [[#l-pattern][l-pattern]]
+  - [[#v-pattern][v-pattern]]
+  - [[#lv-pattern][lv-pattern]]
+  - [[#seq-pattern][seq-pattern]]
+    - [[#mu-seq-pattern-force-list][mu-seq-pattern-force-list]]
+  - [[#ht-pattern][ht-pattern]]
+  - [[#ht-pattern][ht|-pattern]]
+  - [[#id-pattern][id-pattern]]
+- [[#mu-let][mu-let]]
+- [[#mu-when-let][mu-when-let]]
+- [[#mu-if-let][mu-if-let]]
+- [[#mu-defun][mu-defun]]
+- [[#mu-defmacro][mu-defmacro]]
+- [[#mu-%CE%BC][mu (μ)]]
+- [[#mu-function][mu-function?]]
+- [[#mu-defsetter][mu-defsetter]]
+
+*** intro
 
 #+caption: Sentiment about `pcase'
 #+name: fig:pcase
@@ -598,6 +637,24 @@ Examples:
 
 
 ** multi-structs and protocols
+- [[#intro][intro]]
+- [[#mu-defprotocol][mu-defprotocol]]
+- [[#mu-extend][mu-extend]]
+- [[#mu-extends][mu-extends?]]
+- [[#mu-implements][mu-implements?]]
+- [[#mu-type][mu-type?]]
+- [[#mu-defstruct][mu-defstruct]]
+- [[#mu-table-protocol][mu-table-protocol]]
+- [[#muslots-muslots][mu.slots (mu:slots)]]
+- [[#mukeys-mukeys][mu.keys (mu:keys)]]
+- [[#mu-mu][mu. (mu:)]]
+- [[#mu-equatable-protocol][mu-equatable-protocol]]
+- [[#muequal][mu.equal]]
+- [[#mu-callable-protocol][mu-callable-protocol]]
+- [[#mucall-mucall][mu.call (mu:call)]]
+- [[#muapply-muapply][mu.apply (mu:apply)]]
+
+*** intro
 
 _multi-structs.el_ implement /mu-structs/ and /mu-protocols/ that were loosely
 inspired by /Clojure/ records and [[https://clojure.org/reference/protocols][protocols]] and /Racket/'s structs and [[http://docs.racket-lang.org/reference/struct-generics.html][generic
@@ -1022,6 +1079,23 @@ of the ~mu-callable-protocol~.
 #+end_example
 
 ** multi-methods
+- [[#intro][intro]]
+- [[#make-mu-hierarchy][make-mu-hierarchy]]
+- [[#mu-global-hierarchy][mu-global-hierarchy]]
+- [[#mu-active-hierarchy][mu-active-hierarchy]]
+- [[#mu-with-hierarchy][mu-with-hierarchy]]
+- [[#mu-rel][mu-rel]]
+- [[#mu-isa][mu-isa?]]
+- [[#mu-ancestors][mu-ancestors]]
+- [[#mu-descendants][mu-descendants]]
+- [[#mu-isagenerations][mu-isa/generations?]]
+- [[#mu-prefer][mu-prefer]]
+- [[#mu-unprefer][mu-unprefer]]
+- [[#mu-defmulti][mu-defmulti]]
+- [[#mu-defmethod][mu-defmethod]]
+- [[#mu-undefmethod][mu-undefmethod]]
+
+*** intro
 
 Multimethods bring ad-hoc multiple dispatch to Emacs Lisp. Multimethod combines a
 dispatch function with an open set of methods each associated with a value. When
@@ -1380,6 +1454,17 @@ Example: default method
 #+end_example
 
 ** multi-benchmarks
+- [[#intro][intro]]
+- [[#mu-bench-debug-print][mu-bench-debug-print]]
+- [[#mu-bench][mu-bench]]
+- [[#mu-bench][mu-bench*]]
+- [[#mu-benchlet][mu-bench/let]]
+- [[#mu-benchlet][mu-bench*/let]]
+- [[#mu-defbench][mu-defbench]]
+- [[#mu-defbench][mu-defbench*]]
+- [[#mu-benchcontext][mu-bench/context]]
+
+*** intro
 
 #+begin_quote
 Although bundled together with all things /multi/, benchmarks may actually belong
