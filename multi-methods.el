@@ -3,7 +3,8 @@
 ;; Copyright (C) 2018, 2019 by Vlad Kozin
 
 (require 'multi-prelude)
-(require 'multi-patterns)
+(eval-and-compile
+  (require 'multi-patterns))
 
 
 ;;* edebug-specs -------------------------------------------------- *;;
@@ -198,7 +199,7 @@ HIERARCHY tree. Return updated HIERARCHY."
   hierarchy)
 
 
-(defmacro mu-rel (child :isa parent &optional hierarchy)
+(defmacro mu-rel (child isa parent &optional hierarchy)
   "Establish an isa relationship between CHILD and PARENT in the
 currently active hierarchy or HIERARCHY.
 
@@ -490,7 +491,7 @@ signal an error."
 ;; compiled lambdas, not sure why.
 
 
-(defmacro mu-defmethod (name arglist :when val &rest body)
+(defmacro mu-defmethod (name arglist _when val &rest body)
   "Add a new method to multi-dispatch function NAME ..."
   (declare (indent defun))
   (let* ((mu-multi-head? (mu--defun-multi-head-body body))
