@@ -165,6 +165,28 @@ a hand.
 
 For now, clone this repo and eval code as needed or load it from your /init.el/.
 
+** Deps
+
+~CL~ and other packages that should be part of Emacs distribution proper. [[https://github.com/Wilfred/ht.el][ht.el]] is
+the only external requirement and even that may eventually be dropped since we
+only ever use hash-table constructor macro ~ht~ and I reimplement ~ht-get*~ and
+~ht-set*~ with IMO better semantics.
+
+** Byte-compilation
+
+Byte-compilation in Emacs is janky or perhaps I don't understand exactly how and
+why it works the way it does. AFAICT it is unable to compile macros being used in
+the same file they are defined. Atm I can't be bothered to split them out into
+separate files just to appease the byte-compiler. If you want to byte-compile
+/multi/ you'll need to make sure multi libs are loaded first. Yeah, I know it
+sucks. One way to do it is to call ~byte-compile-file~ or
+~byte-recompile-directory~ in the live Emacs session where /multi/ libs have
+already been loaded.
+
+#+begin_quote
+If you know how to deal with Elisp byte-compiler, consider lending a hand.
+#+end_quote
+
 * What to expect?
 
 /Please read this section carefully and manage your expections accordingly./
