@@ -1,0 +1,52 @@
+multi.el  -*- mode: org; fill-column: 82 -*-
+#+CATEGORY: multi.el
+#+STARTUP: content
+#+seq_todo: TODO STARTED(s/@) | DONE(d@/@) DEFERRED(f@/@) CANCELLED(x@/@) IDEA(i/@)
+#+TAGS: { SCHOOL(s) BLOG(b) TIL(t) }
+#+PROPERTY: Effort_ALL 0 0:10 0:30 1:00 2:00 3:00 4:00 5:00 6:00 7:00
+#+COLUMNS: %30ITEM(Task) %CLOCKSUM %15Effort(Effort){:}
+
+* multi.el
+
+** TODO upgrade to latest Emacs
+
+this may've fixed some error I've experienced (gv setters, etc)
+
+** TODO try using [[https://github.com/cask/cask][Cask]]
+
+for package dev, testing, CI. Need to make sure it doesn't bork my _borg_ setup.
+
+** TODO switch tests over to [[https://github.com/jorgenschaefer/emacs-buttercup][buttercup]]
+
+walk-through [[http://www.modernemacs.com/post/testing-emacs/][blogpost]], custom checkers are pretty cool
+
+** TODO remove dependency: ht
+
+I am overriding ht-get* and friends anyway, may as well implement my
+own tables: (mt), mt-get, etc
+
+** TODO prefix all top-level defs
+
+Mostly in multi-prelude:
+- example, comment,
+- fn, sym, with-gensyms,
+- ...
+
+** TODO make it byte-compile, test, run cleanly
+
+and work in a minimal Emacs setup
+
+** TODO use Emacs preferred file-headers
+
+with comments, copyright, etc
+
+** TODO review and move all outstanding TODOs and IDEAs here
+
+** TODO build and deploy ELPA/MELPA package
+
+** TODO add CI
+
+** IDEA metatables
+CLOSED: [2019-11-20 Wed 08:34]
+
+if I am to implement my own tables, may as well add prototypes
