@@ -8,9 +8,14 @@ multi.el  -*- mode: org; fill-column: 82 -*-
 
 * multi.el
 
-** TODO upgrade to latest Emacs
+** DONE upgrade to latest Emacs
+CLOSED: [2019-11-21 Thu 06:51]
 
 this may've fixed some error I've experienced (gv setters, etc)
+
+** TODO generate autoloads
+
+e.g. so I can ~use-package~
 
 ** TODO try using [[https://github.com/cask/cask][Cask]]
 
