@@ -162,7 +162,7 @@
     (should (eq :baz (baz-struct-name (baz-struct-create))))
 
     ;; mu.new constructor should work
-    (should (eq 42 (baz-struct-val (mu.new baz-struct :val 42))))
+    (should (eq 42 (baz-struct-val (mu.new 'baz-struct :val 42))))
 
     ;; signal when there're custom :constructors but no :new
     (should-error
@@ -182,7 +182,7 @@
     (should (functionp #'baz-custom-struct--create))
 
     ;; mu.new works with custom :new
-    (should (eq 42 (baz-custom-struct-val (mu.new baz-custom-struct :val 42))))
+    (should (eq 42 (baz-custom-struct-val (mu.new 'baz-custom-struct :val 42))))
 
     ;; implement protocols with :implements option; both `name' and `props' slot
     ;; ids must be bound to their respective slot values in method bodies

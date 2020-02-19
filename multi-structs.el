@@ -164,9 +164,13 @@
 (defalias 'mu-struct? 'mu-struct-p)
 
 
-(defmacro mu.new (type &rest args)
-  "Uniform constructor that works for every mu-struct"
-  `(funcall (get ',type :mu-constructor) ,@args))
+;; TODO make this a function. We save ourselves typing a single quote
+;; with macro but lose ability to call apply on contructor
+;; (defmacro mu.new (type &rest args)
+;;   "Uniform constructor that works for every mu-struct"
+;;   `(funcall (get ',type :mu-constructor) ,@args))
+(defun mu.new (type &rest args)
+  (apply (get type :mu-constructor) args))
 
 
 (defmacro mu-defstruct (struct-name &rest slots)
